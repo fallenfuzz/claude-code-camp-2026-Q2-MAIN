@@ -177,6 +177,30 @@ export interface TimelineMessage {
   content: string | ContentBlock[];
 }
 
+// Authoritative token accounting from the model's usage on the answering
+// response. Counts are null when no response was logged for the call.
+export interface CheckpointTokens {
+  input: number | null;
+  output: number | null;
+  cache_read: number | null;
+  cache_creation: number | null;
+  /** The real prompt size: input + both cache buckets. The "watch it grow" number. */
+  context: number | null;
+  /** Growth in `context` since the previous call that had usage. */
+  context_delta: number | null;
+}
+
+// Estimated split of the prompt across its parts (system / tools / messages).
+// `tokens` is scaled to the authoritative context total when known; `share` is
+// the raw proportion; `cost_usd` is priced at the call's blended input rate.
+export interface CompositionRow {
+  label: "system" | "tools" | "messages";
+  tokens: number;
+  share?: number;
+  cost_usd?: number | null;
+  estimated: boolean;
+}
+
 // A logged tool definition (provider wire shape — permissive across backends).
 export interface TimelineTool {
   name?: string;
@@ -211,6 +235,9 @@ export interface MessageCheckpoint {
   dropped: number;
   carried: number;
   marker: "compaction" | "clear" | "trim" | null;
+  tokens: CheckpointTokens;
+  input_cost_usd: number | null;
+  composition: CompositionRow[];
   messages: TimelineMessage[];
 }
 

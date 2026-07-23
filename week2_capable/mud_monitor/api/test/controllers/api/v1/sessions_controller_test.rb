@@ -97,6 +97,29 @@ module Api
         assert_equal "clear", cps[3]["marker"]
       end
 
+      test "messages includes authoritative token totals, input cost and an estimated composition" do
+        get messages_api_v1_session_path("request_timeline")
+
+        assert_response :success
+        cps = response.parsed_body["checkpoints"]
+
+        # authoritative: real prompt size and its growth, from the model's usage
+        assert_equal 150, cps[1]["tokens"]["context"]
+        assert_equal 100, cps[1]["tokens"]["context_delta"]
+        assert_equal 30, cps[1]["tokens"]["cache_read"]
+        # input-side cost priced from the model rate (haiku input = $1/MTok):
+        # 120*1e-6 + 30*1e-6*0.1 = 0.000123
+        assert_in_delta 0.000123, cps[1]["input_cost_usd"], 1e-9
+        # estimated composition sums to the authoritative context total
+        comp = cps[1]["composition"]
+        assert_equal %w[system tools messages], comp.map { |c| c["label"] }
+        assert comp.all? { |c| c["estimated"] }
+        assert_equal 150, comp.sum { |c| c["tokens"] }
+        # a call with no logged response has null token/cost fields, not fake zeros
+        assert_nil cps[3]["tokens"]["context"]
+        assert_nil cps[3]["input_cost_usd"]
+      end
+
       test "messages 404s for an unknown session id" do
         get messages_api_v1_session_path("does-not-exist")
 

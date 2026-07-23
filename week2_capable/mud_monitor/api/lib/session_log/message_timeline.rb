@@ -28,6 +28,11 @@ module SessionLog
       :tools, :tool_count, :tools_changed,
       :message_count, :dropped, :carried, :marker,
       :messages,                # the full array on this call
+      # Authoritative token usage, from the `response` that answered this call.
+      # nil when no response was logged (truncated / died mid-call).
+      :input_tokens, :output_tokens, :cache_read, :cache_creation,
+      :context_tokens,          # input + cache_read + cache_creation (the real prompt size)
+      :context_delta,           # growth in context_tokens vs the previous checkpoint
       keyword_init: true
     )
 
@@ -51,6 +56,8 @@ module SessionLog
       pending_req    = nil     # compaction/clear seen since the last request
       pending_prompt = nil     # …and since the last prompt (tracked separately so
                                # the two builders don't steal each other's marker)
+      await_req_cp    = nil    # the request checkpoint still awaiting its response usage
+      await_prompt_cp = nil    # …and the prompt checkpoint (a response answers both)
       prev_req    = []
       prev_prompt = []
       sys  = nil               # carried system prompt across *_unchanged events
@@ -78,6 +85,12 @@ module SessionLog
           pending_req = pending_prompt = "compaction"
         when "clear"
           pending_req = pending_prompt = "clear"
+        when "response"
+          # The model's own token accounting for the call these checkpoints
+          # describe. One response answers both the prompt and the request event
+          # of an iteration, so it fills in whichever is still awaiting usage.
+          [ await_req_cp, await_prompt_cp ].compact.each { |cp| apply_usage(cp, event) }
+          await_req_cp = await_prompt_cp = nil
         when "request"
           messages = event["messages"] || []
           delta    = diff(prev_req, messages)
@@ -93,7 +106,7 @@ module SessionLog
             tool_count = event["tool_count"]
           end
 
-          request_cps << Checkpoint.new(
+          cp = Checkpoint.new(
             seq: rseq += 1, source: "request",
             turn: turn, iteration: iter, at: event["at"],
             model: event["model"], max_tokens: event["max_tokens"],
@@ -104,13 +117,15 @@ module SessionLog
             marker: pending_req || (delta[:dropped].positive? ? "trim" : nil),
             messages: messages
           )
-          prev_req    = messages
-          pending_req = nil
+          request_cps << cp
+          await_req_cp = cp
+          prev_req     = messages
+          pending_req  = nil
         when "prompt"
           messages = event["messages"] || []
           delta    = diff(prev_prompt, messages)
 
-          prompt_cps << Checkpoint.new(
+          cp = Checkpoint.new(
             seq: pseq += 1, source: "prompt",
             turn: turn, iteration: iter, at: event["at"],
             model: nil, max_tokens: nil,
@@ -121,17 +136,42 @@ module SessionLog
             marker: pending_prompt || (delta[:dropped].positive? ? "trim" : nil),
             messages: messages
           )
-          prev_prompt    = messages
-          pending_prompt = nil
+          prompt_cps << cp
+          await_prompt_cp = cp
+          prev_prompt     = messages
+          pending_prompt  = nil
         end
       end
 
       # Prefer the definitive request log; fall back to the reconstruction only
       # for legacy sessions that never logged one.
       @checkpoints = request_cps.any? ? request_cps : prompt_cps
+
+      # Growth in the real prompt size from one call to the next — the number
+      # that answers "watch it grow". Only spans checkpoints that actually have
+      # usage (a missing response in between leaves a gap, not a fake delta).
+      prev_ctx = nil
+      @checkpoints.each do |cp|
+        cp.context_delta = cp.context_tokens - prev_ctx if cp.context_tokens && prev_ctx
+        prev_ctx = cp.context_tokens if cp.context_tokens
+      end
     end
 
     private
+
+    # Copy the model's authoritative token accounting onto the checkpoint the
+    # response answered, and derive the real prompt size (input + both cache
+    # buckets). Also backfills the model for legacy prompt-mode checkpoints,
+    # which don't carry one of their own, so cost can still be priced.
+    def apply_usage(cp, event)
+      usage = event["usage"] || {}
+      cp.input_tokens   = usage["input_tokens"].to_i
+      cp.output_tokens  = usage["output_tokens"].to_i
+      cp.cache_read     = usage["cache_read_input_tokens"].to_i
+      cp.cache_creation = usage["cache_creation_input_tokens"].to_i
+      cp.context_tokens = cp.input_tokens + cp.cache_read + cp.cache_creation
+      cp.model        ||= event["model"]
+    end
 
     # Smallest front-trim of `prev` whose remainder is a prefix of `curr`, so the
     # carried window is maximised and whatever of `curr` sticks out past it is the

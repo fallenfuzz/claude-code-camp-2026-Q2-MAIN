@@ -1337,3 +1337,122 @@ table.sessions a:hover {
   letter-spacing: 0.04em;
   color: var(--muted);
 }
+
+/* Token & cost panel inside a request checkpoint. */
+
+.ctx-tokens {
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--bg);
+  padding: 0.5rem 0.6rem;
+  margin: 0.5rem 0;
+}
+
+.ctx-tokens-none {
+  font-size: 0.75rem;
+  color: var(--muted);
+  font-style: italic;
+  margin: 0.5rem 0;
+}
+
+.ctx-tokens-head {
+  display: flex;
+  align-items: baseline;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+
+.ctx-tokens-big {
+  font-size: 1.15rem;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+
+.ctx-tokens-unit {
+  font-size: 0.72rem;
+  color: var(--muted);
+}
+
+.ctx-delta-up {
+  font-size: 0.72rem;
+  color: var(--danger);
+}
+
+.ctx-delta-down {
+  font-size: 0.72rem;
+  color: var(--accent);
+}
+
+.ctx-tokens-cost {
+  margin-left: auto;
+  font-size: 0.8rem;
+  font-variant-numeric: tabular-nums;
+  color: var(--text);
+}
+
+.ctx-tokens-sub {
+  font-size: 0.72rem;
+  color: var(--muted);
+  margin-top: 0.15rem;
+}
+
+.ctx-comp-label {
+  font-size: 0.66rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--muted);
+  margin: 0.5rem 0 0.25rem;
+}
+
+.ctx-comp-bar {
+  display: flex;
+  height: 8px;
+  border-radius: 999px;
+  overflow: hidden;
+  background: var(--track);
+}
+
+.ctx-comp-seg {
+  height: 100%;
+}
+
+.ctx-comp-system   { background: #6c8cff; }
+.ctx-comp-tools    { background: #e3a13a; }
+.ctx-comp-messages { background: #3fb98c; }
+
+.ctx-comp-rows {
+  margin-top: 0.35rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+}
+
+.ctx-comp-row {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  font-size: 0.74rem;
+}
+
+.ctx-comp-dot {
+  width: 9px;
+  height: 9px;
+  border-radius: 2px;
+  flex: none;
+}
+
+.ctx-comp-name {
+  text-transform: capitalize;
+}
+
+.ctx-comp-tok {
+  margin-left: auto;
+  font-variant-numeric: tabular-nums;
+  color: var(--muted);
+}
+
+.ctx-comp-cost {
+  font-variant-numeric: tabular-nums;
+  min-width: 5.5rem;
+  text-align: right;
+}

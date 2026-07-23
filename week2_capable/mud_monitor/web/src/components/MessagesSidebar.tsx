@@ -1,7 +1,17 @@
 import { useCallback, useEffect, useState } from "react";
 import { ApiRequestError, fetchSessionMessages } from "../api/client";
-import type { ContentBlock, MessageCheckpoint, TimelineMessage, TimelineTool } from "../api/types";
-import { formatArgs, formatTime } from "../format";
+import type {
+  CompositionRow,
+  ContentBlock,
+  MessageCheckpoint,
+  TimelineMessage,
+  TimelineTool,
+} from "../api/types";
+import { fmtTokens, formatArgs, formatTime } from "../format";
+
+function fmtCost6(n: number | null | undefined): string {
+  return n == null ? "—" : `$${n.toFixed(6)}`;
+}
 
 // Strip CSI/SGR escape sequences for display. The model consumes the raw string
 // (codes and all), but the escape bytes render as noise in the browser; the
@@ -118,6 +128,62 @@ function PayloadHeader({ cp }: { cp: MessageCheckpoint }) {
   );
 }
 
+// Token accounting for the call: the authoritative context size + growth + cost
+// (from the model's usage), then the estimated split across system/tools/messages.
+function TokenPanel({ cp }: { cp: MessageCheckpoint }) {
+  const t = cp.tokens;
+  if (t.context == null) {
+    return <div className="ctx-tokens-none">no token usage recorded for this call</div>;
+  }
+
+  const cached = (t.cache_read ?? 0) + (t.cache_creation ?? 0);
+  const comp = cp.composition;
+  const compTotal = comp.reduce((s, c) => s + c.tokens, 0) || 1;
+
+  return (
+    <div className="ctx-tokens">
+      <div className="ctx-tokens-head">
+        <span className="ctx-tokens-big">{fmtTokens(t.context)}</span>
+        <span className="ctx-tokens-unit">input tokens</span>
+        {t.context_delta != null && (
+          <span className={t.context_delta >= 0 ? "ctx-delta-up" : "ctx-delta-down"}>
+            {t.context_delta >= 0 ? "▲" : "▼"} {fmtTokens(Math.abs(t.context_delta))} vs prev
+          </span>
+        )}
+        <span className="ctx-tokens-cost">{fmtCost6(cp.input_cost_usd)}</span>
+      </div>
+
+      <div className="ctx-tokens-sub">
+        {fmtTokens(t.input)} fresh
+        {cached > 0 && <> · {fmtTokens(cached)} cached</>}
+        {t.output != null && <> · {fmtTokens(t.output)} output</>}
+      </div>
+
+      <div className="ctx-comp-label">estimated composition</div>
+      <div className="ctx-comp-bar">
+        {comp.map((c) => (
+          <div
+            key={c.label}
+            className={`ctx-comp-seg ctx-comp-${c.label}`}
+            style={{ width: `${(c.tokens / compTotal) * 100}%` }}
+            title={`${c.label}: ≈${c.tokens} tok`}
+          />
+        ))}
+      </div>
+      <div className="ctx-comp-rows">
+        {comp.map((c: CompositionRow) => (
+          <div key={c.label} className="ctx-comp-row">
+            <span className={`ctx-comp-dot ctx-comp-${c.label}`} />
+            <span className="ctx-comp-name">{c.label}</span>
+            <span className="ctx-comp-tok">≈{fmtTokens(c.tokens)}</span>
+            {c.cost_usd != null && <span className="ctx-comp-cost">{fmtCost6(c.cost_usd)}</span>}
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 function CheckpointView({ cp }: { cp: MessageCheckpoint }) {
   const [showFull, setShowFull] = useState(false);
   const appended = cp.messages.slice(cp.carried);
@@ -135,6 +201,8 @@ function CheckpointView({ cp }: { cp: MessageCheckpoint }) {
         </span>
         <span className="ctx-cp-time">{formatTime(cp.at)}</span>
       </div>
+
+      <TokenPanel cp={cp} />
 
       <PayloadHeader cp={cp} />
 

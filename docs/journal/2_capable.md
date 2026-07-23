@@ -216,6 +216,17 @@ I notice in some runs it just goes back to moving without actually calling inspe
 We need some kind of way to fix this.
 
 ## Step 11 - Message History
+I asked Claude to add to mud monitor a button within the Mud Monitor in a session when a request is made to show me the contents of that requests, since that is a gaurntee of what the agent is consuming in terms of tokens so I can decide if anything need to be trimed down.
+
+I notice still my agent calling move and not inspect_room.
+
+I am going to ask Claude to try and show token count for input eg. system prompt how much it is, or other granualary lines.
+
+When a move returns a location
+
+Now that I can see how much tokens I am using per call I beg the question:
+- is it better to put a cap on accumlative max token budget or how much a single session call grows:
+  - eg. cumalitive stop at 60K tokens or single request 6k tokens.
 
 
 ## Technical Conclusions

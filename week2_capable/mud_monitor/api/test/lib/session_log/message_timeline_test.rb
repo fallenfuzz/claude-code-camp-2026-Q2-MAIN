@@ -66,6 +66,24 @@ module SessionLog
       assert_equal [ { "role" => "user", "content" => "new" } ], cp.messages
     end
 
+    test "each request picks up the authoritative token usage from its response" do
+      cps = request_timeline.checkpoints
+
+      assert_equal [ 50, 120, 200, nil ], cps.map(&:input_tokens)
+      assert_equal [ 0, 30, 0, nil ], cps.map(&:cache_read)
+      # context = input + both cache buckets — the real prompt size handed in
+      assert_equal [ 50, 150, 200, nil ], cps.map(&:context_tokens)
+    end
+
+    test "context_delta reports growth between calls that have usage" do
+      cps = request_timeline.checkpoints
+
+      assert_nil cps[0].context_delta          # first call: nothing to compare to
+      assert_equal 100, cps[1].context_delta   # 150 - 50
+      assert_equal 50, cps[2].context_delta    # 200 - 150
+      assert_nil cps[3].context_delta          # no response logged for this call
+    end
+
     test "turn and iteration are stamped from the surrounding events" do
       turns = request_timeline.checkpoints.map { |c| [ c.turn, c.iteration ] }
 
