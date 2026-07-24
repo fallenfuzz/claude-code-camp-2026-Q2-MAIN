@@ -526,6 +526,143 @@ table.sessions a:hover {
   vector-effect: non-scaling-stroke;
 }
 
+/* Progression view — the journal's milestone timeline and item ledger. */
+.journal-feed {
+  list-style: none;
+  margin: 0 0 1.25rem;
+  padding: 0;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--panel);
+}
+
+.journal-feed-scroll {
+  max-height: 20rem;
+  overflow-y: auto;
+}
+
+.journal-event {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  padding: 0.4rem 0.75rem;
+  border-bottom: 1px solid var(--border);
+  font-size: 0.85rem;
+}
+
+.journal-event:last-child {
+  border-bottom: none;
+}
+
+.journal-chip {
+  font-family: ui-monospace, monospace;
+  font-size: 0.72rem;
+  padding: 0.1rem 0.45rem;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  color: var(--muted);
+  white-space: nowrap;
+}
+
+.journal-chip-good {
+  color: var(--accent);
+  border-color: color-mix(in srgb, var(--accent) 45%, var(--border));
+}
+
+.journal-chip-bad {
+  color: var(--danger);
+  border-color: color-mix(in srgb, var(--danger) 45%, var(--border));
+}
+
+.journal-event-descr {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.journal-event-meta {
+  color: var(--muted);
+  font-family: ui-monospace, monospace;
+  font-size: 0.76rem;
+}
+
+.journal-event-at {
+  margin-left: auto;
+  color: var(--muted);
+  font-size: 0.76rem;
+  white-space: nowrap;
+}
+
+/* Change Log page — stream filter + full CDC table. */
+.journal-filter {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+  margin: 0 0 1rem;
+}
+
+.journal-filter-chip {
+  font-family: ui-monospace, monospace;
+  font-size: 0.74rem;
+  padding: 0.2rem 0.6rem;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  background: var(--panel);
+  color: var(--muted);
+  cursor: pointer;
+}
+
+.journal-filter-chip:hover {
+  color: var(--text);
+}
+
+.journal-filter-chip-active {
+  color: var(--panel);
+  background: var(--accent);
+  border-color: var(--accent);
+}
+
+.journal-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.85rem;
+}
+
+.journal-table th {
+  text-align: left;
+  font-size: 0.72rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--muted);
+  border-bottom: 1px solid var(--border);
+  padding: 0.4rem 0.6rem;
+}
+
+.journal-table td {
+  border-bottom: 1px solid var(--border);
+  padding: 0.4rem 0.6rem;
+  vertical-align: top;
+}
+
+.journal-td-seq {
+  color: var(--muted);
+  font-family: ui-monospace, monospace;
+  white-space: nowrap;
+}
+
+.journal-td-detail {
+  font-family: ui-monospace, monospace;
+  word-break: break-word;
+}
+
+.journal-td-at {
+  color: var(--muted);
+  font-size: 0.76rem;
+  white-space: nowrap;
+}
+
 /* Per-turn rollup strip (rendered at each turn_end) */
 .turn-strip {
   display: flex;

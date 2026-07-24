@@ -2,10 +2,12 @@ import { Route, Routes } from "react-router";
 import Layout from "./components/Layout";
 import Dashboard from "./pages/Dashboard";
 import HealthPage from "./pages/Health";
+import Journal from "./pages/Journal";
 import Entities from "./pages/knowledge/Entities";
 import Frontier from "./pages/knowledge/Frontier";
 import Knowledge from "./pages/knowledge/Knowledge";
 import Overview from "./pages/knowledge/Overview";
+import Progression from "./pages/knowledge/Progression";
 import RoomDetail from "./pages/knowledge/RoomDetail";
 import Rooms from "./pages/knowledge/Rooms";
 import Manager from "./pages/Manager";
@@ -22,6 +24,7 @@ export default function App() {
         <Route path="sessions/:id" element={<SessionDetail />} />
         <Route path="manager" element={<Manager />} />
         <Route path="telnet" element={<Telnet />} />
+        <Route path="journal" element={<Journal />} />
         {/* Nested routes rather than useState tabs: a room the agent got wrong
             is something you paste into chat, and "click Knowledge, then Rooms,
             then find #7" is not a link. */}
@@ -31,6 +34,7 @@ export default function App() {
           <Route path="rooms/:id" element={<RoomDetail />} />
           <Route path="entities" element={<Entities />} />
           <Route path="frontier" element={<Frontier />} />
+          <Route path="progression" element={<Progression />} />
         </Route>
         <Route path="health" element={<HealthPage />} />
       </Route>

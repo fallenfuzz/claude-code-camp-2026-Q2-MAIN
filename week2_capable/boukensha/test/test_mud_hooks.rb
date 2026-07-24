@@ -477,4 +477,86 @@ class TestMudHooks < Minitest::Test
     assert c.turn_policy.call_permitted?("tbamud__say", { message: "hi" }),
            "a policy that denied everything it did not name would not be narrowing"
   end
+
+  # --- change_capture.md P1: the progression journal shares the capture seam ---
+
+  # A hook wired with a journal, plus a reader that returns its jsonl lines.
+  # The journal is wired into the STORE too, since generic CDC now lives there.
+  def hooks_with_journal(responses, **kwargs)
+    dir     = Dir.mktmpdir
+    journal = Boukensha::Journal.new(session_id: "test", dir: dir)
+    @store.journal = journal
+    fake    = FakeMud.new(responses.dup)
+    hooks   = H.new(store: @store, call_tool: fake.to_proc, warn_to: nil, journal: journal, **kwargs)
+    [ hooks, fake, journal, dir ]
+  end
+
+  def journal_lines(journal, dir)
+    journal.close
+    path = File.join(dir, "#{Time.now.strftime('%Y%m%d')}.jsonl")
+    File.exist?(path) ? File.readlines(path).map { |l| JSON.parse(l) } : []
+  end
+
+  # before_turn reads score and writes it to the store, whose generic CDC emits
+  # the player-stat deltas — no extra round trip.
+  def test_before_turn_journals_player_stats_through_the_store
+    responses = COMMON_SQUARE.merge(
+      "check:score" => "You have 1500 gold coins.\r\nThis ranks you as Dummy the Man (level 4).\r\n20H 100M 84V > "
+    )
+    h, _fake, journal, dir = hooks_with_journal(responses)
+    h.before_turn(context: ctx)
+
+    changes = journal_lines(journal, dir).select { |l| l["kind"] == "change" && l["stream"] == "stat" }
+    by_key  = changes.each_with_object({}) { |c, h2| h2[c["key"]] = c["to"] }
+    assert_equal 4, by_key["level"]
+    assert_equal 1500, by_key["gold"]
+  end
+
+  # Generic capture records hp changes now (we want ALL deltas), but the journal
+  # still swallows an unchanged reading — that dedup is what keeps volume from
+  # exploding on the every-tool-call prompt scrape.
+  def test_generic_capture_records_hp_on_change_and_swallows_no_ops
+    h, _fake, journal, dir = hooks_with_journal(COMMON_SQUARE)
+    h.after_tool(name: "tbamud__look", args: {}, result: "20H 100M 84V > ", context: ctx) # hp 20
+    h.after_tool(name: "tbamud__look", args: {}, result: "20H 100M 84V > ", context: ctx) # unchanged ⇒ swallowed
+    h.after_tool(name: "tbamud__look", args: {}, result: "5H 100M 84V > ", context: ctx)  # hp 5
+
+    hp = journal_lines(journal, dir).select { |l| l["kind"] == "change" && l["key"] == "hp" }.map { |l| l["to"] }
+    assert_equal [ 20, 5 ], hp
+  end
+
+  # An item the agent moved on its own initiative lands in the item ledger.
+  def test_an_item_op_is_journalled_as_an_event
+    h, _fake, journal, dir = hooks_with_journal(COMMON_SQUARE)
+    h.after_tool(name: "tbamud__get_item", args: { "item" => "sword" },
+                 result: "You get a long sword.\r\n20H 100M 84V > ", context: ctx)
+
+    item = journal_lines(journal, dir).find { |l| l["kind"] == "event" && l["stream"] == "item" }
+    refute_nil item
+    assert_equal "acquire", item["op"]
+    assert_equal "sword", item["keyword"]
+  end
+
+  # Death is a milestone on the timeline, filed against the level it happened at.
+  def test_death_is_journalled_as_a_milestone
+    @store.update_player!(level: 3)
+    h, _fake, journal, dir = hooks_with_journal(COMMON_SQUARE)
+    h.after_tool(name: "tbamud__attack", args: { "target" => "minotaur" },
+                 result: "You are dead! Sorry...\r\n", context: ctx)
+
+    death = journal_lines(journal, dir).find { |l| l["kind"] == "event" && l["op"] == "death" }
+    refute_nil death
+    assert_equal 3, death["level"]
+  end
+
+  # A session with no journal behaves exactly as before — no path here may
+  # require one.
+  def test_capture_seam_is_inert_without_a_journal
+    h, = hooks_for(COMMON_SQUARE)
+    h.before_turn(context: ctx)
+    h.after_tool(name: "tbamud__get_item", args: { "item" => "sword" },
+                 result: "You get a long sword.\r\n20H 100M 84V > ", context: ctx)
+    # no raise ⇒ pass; the store still got its snapshot
+    refute_nil @store.player[:level]
+  end
 end

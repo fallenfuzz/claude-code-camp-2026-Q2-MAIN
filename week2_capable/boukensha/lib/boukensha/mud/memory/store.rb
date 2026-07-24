@@ -29,6 +29,14 @@ module Boukensha
 
         attr_reader :db, :path
 
+        # Optional progression journal. When wired, every mutation below also
+        # emits a delta, so the change log is generic CDC over the WHOLE
+        # knowledgebase (rooms, exits, entities, sightings, encounters, player
+        # state), not a hand-picked subset. The journal owns change-detection, so
+        # upserting an unchanged value writes nothing — no-ops are free here, and
+        # the field-level keys make per-field volume measurable after the fact.
+        attr_accessor :journal
+
         # `sqlite3` is required lazily, the same posture `onnxruntime` already
         # has: a checkout without the gem still boots, and only a caller that
         # actually wants memory pays for it.
@@ -89,6 +97,7 @@ module Boukensha
             "ON CONFLICT(id) DO UPDATE SET #{cols.map { |c| "#{c} = excluded.#{c}" }.join(', ')}",
             fields.values
           )
+          capture_player!(fields)
         end
 
         def level = player[:level]
@@ -115,12 +124,15 @@ module Boukensha
             [weak_fingerprint, strong_fingerprint, confidence, name, description,
              look_candidates && JSON.generate(look_candidates), t, t, (surveyed ? t : nil)]
           )
-          @db.last_insert_row_id
+          id = @db.last_insert_row_id
+          jevent("room", "create", id: id, name: name, confidence: confidence, surveyed: surveyed)
+          id
         end
 
         # A revisit. This is the call that replaces five MUD round trips.
         def touch_room(id)
           @db.execute("UPDATE rooms SET visit_count = visit_count + 1, last_seen_at = ? WHERE id = ?", [now, id])
+          jevent("room", "visit", id: id)
         end
 
         # Promote a room the survey has now fully resolved: the strong
@@ -132,6 +144,7 @@ module Boukensha
           sets[:confidence]         = confidence if confidence
           @db.execute("UPDATE rooms SET #{sets.keys.map { |k| "#{k} = ?" }.join(', ')} WHERE id = ?",
                       sets.values + [id])
+          jevent("room", "surveyed", id: id)
         end
 
         # ---------- exits -------------------------------------------------
@@ -160,6 +173,10 @@ module Boukensha
               "target_name = COALESCE(excluded.target_name, room_exits.target_name), last_seen_at = excluded.last_seen_at",
               [room_id, dir.to_s, name, t]
             )
+            # nil names are swallowed by upsert (no reading), so re-recording the
+            # same autoexit line every turn is silent; only a newly-learned
+            # target_name lands.
+            jupsert("exit", "#{room_id}:#{dir}:target_name", name)
           end
         end
 
@@ -177,6 +194,7 @@ module Boukensha
             "last_seen_at = excluded.last_seen_at",
             [room_id, direction.to_s, target_room_id, now]
           )
+          jupsert("exit", "#{room_id}:#{direction}:target_room_id", target_room_id)
         end
 
         # We walked this way and landed somewhere the exits table did not name.
@@ -186,6 +204,7 @@ module Boukensha
 
           @db.execute("UPDATE room_exits SET target_name = ? WHERE room_id = ? AND direction = ?",
                       [name, room_id, direction.to_s])
+          jupsert("exit", "#{room_id}:#{direction}:target_name", name)
         end
 
         # A room cannot move; a stale edge can. So a conflict between the edge we
@@ -198,6 +217,7 @@ module Boukensha
             "UPDATE room_exits SET traversals = MAX(traversals - 1, 0), target_room_id = NULL " \
             "WHERE room_id = ? AND direction = ?", [room_id, direction.to_s]
           )
+          jevent("exit", "demote", room_id: room_id, direction: direction.to_s)
         end
 
         # ---------- entities ----------------------------------------------
@@ -241,7 +261,11 @@ module Boukensha
             "last_seen_at = excluded.last_seen_at",
             [kind, descr.to_s, keyword, equipment && JSON.generate(equipment), threat, (threat && level), t, t]
           )
-          @db.execute("SELECT id FROM entities WHERE kind = ? AND descr = ?", [kind, descr.to_s]).first["id"]
+          id = @db.execute("SELECT id FROM entities WHERE kind = ? AND descr = ?", [kind, descr.to_s]).first["id"]
+          # The appraisal is the meaningful delta over time; descr/keyword are
+          # static, so they are not journaled as a series.
+          jupsert("entity", "#{id}:threat", threat)
+          id
         end
 
         def record_sighting!(entity_id:, room_id:, count: 1)
@@ -256,6 +280,7 @@ module Boukensha
             "last_seen_at = excluded.last_seen_at",
             [entity_id, room_id, count, t, t]
           )
+          jupsert("sighting", "#{entity_id}:#{room_id}:count", count)
         end
 
         # ---------- encounters --------------------------------------------
@@ -266,6 +291,8 @@ module Boukensha
             "VALUES (?, ?, ?, ?, ?, ?, ?)",
             [room_id, entity_id, level, outcome.to_s, hp_before, hp_after, now]
           )
+          jevent("encounter", outcome.to_s, room_id: room_id, entity_id: entity_id,
+                                            player_level: level, hp_before: hp_before, hp_after: hp_after)
           @db.last_insert_row_id
         end
 
@@ -297,6 +324,34 @@ module Boukensha
         end
 
         private
+
+        # ---------- change journal helpers --------------------------------
+        # All no-ops when no journal is wired; `upsert` itself is internally
+        # guarded, so a broken journal never breaks a store write.
+
+        # A keyed-value delta (change-detected: unchanged values write nothing).
+        # Use for anything re-written frequently with often-identical values —
+        # player fields, exit targets, entity threat, sighting counts.
+        def jupsert(stream, key, value)
+          @journal&.upsert(stream: stream, key: key.to_s, value: value)
+        end
+
+        # A discrete occurrence (always appended). Use for genuinely one-off
+        # writes — a room discovered, an encounter resolved.
+        def jevent(stream, op, **fields)
+          @journal&.event(stream: stream, op: op.to_s, **fields)
+        end
+
+        # Player_state is one row of scalars, so each written field becomes its
+        # own `stat` series keyed by column. `updated_at` is skipped — it changes
+        # on every write and would be pure noise.
+        def capture_player!(fields)
+          fields.each do |col, val|
+            next if col == :updated_at
+
+            jupsert("stat", col, val)
+          end
+        end
 
         def scalar(sql) = @db.execute(sql).first.values.first.to_i
 

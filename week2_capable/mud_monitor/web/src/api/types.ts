@@ -487,3 +487,49 @@ export interface KnowledgeFrontierPage extends KnowledgeEnvelope {
   frontier: FrontierExit[];
   count: number;
 }
+
+// --- Progression journal ---------------------------------------------------
+// The agent's append-only change log (.boukensha/journal/*.jsonl), read by the
+// Progression view. Unlike knowledge (a snapshot), this is a time series: the
+// server folds the day's records into per-key point arrays plus a milestone
+// timeline and an item ledger. See change_capture.md.
+
+export interface JournalPoint {
+  seq: number;
+  at: string;
+  value: number | string | null;
+}
+
+export interface JournalMilestone {
+  seq: number;
+  at: string;
+  op: string;
+  level?: number | null;
+  [key: string]: unknown;
+}
+
+export interface JournalItemEvent {
+  seq: number;
+  at: string;
+  op: string;
+  keyword?: string | null;
+  descr?: string | null;
+  tool?: string | null;
+  qty?: number | null;
+  [key: string]: unknown;
+}
+
+export interface JournalSeries {
+  stats: Record<string, JournalPoint[]>;
+  skills: Record<string, JournalPoint[]>;
+  milestones: JournalMilestone[];
+  items: JournalItemEvent[];
+}
+
+export interface JournalPage {
+  date: string;
+  series: JournalSeries;
+  entries: Array<Record<string, unknown>>;
+  next_seq: number;
+  live: boolean;
+}

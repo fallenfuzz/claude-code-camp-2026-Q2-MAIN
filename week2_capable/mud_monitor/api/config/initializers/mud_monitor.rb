@@ -47,6 +47,10 @@ Rails.application.config.x.mud_monitor = ActiveSupport::OrderedOptions.new.tap d
   c.sessions_dir  = Pathname.new(ENV.fetch("MUD_MONITOR_SESSIONS_DIR", boukensha_dir.join("sessions").to_s))
   c.telnet_dir    = Pathname.new(ENV.fetch("MUD_MONITOR_TELNET_DIR", boukensha_dir.join("telnet").to_s))
   c.manager_dir   = Pathname.new(ENV.fetch("MUD_MONITOR_MANAGER_DIR", boukensha_dir.join("manager").to_s))
+  # The agent's append-only progression log — the time-series sibling of
+  # knowledge.sqlite3. Resolved from boukensha_dir exactly as telnet/manager do,
+  # so the monitor never guesses a path the writer isn't using.
+  c.journal_dir   = Pathname.new(ENV.fetch("MUD_MONITOR_JOURNAL_DIR", boukensha_dir.join("journal").to_s))
   # Not part of .boukensha — world files ship with the repo, so this one stays
   # anchored to repo_root.
   c.world_dir     = Pathname.new(ENV.fetch("MUD_MONITOR_WORLD_DIR", repo_root.join("week0_explore/preview/data/world").to_s))

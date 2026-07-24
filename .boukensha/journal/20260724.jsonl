@@ -1,0 +1,117 @@
+{"kind":"snapshot","stream":"stat","values":{"level":1,"gold":0,"max_hp":20},"seq":1,"session_id":"20260724T164133Z-ec228f04","at":"2026-07-24T12:41:34.106-04:00","mono_ms":543601747}
+{"kind":"snapshot","stream":"stat","values":{"level":1,"gold":0,"max_hp":20},"seq":2,"session_id":"20260724T164152Z-a04bdb91","at":"2026-07-24T12:41:52.207-04:00","mono_ms":543619847}
+{"kind":"change","stream":"stat","key":"session_id","from":null,"to":"20260724T173654Z-84a3eee5","seq":3,"session_id":"20260724T173654Z-84a3eee5","at":"2026-07-24T13:37:10.609-04:00","mono_ms":546938250}
+{"kind":"change","stream":"stat","key":"level","from":null,"to":1,"seq":4,"session_id":"20260724T173654Z-84a3eee5","at":"2026-07-24T13:37:10.609-04:00","mono_ms":546938250}
+{"kind":"change","stream":"stat","key":"gold","from":null,"to":0,"seq":5,"session_id":"20260724T173654Z-84a3eee5","at":"2026-07-24T13:37:10.609-04:00","mono_ms":546938250}
+{"kind":"change","stream":"stat","key":"max_hp","from":null,"to":20,"seq":6,"session_id":"20260724T173654Z-84a3eee5","at":"2026-07-24T13:37:10.609-04:00","mono_ms":546938250}
+{"id":12,"kind":"event","stream":"room","op":"visit","seq":7,"session_id":"20260724T173654Z-84a3eee5","at":"2026-07-24T13:37:10.700-04:00","mono_ms":546938341}
+{"kind":"change","stream":"stat","key":"current_room_id","from":null,"to":12,"seq":8,"session_id":"20260724T173654Z-84a3eee5","at":"2026-07-24T13:37:10.700-04:00","mono_ms":546938341}
+{"kind":"change","stream":"stat","key":"hp","from":null,"to":20,"seq":9,"session_id":"20260724T173654Z-84a3eee5","at":"2026-07-24T13:37:10.700-04:00","mono_ms":546938341}
+{"kind":"change","stream":"stat","key":"mana","from":null,"to":100,"seq":10,"session_id":"20260724T173654Z-84a3eee5","at":"2026-07-24T13:37:10.700-04:00","mono_ms":546938341}
+{"kind":"change","stream":"stat","key":"move","from":null,"to":85,"seq":11,"session_id":"20260724T173654Z-84a3eee5","at":"2026-07-24T13:37:10.700-04:00","mono_ms":546938341}
+{"kind":"change","stream":"stat","key":"move","from":85,"to":84,"seq":12,"session_id":"20260724T173654Z-84a3eee5","at":"2026-07-24T13:51:03.800-04:00","mono_ms":547771440}
+{"id":11,"kind":"event","stream":"room","op":"visit","seq":13,"session_id":"20260724T173654Z-84a3eee5","at":"2026-07-24T13:51:03.809-04:00","mono_ms":547771450}
+{"kind":"change","stream":"exit","key":"12:south:target_room_id","from":null,"to":11,"seq":14,"session_id":"20260724T173654Z-84a3eee5","at":"2026-07-24T13:51:03.810-04:00","mono_ms":547771450}
+{"kind":"change","stream":"stat","key":"current_room_id","from":12,"to":11,"seq":15,"session_id":"20260724T173654Z-84a3eee5","at":"2026-07-24T13:51:03.810-04:00","mono_ms":547771451}
+{"kind":"change","stream":"stat","key":"prev_room_id","from":null,"to":12,"seq":16,"session_id":"20260724T173654Z-84a3eee5","at":"2026-07-24T13:51:03.810-04:00","mono_ms":547771451}
+{"kind":"change","stream":"stat","key":"last_direction","from":null,"to":"south","seq":17,"session_id":"20260724T173654Z-84a3eee5","at":"2026-07-24T13:51:03.810-04:00","mono_ms":547771451}
+{"kind":"change","stream":"stat","key":"move","from":84,"to":83,"seq":18,"session_id":"20260724T173654Z-84a3eee5","at":"2026-07-24T13:51:05.101-04:00","mono_ms":547772741}
+{"id":3,"kind":"event","stream":"room","op":"visit","seq":19,"session_id":"20260724T173654Z-84a3eee5","at":"2026-07-24T13:51:05.101-04:00","mono_ms":547772742}
+{"kind":"change","stream":"exit","key":"11:east:target_room_id","from":null,"to":3,"seq":20,"session_id":"20260724T173654Z-84a3eee5","at":"2026-07-24T13:51:05.102-04:00","mono_ms":547772742}
+{"kind":"change","stream":"stat","key":"current_room_id","from":11,"to":3,"seq":21,"session_id":"20260724T173654Z-84a3eee5","at":"2026-07-24T13:51:05.102-04:00","mono_ms":547772743}
+{"kind":"change","stream":"stat","key":"prev_room_id","from":12,"to":11,"seq":22,"session_id":"20260724T173654Z-84a3eee5","at":"2026-07-24T13:51:05.102-04:00","mono_ms":547772743}
+{"kind":"change","stream":"stat","key":"last_direction","from":"south","to":"east","seq":23,"session_id":"20260724T173654Z-84a3eee5","at":"2026-07-24T13:51:05.102-04:00","mono_ms":547772743}
+{"kind":"change","stream":"stat","key":"move","from":83,"to":82,"seq":24,"session_id":"20260724T173654Z-84a3eee5","at":"2026-07-24T13:51:06.299-04:00","mono_ms":547773940}
+{"id":2,"kind":"event","stream":"room","op":"visit","seq":25,"session_id":"20260724T173654Z-84a3eee5","at":"2026-07-24T13:51:06.300-04:00","mono_ms":547773940}
+{"kind":"change","stream":"exit","key":"3:north:target_room_id","from":null,"to":2,"seq":26,"session_id":"20260724T173654Z-84a3eee5","at":"2026-07-24T13:51:06.300-04:00","mono_ms":547773941}
+{"kind":"change","stream":"stat","key":"current_room_id","from":3,"to":2,"seq":27,"session_id":"20260724T173654Z-84a3eee5","at":"2026-07-24T13:51:06.300-04:00","mono_ms":547773941}
+{"kind":"change","stream":"stat","key":"prev_room_id","from":11,"to":3,"seq":28,"session_id":"20260724T173654Z-84a3eee5","at":"2026-07-24T13:51:06.300-04:00","mono_ms":547773941}
+{"kind":"change","stream":"stat","key":"last_direction","from":"east","to":"north","seq":29,"session_id":"20260724T173654Z-84a3eee5","at":"2026-07-24T13:51:06.300-04:00","mono_ms":547773941}
+{"kind":"change","stream":"stat","key":"move","from":82,"to":81,"seq":30,"session_id":"20260724T173654Z-84a3eee5","at":"2026-07-24T13:51:07.599-04:00","mono_ms":547775240}
+{"id":1,"kind":"event","stream":"room","op":"visit","seq":31,"session_id":"20260724T173654Z-84a3eee5","at":"2026-07-24T13:51:07.600-04:00","mono_ms":547775240}
+{"kind":"change","stream":"exit","key":"2:north:target_room_id","from":null,"to":1,"seq":32,"session_id":"20260724T173654Z-84a3eee5","at":"2026-07-24T13:51:07.600-04:00","mono_ms":547775240}
+{"kind":"change","stream":"stat","key":"current_room_id","from":2,"to":1,"seq":33,"session_id":"20260724T173654Z-84a3eee5","at":"2026-07-24T13:51:07.600-04:00","mono_ms":547775240}
+{"kind":"change","stream":"stat","key":"prev_room_id","from":3,"to":2,"seq":34,"session_id":"20260724T173654Z-84a3eee5","at":"2026-07-24T13:51:07.600-04:00","mono_ms":547775240}
+{"kind":"change","stream":"stat","key":"move","from":81,"to":80,"seq":35,"session_id":"20260724T173654Z-84a3eee5","at":"2026-07-24T13:51:09.199-04:00","mono_ms":547776840}
+{"kind":"change","stream":"entity","key":"17:threat","from":null,"to":"You ARE mad!","seq":36,"session_id":"20260724T173654Z-84a3eee5","at":"2026-07-24T13:51:09.599-04:00","mono_ms":547777240}
+{"id":19,"name":"The Midgaard Donation Room","confidence":"confirmed","surveyed":true,"kind":"event","stream":"room","op":"create","seq":37,"session_id":"20260724T173654Z-84a3eee5","at":"2026-07-24T13:51:09.621-04:00","mono_ms":547777262}
+{"kind":"change","stream":"exit","key":"19:west:target_name","from":null,"to":"The Temple Of Midgaard","seq":38,"session_id":"20260724T173654Z-84a3eee5","at":"2026-07-24T13:51:09.621-04:00","mono_ms":547777262}
+{"kind":"change","stream":"sighting","key":"17:19:count","from":null,"to":1,"seq":39,"session_id":"20260724T173654Z-84a3eee5","at":"2026-07-24T13:51:09.622-04:00","mono_ms":547777262}
+{"kind":"change","stream":"exit","key":"1:east:target_room_id","from":null,"to":19,"seq":40,"session_id":"20260724T173654Z-84a3eee5","at":"2026-07-24T13:51:09.622-04:00","mono_ms":547777263}
+{"kind":"change","stream":"stat","key":"current_room_id","from":1,"to":19,"seq":41,"session_id":"20260724T173654Z-84a3eee5","at":"2026-07-24T13:51:09.622-04:00","mono_ms":547777263}
+{"kind":"change","stream":"stat","key":"prev_room_id","from":2,"to":1,"seq":42,"session_id":"20260724T173654Z-84a3eee5","at":"2026-07-24T13:51:09.622-04:00","mono_ms":547777263}
+{"kind":"change","stream":"stat","key":"last_direction","from":"north","to":"east","seq":43,"session_id":"20260724T173654Z-84a3eee5","at":"2026-07-24T13:51:09.622-04:00","mono_ms":547777263}
+{"kind":"change","stream":"stat","key":"move","from":80,"to":85,"seq":44,"session_id":"20260724T173654Z-84a3eee5","at":"2026-07-24T13:59:12.192-04:00","mono_ms":548259832}
+{"kind":"change","stream":"stat","key":"move","from":85,"to":84,"seq":45,"session_id":"20260724T173654Z-84a3eee5","at":"2026-07-24T13:59:12.199-04:00","mono_ms":548259840}
+{"room_id":19,"entity_id":null,"player_level":1,"hp_before":20,"hp_after":20,"kind":"event","stream":"encounter","op":"abandoned","seq":46,"session_id":"20260724T173654Z-84a3eee5","at":"2026-07-24T13:59:12.199-04:00","mono_ms":548259840}
+{"id":1,"kind":"event","stream":"room","op":"visit","seq":47,"session_id":"20260724T173654Z-84a3eee5","at":"2026-07-24T13:59:12.200-04:00","mono_ms":548259840}
+{"kind":"change","stream":"exit","key":"19:west:target_room_id","from":null,"to":1,"seq":48,"session_id":"20260724T173654Z-84a3eee5","at":"2026-07-24T13:59:12.200-04:00","mono_ms":548259841}
+{"kind":"change","stream":"stat","key":"current_room_id","from":19,"to":1,"seq":49,"session_id":"20260724T173654Z-84a3eee5","at":"2026-07-24T13:59:12.200-04:00","mono_ms":548259841}
+{"kind":"change","stream":"stat","key":"prev_room_id","from":1,"to":19,"seq":50,"session_id":"20260724T173654Z-84a3eee5","at":"2026-07-24T13:59:12.200-04:00","mono_ms":548259841}
+{"kind":"change","stream":"stat","key":"last_direction","from":"east","to":"west","seq":51,"session_id":"20260724T173654Z-84a3eee5","at":"2026-07-24T13:59:12.200-04:00","mono_ms":548259841}
+{"kind":"change","stream":"stat","key":"move","from":84,"to":83,"seq":52,"session_id":"20260724T173654Z-84a3eee5","at":"2026-07-24T13:59:13.699-04:00","mono_ms":548261340}
+{"id":20,"name":"By The Temple Altar","confidence":"confirmed","surveyed":true,"kind":"event","stream":"room","op":"create","seq":53,"session_id":"20260724T173654Z-84a3eee5","at":"2026-07-24T13:59:13.918-04:00","mono_ms":548261558}
+{"kind":"change","stream":"exit","key":"20:north:target_name","from":null,"to":"Behind The Temple Altar","seq":54,"session_id":"20260724T173654Z-84a3eee5","at":"2026-07-24T13:59:13.918-04:00","mono_ms":548261558}
+{"kind":"change","stream":"exit","key":"20:south:target_name","from":null,"to":"The Temple Of Midgaard","seq":55,"session_id":"20260724T173654Z-84a3eee5","at":"2026-07-24T13:59:13.918-04:00","mono_ms":548261558}
+{"kind":"change","stream":"exit","key":"1:north:target_room_id","from":null,"to":20,"seq":56,"session_id":"20260724T173654Z-84a3eee5","at":"2026-07-24T13:59:13.918-04:00","mono_ms":548261558}
+{"kind":"change","stream":"stat","key":"current_room_id","from":1,"to":20,"seq":57,"session_id":"20260724T173654Z-84a3eee5","at":"2026-07-24T13:59:13.918-04:00","mono_ms":548261558}
+{"kind":"change","stream":"stat","key":"prev_room_id","from":19,"to":1,"seq":58,"session_id":"20260724T173654Z-84a3eee5","at":"2026-07-24T13:59:13.918-04:00","mono_ms":548261558}
+{"kind":"change","stream":"stat","key":"last_direction","from":"west","to":"north","seq":59,"session_id":"20260724T173654Z-84a3eee5","at":"2026-07-24T13:59:13.918-04:00","mono_ms":548261558}
+{"kind":"change","stream":"stat","key":"move","from":83,"to":82,"seq":60,"session_id":"20260724T173654Z-84a3eee5","at":"2026-07-24T13:59:16.999-04:00","mono_ms":548264640}
+{"id":21,"name":"Behind The Temple Altar","confidence":"confirmed","surveyed":true,"kind":"event","stream":"room","op":"create","seq":61,"session_id":"20260724T173654Z-84a3eee5","at":"2026-07-24T13:59:17.205-04:00","mono_ms":548264845}
+{"kind":"change","stream":"exit","key":"21:north:target_name","from":null,"to":"The Great Field Of Midgaard","seq":62,"session_id":"20260724T173654Z-84a3eee5","at":"2026-07-24T13:59:17.205-04:00","mono_ms":548264845}
+{"kind":"change","stream":"exit","key":"21:south:target_name","from":null,"to":"By The Temple Altar","seq":63,"session_id":"20260724T173654Z-84a3eee5","at":"2026-07-24T13:59:17.205-04:00","mono_ms":548264845}
+{"kind":"change","stream":"exit","key":"20:north:target_room_id","from":null,"to":21,"seq":64,"session_id":"20260724T173654Z-84a3eee5","at":"2026-07-24T13:59:17.207-04:00","mono_ms":548264848}
+{"kind":"change","stream":"stat","key":"current_room_id","from":20,"to":21,"seq":65,"session_id":"20260724T173654Z-84a3eee5","at":"2026-07-24T13:59:17.208-04:00","mono_ms":548264848}
+{"kind":"change","stream":"stat","key":"prev_room_id","from":1,"to":20,"seq":66,"session_id":"20260724T173654Z-84a3eee5","at":"2026-07-24T13:59:17.208-04:00","mono_ms":548264848}
+{"kind":"change","stream":"stat","key":"move","from":82,"to":81,"seq":67,"session_id":"20260724T173654Z-84a3eee5","at":"2026-07-24T13:59:18.699-04:00","mono_ms":548266340}
+{"id":22,"name":"The Great Field Of Midgaard","confidence":"confirmed","surveyed":true,"kind":"event","stream":"room","op":"create","seq":68,"session_id":"20260724T173654Z-84a3eee5","at":"2026-07-24T13:59:18.915-04:00","mono_ms":548266555}
+{"kind":"change","stream":"exit","key":"22:north:target_name","from":null,"to":"The Great Field Of Midgaard","seq":69,"session_id":"20260724T173654Z-84a3eee5","at":"2026-07-24T13:59:18.915-04:00","mono_ms":548266556}
+{"kind":"change","stream":"exit","key":"22:south:target_name","from":null,"to":"Behind The Temple Altar","seq":70,"session_id":"20260724T173654Z-84a3eee5","at":"2026-07-24T13:59:18.915-04:00","mono_ms":548266556}
+{"kind":"change","stream":"exit","key":"21:north:target_room_id","from":null,"to":22,"seq":71,"session_id":"20260724T173654Z-84a3eee5","at":"2026-07-24T13:59:18.915-04:00","mono_ms":548266556}
+{"kind":"change","stream":"stat","key":"current_room_id","from":21,"to":22,"seq":72,"session_id":"20260724T173654Z-84a3eee5","at":"2026-07-24T13:59:18.916-04:00","mono_ms":548266556}
+{"kind":"change","stream":"stat","key":"prev_room_id","from":20,"to":21,"seq":73,"session_id":"20260724T173654Z-84a3eee5","at":"2026-07-24T13:59:18.916-04:00","mono_ms":548266556}
+{"kind":"change","stream":"stat","key":"move","from":81,"to":80,"seq":74,"session_id":"20260724T173654Z-84a3eee5","at":"2026-07-24T13:59:20.500-04:00","mono_ms":548268140}
+{"id":23,"name":"The Great Field Of Midgaard","confidence":"confirmed","surveyed":true,"kind":"event","stream":"room","op":"create","seq":75,"session_id":"20260724T173654Z-84a3eee5","at":"2026-07-24T13:59:20.721-04:00","mono_ms":548268361}
+{"kind":"change","stream":"exit","key":"23:north:target_name","from":null,"to":"The Great Field Of Midgaard","seq":76,"session_id":"20260724T173654Z-84a3eee5","at":"2026-07-24T13:59:20.721-04:00","mono_ms":548268362}
+{"kind":"change","stream":"exit","key":"23:east:target_name","from":null,"to":"The Entrance To The Newbie Zone","seq":77,"session_id":"20260724T173654Z-84a3eee5","at":"2026-07-24T13:59:20.721-04:00","mono_ms":548268362}
+{"kind":"change","stream":"exit","key":"23:south:target_name","from":null,"to":"The Great Field Of Midgaard","seq":78,"session_id":"20260724T173654Z-84a3eee5","at":"2026-07-24T13:59:20.721-04:00","mono_ms":548268362}
+{"kind":"change","stream":"exit","key":"23:west:target_name","from":null,"to":"The Dirt Path","seq":79,"session_id":"20260724T173654Z-84a3eee5","at":"2026-07-24T13:59:20.721-04:00","mono_ms":548268362}
+{"kind":"change","stream":"exit","key":"22:north:target_room_id","from":null,"to":23,"seq":80,"session_id":"20260724T173654Z-84a3eee5","at":"2026-07-24T13:59:20.721-04:00","mono_ms":548268362}
+{"kind":"change","stream":"stat","key":"current_room_id","from":22,"to":23,"seq":81,"session_id":"20260724T173654Z-84a3eee5","at":"2026-07-24T13:59:20.721-04:00","mono_ms":548268362}
+{"kind":"change","stream":"stat","key":"prev_room_id","from":21,"to":22,"seq":82,"session_id":"20260724T173654Z-84a3eee5","at":"2026-07-24T13:59:20.721-04:00","mono_ms":548268362}
+{"kind":"change","stream":"stat","key":"move","from":80,"to":79,"seq":83,"session_id":"20260724T173654Z-84a3eee5","at":"2026-07-24T13:59:22.899-04:00","mono_ms":548270539}
+{"id":24,"name":"The Entrance To The Newbie Zone","confidence":"confirmed","surveyed":true,"kind":"event","stream":"room","op":"create","seq":84,"session_id":"20260724T173654Z-84a3eee5","at":"2026-07-24T13:59:23.107-04:00","mono_ms":548270748}
+{"kind":"change","stream":"exit","key":"24:north:target_name","from":null,"to":"The Beginning Of The Passage","seq":85,"session_id":"20260724T173654Z-84a3eee5","at":"2026-07-24T13:59:23.107-04:00","mono_ms":548270748}
+{"kind":"change","stream":"exit","key":"24:west:target_name","from":null,"to":"The Great Field Of Midgaard","seq":86,"session_id":"20260724T173654Z-84a3eee5","at":"2026-07-24T13:59:23.107-04:00","mono_ms":548270748}
+{"kind":"change","stream":"exit","key":"23:east:target_room_id","from":null,"to":24,"seq":87,"session_id":"20260724T173654Z-84a3eee5","at":"2026-07-24T13:59:23.107-04:00","mono_ms":548270748}
+{"kind":"change","stream":"stat","key":"current_room_id","from":23,"to":24,"seq":88,"session_id":"20260724T173654Z-84a3eee5","at":"2026-07-24T13:59:23.107-04:00","mono_ms":548270748}
+{"kind":"change","stream":"stat","key":"prev_room_id","from":22,"to":23,"seq":89,"session_id":"20260724T173654Z-84a3eee5","at":"2026-07-24T13:59:23.107-04:00","mono_ms":548270748}
+{"kind":"change","stream":"stat","key":"last_direction","from":"north","to":"east","seq":90,"session_id":"20260724T173654Z-84a3eee5","at":"2026-07-24T13:59:23.107-04:00","mono_ms":548270748}
+{"kind":"change","stream":"stat","key":"move","from":79,"to":78,"seq":91,"session_id":"20260724T173654Z-84a3eee5","at":"2026-07-24T13:59:24.400-04:00","mono_ms":548272041}
+{"kind":"change","stream":"entity","key":"18:threat","from":null,"to":"The perfect match!","seq":92,"session_id":"20260724T173654Z-84a3eee5","at":"2026-07-24T13:59:24.799-04:00","mono_ms":548272440}
+{"id":25,"name":"The Beginning Of The Passage","confidence":"confirmed","surveyed":true,"kind":"event","stream":"room","op":"create","seq":93,"session_id":"20260724T173654Z-84a3eee5","at":"2026-07-24T13:59:24.809-04:00","mono_ms":548272449}
+{"kind":"change","stream":"exit","key":"25:east:target_name","from":null,"to":"The Dirty Hallway","seq":94,"session_id":"20260724T173654Z-84a3eee5","at":"2026-07-24T13:59:24.809-04:00","mono_ms":548272449}
+{"kind":"change","stream":"exit","key":"25:south:target_name","from":null,"to":"The Entrance To The Newbie Zone","seq":95,"session_id":"20260724T173654Z-84a3eee5","at":"2026-07-24T13:59:24.809-04:00","mono_ms":548272449}
+{"kind":"change","stream":"sighting","key":"18:25:count","from":null,"to":2,"seq":96,"session_id":"20260724T173654Z-84a3eee5","at":"2026-07-24T13:59:24.809-04:00","mono_ms":548272450}
+{"kind":"change","stream":"exit","key":"24:north:target_room_id","from":null,"to":25,"seq":97,"session_id":"20260724T173654Z-84a3eee5","at":"2026-07-24T13:59:24.809-04:00","mono_ms":548272450}
+{"kind":"change","stream":"stat","key":"current_room_id","from":24,"to":25,"seq":98,"session_id":"20260724T173654Z-84a3eee5","at":"2026-07-24T13:59:24.809-04:00","mono_ms":548272450}
+{"kind":"change","stream":"stat","key":"prev_room_id","from":23,"to":24,"seq":99,"session_id":"20260724T173654Z-84a3eee5","at":"2026-07-24T13:59:24.809-04:00","mono_ms":548272450}
+{"kind":"change","stream":"stat","key":"last_direction","from":"east","to":"north","seq":100,"session_id":"20260724T173654Z-84a3eee5","at":"2026-07-24T13:59:24.809-04:00","mono_ms":548272450}
+{"kind":"change","stream":"stat","key":"move","from":78,"to":83,"seq":101,"session_id":"20260724T173654Z-84a3eee5","at":"2026-07-24T13:59:46.912-04:00","mono_ms":548294553}
+{"room_id":25,"entity_id":null,"player_level":1,"hp_before":20,"hp_after":20,"kind":"event","stream":"encounter","op":"died","seq":102,"session_id":"20260724T173654Z-84a3eee5","at":"2026-07-24T13:59:46.912-04:00","mono_ms":548294553}
+{"level":1,"kind":"event","stream":"milestone","op":"death","seq":103,"session_id":"20260724T173654Z-84a3eee5","at":"2026-07-24T13:59:46.912-04:00","mono_ms":548294553}
+{"id":25,"kind":"event","stream":"room","op":"visit","seq":104,"session_id":"20260724T173654Z-84a3eee5","at":"2026-07-24T13:59:51.100-04:00","mono_ms":548298740}
+{"kind":"change","stream":"stat","key":"move","from":83,"to":82,"seq":105,"session_id":"20260724T173654Z-84a3eee5","at":"2026-07-24T13:59:54.899-04:00","mono_ms":548302540}
+{"room_id":25,"entity_id":null,"player_level":1,"hp_before":20,"hp_after":20,"kind":"event","stream":"encounter","op":"abandoned","seq":106,"session_id":"20260724T173654Z-84a3eee5","at":"2026-07-24T13:59:54.900-04:00","mono_ms":548302540}
+{"kind":"change","stream":"entity","key":"19:threat","from":null,"to":"You would need some luck!","seq":107,"session_id":"20260724T173654Z-84a3eee5","at":"2026-07-24T13:59:55.299-04:00","mono_ms":548302940}
+{"id":26,"name":"The Dirty Hallway","confidence":"confirmed","surveyed":true,"kind":"event","stream":"room","op":"create","seq":108,"session_id":"20260724T173654Z-84a3eee5","at":"2026-07-24T13:59:55.306-04:00","mono_ms":548302947}
+{"kind":"change","stream":"exit","key":"26:east:target_name","from":null,"to":"A Nexus","seq":109,"session_id":"20260724T173654Z-84a3eee5","at":"2026-07-24T13:59:55.306-04:00","mono_ms":548302947}
+{"kind":"change","stream":"exit","key":"26:west:target_name","from":null,"to":"The Beginning Of The Passage","seq":110,"session_id":"20260724T173654Z-84a3eee5","at":"2026-07-24T13:59:55.306-04:00","mono_ms":548302947}
+{"kind":"change","stream":"exit","key":"26:south:target_name","from":null,"to":"The door is closed.","seq":111,"session_id":"20260724T173654Z-84a3eee5","at":"2026-07-24T13:59:55.306-04:00","mono_ms":548302947}
+{"kind":"change","stream":"sighting","key":"19:26:count","from":null,"to":1,"seq":112,"session_id":"20260724T173654Z-84a3eee5","at":"2026-07-24T13:59:55.307-04:00","mono_ms":548302947}
+{"kind":"change","stream":"sighting","key":"18:26:count","from":null,"to":1,"seq":113,"session_id":"20260724T173654Z-84a3eee5","at":"2026-07-24T13:59:55.307-04:00","mono_ms":548302947}
+{"kind":"change","stream":"exit","key":"25:east:target_room_id","from":null,"to":26,"seq":114,"session_id":"20260724T173654Z-84a3eee5","at":"2026-07-24T13:59:55.307-04:00","mono_ms":548302948}
+{"kind":"change","stream":"stat","key":"current_room_id","from":25,"to":26,"seq":115,"session_id":"20260724T173654Z-84a3eee5","at":"2026-07-24T13:59:55.307-04:00","mono_ms":548302948}
+{"kind":"change","stream":"stat","key":"prev_room_id","from":24,"to":25,"seq":116,"session_id":"20260724T173654Z-84a3eee5","at":"2026-07-24T13:59:55.307-04:00","mono_ms":548302948}
+{"kind":"change","stream":"stat","key":"last_direction","from":"north","to":"east","seq":117,"session_id":"20260724T173654Z-84a3eee5","at":"2026-07-24T13:59:55.307-04:00","mono_ms":548302948}

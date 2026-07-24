@@ -35,6 +35,21 @@ module Boukensha
       MOVEMENT_TOOLS = %w[move flee track].freeze
       COMBAT_TOOLS   = %w[attack skill_strike cast_spell].freeze
 
+      # Inventory ops the agent performs on its own initiative, mapped to the
+      # journal's item-stream verb. These are discrete events — an acquire is not
+      # a keyed-value transition — so they go through `journal.event`, and the
+      # add/remove/use *history* lives in the journal while the current bag stays
+      # a replace-on-read snapshot in the store (change_capture.md §"shared seam").
+      ITEM_OPS = {
+        "get_item"       => "acquire",
+        "drop_item"      => "drop",
+        "put_item"       => "stow",
+        "equip_item"     => "equip",
+        "consume_item"   => "consume",
+        "use_magic_item" => "use"
+      }.freeze
+
+
       # tbaMUD's own words when the world moves without us asking it to.
       DEPARTURE = /^(?:the |a |an )?(.+?)\s+(?:leaves|has left|flees)\b/i.freeze
       ARRIVAL   = /\bhas arrived\b/i.freeze
@@ -46,11 +61,17 @@ module Boukensha
       # `call_tool` is the permission-scoped dispatcher for the hook's own slice
       # (`tools.room_survey.allow`) — a SEPARATE Registry from the player's, so
       # the poll and look below can never re-enter after_tool and recurse.
-      def initialize(store:, call_tool:, look_candidates: nil, logger: nil,
+      def initialize(store:, call_tool:, look_candidates: nil, logger: nil, journal: nil,
                      prefix: "tbamud__", turn_policy: false, warn_to: $stderr)
         @store     = store
         @call_tool = call_tool
         @logger    = logger
+        # The append-only progression log, the store's time-series sibling.
+        # Generic CDC over the knowledgebase lives in the STORE now (every
+        # mutation there emits a delta); the hook only journals signals that are
+        # NOT store writes — text-derived milestones (level-up, death) and the
+        # item ops the agent performs before player_items exists to record them.
+        @journal   = journal
         @prefix    = prefix
         @warn_to   = warn_to
         @turn_policy_enabled = turn_policy
@@ -124,6 +145,11 @@ module Boukensha
           # The model is allowed to call `check(score)` itself, and when it does
           # we get the level reading for free rather than spending our own.
           @store.update_player!(**RoomParser.parse_score(text)) if local == "check" && score_check?(args)
+
+          # An item the agent moved on its own initiative: the ledger the review
+          # asked for ("when was this added/removed/used"). Recorded off the tool
+          # the model already called, so no round trip is spent.
+          capture_item_op(local, args) if ITEM_OPS.key?(local)
 
           settle_fight(local, text)
 
@@ -396,8 +422,13 @@ module Boukensha
         end
 
         # A level change invalidates every stored `threat` at once, so the next
-        # turn re-reads score and appraisals stop being reused.
-        @scored = false if text =~ LEVEL_UP
+        # turn re-reads score and appraisals stop being reused. The `level` value
+        # transition itself is captured by the stat upsert when score re-reads;
+        # this milestone marks the *moment* for the progression timeline.
+        if text =~ LEVEL_UP
+          @scored = false
+          journal_event(stream: "milestone", op: "level_up", level: @store.level)
+        end
 
         note_death(text) if text =~ DEATH
         drop_departed(text)
@@ -426,6 +457,7 @@ module Boukensha
 
       def note_death(text)
         close_fight("died", RoomParser.parse_prompt(text)&.[](:hp))
+        journal_event(stream: "milestone", op: "death", level: @store.level)
         # The Void fingerprints like any other room and must never be recorded as
         # an explored location — it looks like a perfectly ordinary room to every
         # part of this design — so position is dropped rather than re-derived.
@@ -568,6 +600,34 @@ module Boukensha
         JSON.parse(text)
       rescue StandardError
         nil
+      end
+
+      # =========================== journal ==================================
+      #
+      # Generic CDC over the knowledgebase lives in the STORE (every mutation
+      # there emits a delta). The hook only journals signals that are NOT store
+      # writes: text-derived milestones and the item ops the agent performs
+      # before a player_items table exists to record them. Every path is a no-op
+      # without a journal, and the journal's writes are internally guarded.
+
+      def capture_item_op(local, args)
+        return unless @journal
+
+        @journal.event(stream: "item", op: ITEM_OPS[local], tool: local, keyword: item_keyword(args))
+      end
+
+      def journal_event(stream:, op:, **fields)
+        @journal&.event(stream: stream, op: op, **fields)
+      end
+
+      # Best-effort handle for the item the op acted on, read off whatever the
+      # model passed. A richer descr is player_update.md's parser's job; the
+      # keyword is enough to render an honest ledger of actions taken.
+      def item_keyword(args)
+        return nil unless args.is_a?(Hash)
+
+        (args["item"] || args[:item] || args["keyword"] || args[:keyword] ||
+         args["target"] || args[:target] || args.values.find { |v| v.is_a?(String) })&.to_s
       end
 
       def log_conflict(kind, **fields)

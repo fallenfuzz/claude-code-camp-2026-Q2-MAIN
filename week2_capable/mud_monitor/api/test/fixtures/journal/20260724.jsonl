@@ -1,0 +1,9 @@
+{"kind":"snapshot","stream":"stat","values":{"level":1,"gold":0,"exp":1},"seq":1,"session_id":"s1","at":"2026-07-24T09:00:00.000Z","mono_ms":1000}
+{"kind":"change","stream":"stat","key":"exp","from":1,"to":500,"seq":2,"session_id":"s1","at":"2026-07-24T09:05:00.000Z","mono_ms":1300}
+{"kind":"event","stream":"item","op":"acquire","tool":"get_item","keyword":"sword","descr":"a long sword","seq":3,"session_id":"s1","at":"2026-07-24T09:06:00.000Z","mono_ms":1400}
+{"kind":"change","stream":"stat","key":"level","from":1,"to":2,"seq":4,"session_id":"s1","at":"2026-07-24T09:10:00.000Z","mono_ms":1700}
+{"kind":"event","stream":"milestone","op":"level_up","level":1,"seq":5,"session_id":"s1","at":"2026-07-24T09:10:00.100Z","mono_ms":1710}
+{"kind":"change","stream":"stat","key":"gold","from":0,"to":250,"seq":6,"session_id":"s1","at":"2026-07-24T09:12:00.000Z","mono_ms":1900}
+{"kind":"change","stream":"skill","key":"backstab","from":null,"to":15,"seq":7,"session_id":"s1","at":"2026-07-24T09:15:00.000Z","mono_ms":2100}
+{"kind":"event","stream":"item","op":"drop","tool":"drop_item","keyword":"sword","seq":8,"session_id":"s1","at":"2026-07-24T09:16:00.000Z","mono_ms":2200}
+{"kind":"event","stream":"milestone","op":"death","level":2,"seq":9,"session_id":"s1","at":"2026-07-24T09:20:00.000Z","mono_ms":2500}

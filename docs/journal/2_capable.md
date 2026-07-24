@@ -278,6 +278,28 @@ I had claude reverse engineer it into technical spec, and the second step will b
 that plan based on my projects requirements. Some functionality we do not have currently is task management
 so we cannot fully realize that exact implementaiton yet.
 
+While I have an updated plan I noticed I am missing vitials.
+We really should have a score check often to update vitals.
+So before I execute this plan I want to fix that issue.
+
+doc/plans/week_2/mud_observer
+
+## 14 CDC
+
+While exploring to capture player data in the database, I realize I probably want Change Capture Data logging
+THis is so we can see progressing of leveling, or items added or removed. We are mostly interested in player data
+but I suppose we can make it generic enough to capture any change.
+
+If we switch to postgres we would get this first class or probably as an extension but I'm trying to keep things
+self contained to just the SQLITE file since its portable.
+
+doc/plans/week_2/change_capture
+
+## 15 Player Update
+We want in our hook oupdate the vitals information, inventory and etc
+
+doc/plans/week_2/player_update
+
 
 ## Technical Conclusions
 Reflecting back your education guesses from the technical uncertainty section what was the technical outcomes. Is there any new technical uncertainty that has been put aside for future exploration. Are there any next steps or technical considerations worth noting?

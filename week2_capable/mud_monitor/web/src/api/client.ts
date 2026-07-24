@@ -6,6 +6,7 @@ import type {
   KnowledgeOverview,
   KnowledgeRoomDetail,
   KnowledgeRoomsPage,
+  JournalPage,
   ManagerPage,
   MessagesTimeline,
   SessionDetail,
@@ -133,6 +134,14 @@ export function fetchKnowledgeEntities(filters: KnowledgeEntityFilters = {}): Pr
 
 export function fetchKnowledgeFrontier(): Promise<KnowledgeFrontierPage> {
   return get("/knowledge/frontier");
+}
+
+// The progression journal, folded into series server-side. A snapshot of the
+// whole day is fine to poll (like knowledge) even though the underlying file is
+// an append-only log — the fold is cheap and a chart wants the full history.
+export function fetchJournal(date?: string): Promise<JournalPage> {
+  const qs = date ? `?date=${encodeURIComponent(date)}` : "";
+  return get(`/journal${qs}`);
 }
 
 export { ApiRequestError };

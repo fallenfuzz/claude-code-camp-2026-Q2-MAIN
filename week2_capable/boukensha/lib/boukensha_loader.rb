@@ -152,11 +152,27 @@ module BoukenshaLoader
         store = Boukensha::Mud::Memory::Store.for_dir(cfg.dir)
         at_exit { store.close rescue nil }
 
+        # The store's time-series sibling: an append-only jsonl progression log
+        # in `.boukensha/journal/`, sharing the session file's id so telnet /
+        # manager / session / journal all join on one key. A failure here must
+        # not cost the agent its memory, so it is best-effort.
+        journal = begin
+          j = Boukensha::Journal.new(session_id: parent&.session_id)
+          at_exit { j.close rescue nil }
+          # Generic CDC: every Store mutation emits a delta through this journal.
+          store.journal = j
+          j
+        rescue StandardError => e
+          warn "[boukensha] #{e.message} — continuing without progression journal"
+          nil
+        end
+
         hooks Boukensha::Mud::Hooks.new(
           store: store,
           call_tool: call_tool,
           look_candidates: candidates,
           logger: parent,
+          journal: journal,
           # Default off for a session of observation: pinning `move` to the
           # exits line cannot be WRONG, but tbaMUD omits closed doors from that
           # line, and a mitigation deserves to be watched before it is trusted.

@@ -196,4 +196,79 @@ class TestMemoryStore < Minitest::Test
 
     assert_equal({ rooms: 1, surveyed: 1, frontier: 1, entities: 0, encounters: 0 }, @store.stats)
   end
+
+  # --- generic CDC: every mutation emits a journal delta ---------------------
+
+  # Records upsert/event calls without deduping, so a test can see exactly what
+  # the store handed the journal. Real dedup is the Journal's job (test_journal).
+  class FakeJournal
+    attr_reader :changes, :events
+
+    def initialize
+      @changes = []
+      @events  = []
+    end
+
+    def upsert(stream:, key:, value:)
+      return false if value.nil?
+
+      @changes << { stream: stream, key: key, value: value }
+      true
+    end
+
+    def event(stream:, op:, **fields)
+      @events << { stream: stream, op: op }.merge(fields)
+      true
+    end
+  end
+
+  def test_player_writes_emit_a_stat_delta_per_field
+    @store.journal = (j = FakeJournal.new)
+    @store.update_player!(level: 5, gold: 100, hp: 18)
+
+    by_key = j.changes.select { |c| c[:stream] == "stat" }.each_with_object({}) { |c, h| h[c[:key]] = c[:value] }
+    assert_equal 5, by_key["level"]
+    assert_equal 100, by_key["gold"]
+    assert_equal 18, by_key["hp"], "hp is captured now — generic capture takes everything"
+    refute_includes by_key.keys, "updated_at", "the bookkeeping timestamp is noise, never journaled"
+  end
+
+  def test_room_lifecycle_emits_events
+    @store.journal = (j = FakeJournal.new)
+    id = new_room
+    @store.touch_room(id)
+    @store.mark_surveyed!(id)
+
+    ops = j.events.select { |e| e[:stream] == "room" }.map { |e| e[:op] }
+    assert_equal %w[create visit surveyed], ops
+  end
+
+  def test_exit_target_is_a_change_detected_upsert
+    @store.journal = (j = FakeJournal.new)
+    id = new_room
+    @store.record_exits!(id, dirs: %w[north], targets: { "north" => "The Temple" })
+
+    exit_change = j.changes.find { |c| c[:stream] == "exit" && c[:key].end_with?("target_name") }
+    refute_nil exit_change
+    assert_equal "The Temple", exit_change[:value]
+  end
+
+  def test_encounter_is_a_discrete_event
+    @store.journal = (j = FakeJournal.new)
+    @store.update_player!(level: 3)
+    @store.record_encounter!(outcome: "died", hp_before: 20, hp_after: -6)
+
+    enc = j.events.find { |e| e[:stream] == "encounter" }
+    refute_nil enc
+    assert_equal "died", enc[:op]
+    assert_equal 3, enc[:player_level]
+  end
+
+  def test_no_journal_wired_is_a_silent_no_op
+    # @store has no journal by default — every mutation must still work.
+    id = new_room
+    @store.update_player!(level: 2)
+    @store.record_encounter!(outcome: "won")
+    assert_equal 2, @store.level   # no raise, writes landed
+  end
 end

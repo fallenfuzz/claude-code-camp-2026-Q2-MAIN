@@ -12,6 +12,24 @@ kept). Both logs are off by default (`MUD_MANAGER_LOG_DIR` /
 `MUD_TELNET_LOG_DIR` unset). No dropped/reshaped diffs, correlation ids, or
 world pages yet — those land in later phases.
 
+The **Knowledge** page reads the agent's world memory (`knowledge.sqlite3`). Its
+change history is the append-only journal (`.boukensha/journal/*.jsonl`), served
+by `/api/v1/journal` and surfaced two ways:
+
+- **Change Log** (top-level nav, `/journal`) — the raw CDC feed: every
+  upsert/update/delete across the whole knowledgebase (player stats, rooms,
+  exits, entities, sightings, encounters, items), filterable by stream, emitted
+  only when a value actually changed. This is generic change data capture wired
+  at the `Memory::Store` layer.
+- **Knowledge → Progression** subtab — the graphed timeline of that same data:
+  level/exp/gold/vitals over time, a milestone timeline (level-ups, deaths),
+  skills, and an item ledger.
+
+Unlike knowledge (a polled snapshot), the journal is a streamable time series
+with a `seq` cursor. Path is resolved from `boukensha_dir` (override with
+`MUD_MONITOR_JOURNAL_DIR`); when the agent has not journalled yet, both views
+render empty. See `docs/plans/week_2/change_capture.md`.
+
 ## Run
 
 ```

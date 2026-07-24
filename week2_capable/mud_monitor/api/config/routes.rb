@@ -22,6 +22,12 @@ Rails.application.routes.draw do
       get "telnet", to: "telnet#index"
       get "telnet/stream", to: "telnet#stream"
 
+      # The agent's progression log. Append-only with a per-record seq, so unlike
+      # knowledge it streams (SSE) — #index folds the day into graphable series,
+      # #stream tails new records after a cursor.
+      get "journal", to: "journal#index"
+      get "journal/stream", to: "journal#stream"
+
       get "diffs/dropped", to: "diffs#dropped"
 
       # The agent's world memory. A snapshot, not a log — no /stream sibling,
