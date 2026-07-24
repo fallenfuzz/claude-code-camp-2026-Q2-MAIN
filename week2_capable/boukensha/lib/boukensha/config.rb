@@ -12,13 +12,18 @@ module Boukensha
     # Default prompts shipped alongside this step.
     PROMPTS_DIR = File.expand_path("../../../prompts", __dir__).freeze
 
-    attr_reader :dir, :settings
+    attr_reader :root_dir, :profile_dir, :profile, :settings
 
     def initialize
-      @dir = resolve_dir
+      @root_dir = resolve_dir
+      @profile_dir = resolve_profile_dir
       load_env
       @settings = load_settings
+      @profile = load_profile
     end
+
+    # Backward-compatible name for callers that only need shared assets.
+    def dir = @root_dir
 
     # ---------- tasks -----------------------------------------------------
 
@@ -26,22 +31,30 @@ module Boukensha
     # With a name: returns that task's settings hash, e.g. tasks(:player).
     def tasks(name = nil)
       all = dig(:tasks) || {}
-      name ? (all[name.to_s] || all[name.to_sym]) : all
+      return all unless name
+
+      selected = all[name.to_s] || all[name.to_sym] || {}
+      return selected unless name.to_s == "player"
+
+      selected.merge(
+        "provider" => (profile_dig(:overrides, :task, :provider) || selected["provider"] || selected[:provider]),
+        "model" => (profile_dig(:overrides, :task, :model) || selected["model"] || selected[:model])
+      ).compact
     end
 
     # The user's prompts directory for task prompt overrides.
     def user_prompts_dir
-      File.join(@dir, "prompts")
+      File.join(@root_dir, "prompts")
     end
 
     # ---------- provider --------------------------------------------------
 
     def provider_type
-      dig(:tasks, :player, :provider) || "anthropic"
+      profile_dig(:overrides, :task, :provider) || dig(:tasks, :player, :provider) || "anthropic"
     end
 
     def model
-      dig(:tasks, :player, :model) || "claude-haiku-4-5"
+      profile_dig(:overrides, :task, :model) || dig(:tasks, :player, :model) || "claude-haiku-4-5"
     end
 
     # ---------- MCP servers ------------------------------------------------
@@ -67,10 +80,12 @@ module Boukensha
         get   = ->(k) { entry[k.to_s].nil? ? entry[k.to_sym] : entry[k.to_s] }
         req   = get.call(:required)
 
+        env = (get.call(:env) || {}).each_with_object({}) { |(k, v), h| h[k.to_s] = v.to_s }
+        apply_profile_mud_env!(env) if name.to_s == "mud"
         out[name.to_s] = {
           command:  get.call(:command).to_s,
           args:     Array(get.call(:args)).map(&:to_s),
-          env:      (get.call(:env) || {}).each_with_object({}) { |(k, v), h| h[k.to_s] = v.to_s },
+          env:      env,
           prefix:   get.call(:prefix)&.to_s,
           required: req.nil? ? true : !!req
         }
@@ -113,8 +128,14 @@ module Boukensha
       end
     end
 
+    def profile_dig(*keys)
+      keys.reduce(@profile) do |node, key|
+        node.is_a?(Hash) ? (node[key.to_s] || node[key.to_sym]) : nil
+      end
+    end
+
     def to_s
-      "#<Boukensha::Config dir=#{@dir} provider=#{provider_type} model=#{model}>"
+      "#<Boukensha::Config root_dir=#{@root_dir} profile_dir=#{@profile_dir} provider=#{provider_type} model=#{model}>"
     end
 
     def inspect = to_s
@@ -126,20 +147,53 @@ module Boukensha
       Pathname.new(raw).expand_path.to_s
     end
 
+    def resolve_profile_dir
+      raw = ENV["BOUKENSHA_PROFILE_DIR"]
+      raw ? Pathname.new(raw).expand_path.to_s : @root_dir
+    end
+
     def load_env
-      env_file = File.join(@dir, ".env")
+      env_file = File.join(@root_dir, ".env")
       if File.exist?(env_file)
         Dotenv.load(env_file)
       end
     end
 
     def load_settings
-      settings_file = File.join(@dir, "settings.yaml")
+      settings_file = File.join(@root_dir, "settings.yaml")
       if File.exist?(settings_file)
         YAML.safe_load(File.read(settings_file)) || {}
       else
         {}
       end
+    end
+
+    def load_profile
+      path = File.join(@profile_dir, "profile.yaml")
+      return {} unless File.file?(path)
+
+      value = YAML.safe_load(File.read(path), permitted_classes: [], aliases: false) || {}
+      raise ArgumentError, "#{path} must contain a YAML mapping" unless value.is_a?(Hash)
+      value
+    end
+
+    def apply_profile_mud_env!(env)
+      return if @profile.empty?
+
+      name = profile_dig(:player, :name)
+      password_env = profile_dig(:player, :password_env)
+      env["MUD_NAME"] = name.to_s if name
+      if password_env
+        password = ENV[password_env.to_s]
+        raise ArgumentError, "profile password environment variable #{password_env} is not set" if password.nil? || password.empty?
+        env["MUD_PASSWORD"] = password
+      end
+      host = profile_dig(:overrides, :mud, :host)
+      port = profile_dig(:overrides, :mud, :port)
+      env["MUD_HOST"] = host.to_s if host
+      env["MUD_PORT"] = port.to_s if port
+      env["MUD_MANAGER_LOG_DIR"] = File.join(@profile_dir, "manager")
+      env["MUD_TELNET_LOG_DIR"] = File.join(@profile_dir, "telnet")
     end
   end
 end

@@ -101,7 +101,7 @@ module Api
       end
 
       def cfg
-        Rails.application.config.x.mud_monitor
+        profile_config
       end
 
       def render_not_found(_error)

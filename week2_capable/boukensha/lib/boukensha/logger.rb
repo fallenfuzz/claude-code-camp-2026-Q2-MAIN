@@ -164,7 +164,7 @@ module Boukensha
     private
 
     def default_dir
-      File.join(Boukensha.config.dir, DEFAULT_SESSION_DIR)
+      File.join(Boukensha.config.profile_dir, DEFAULT_SESSION_DIR)
     end
 
     def write_log(event)

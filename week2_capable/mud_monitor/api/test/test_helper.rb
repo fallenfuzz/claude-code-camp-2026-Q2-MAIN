@@ -15,3 +15,11 @@ module ActiveSupport
     # Add more helper methods to be used by all tests here...
   end
 end
+
+# Existing controller fixtures exercise the migration-era unprofiled runtime.
+# Profile-specific tests may delete this cookie to assert the required 409.
+class ActionDispatch::IntegrationTest
+  setup do
+    cookies["mud_monitor_profile"] = "legacy"
+  end
+end

@@ -22,6 +22,7 @@
 require "yaml"
 
 module BoukenshaLoader
+  PROFILE_PATTERN = /\A[a-zA-Z0-9][a-zA-Z0-9_-]{0,63}\z/
   # Absolute path to this gem's own bundled boukensha lib.
   BUNDLED_LIB = File.expand_path("../boukensha.rb", __FILE__)
 
@@ -67,7 +68,6 @@ module BoukenshaLoader
     # environment variable always wins over the rc file.
     rc_config_dir = expand_rc_path(rc["boukensha_dir"])
     ENV["BOUKENSHA_DIR"] = rc_config_dir if !ENV["BOUKENSHA_DIR"] && rc_config_dir
-
     source = ENV["BOUKENSHA_PATH"] || expand_rc_path(rc["boukensha_path"])
     return BUNDLED_LIB unless source
 
@@ -82,8 +82,49 @@ module BoukenshaLoader
     MSG
   end
 
+  def self.profiles
+    root = File.expand_path(ENV["BOUKENSHA_DIR"] || File.join(Dir.home, ".boukensha"))
+    base = File.join(root, "profiles")
+    return [] unless File.directory?(base)
+
+    Dir.children(base).select do |name|
+      PROFILE_PATTERN.match?(name) && File.file?(File.join(base, name, "profile.yaml"))
+    end.sort_by(&:downcase)
+  end
+
+  def self.resolve_profile!
+    requested = extract_profile_argument || ENV["BOUKENSHA_PROFILE"]
+    available = profiles
+    if requested.nil? || requested.empty?
+      abort "boukensha: select a profile with --profile NAME or BOUKENSHA_PROFILE.\nAvailable profiles: #{available.join(', ')}"
+    end
+    abort "boukensha: invalid profile name #{requested.inspect}" unless PROFILE_PATTERN.match?(requested)
+
+    actual = available.find { |name| name.casecmp?(requested) }
+    abort "boukensha: profile #{requested.inspect} not found.\nAvailable profiles: #{available.join(', ')}" unless actual
+
+    root = File.expand_path(ENV["BOUKENSHA_DIR"] || File.join(Dir.home, ".boukensha"))
+    dir = File.expand_path(File.join(root, "profiles", actual))
+    profiles_root = File.expand_path(File.join(root, "profiles")) + File::SEPARATOR
+    abort "boukensha: profile resolves outside profiles directory" unless dir.start_with?(profiles_root)
+    ENV["BOUKENSHA_PROFILE"] = actual
+    ENV["BOUKENSHA_PROFILE_DIR"] = dir
+  end
+
+  def self.extract_profile_argument
+    if ARGV.delete("--list-profiles")
+      puts profiles
+      exit 0
+    end
+    index = ARGV.index("--profile")
+    return nil unless index
+    abort "boukensha: --profile requires a name" unless ARGV[index + 1]
+    ARGV.slice!(index, 2).last
+  end
+
   def self.load_and_start_repl
     main = resolve
+    resolve_profile!
     step_dir = File.dirname(File.dirname(main))
 
     puts "[boukensha] loading from: #{step_dir}" if ENV["BOUKENSHA_DEBUG"]
@@ -149,7 +190,7 @@ module BoukenshaLoader
       candidates = Boukensha::Extractors.look_candidates
 
       begin
-        store = Boukensha::Mud::Memory::Store.for_dir(cfg.dir)
+        store = Boukensha::Mud::Memory::Store.for_dir(cfg.profile_dir)
         at_exit { store.close rescue nil }
 
         # The store's time-series sibling: an append-only jsonl progression log

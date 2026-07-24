@@ -1,4 +1,5 @@
 require "yaml"
+require Rails.root.join("lib/profile_registry")
 
 repo_root = Rails.root.join("../../..").expand_path
 
@@ -44,6 +45,7 @@ end
 
 Rails.application.config.x.mud_monitor = ActiveSupport::OrderedOptions.new.tap do |c|
   c.boukensha_dir = boukensha_dir
+  c.profile_registry = ProfileRegistry.new(root: boukensha_dir)
   c.sessions_dir  = Pathname.new(ENV.fetch("MUD_MONITOR_SESSIONS_DIR", boukensha_dir.join("sessions").to_s))
   c.telnet_dir    = Pathname.new(ENV.fetch("MUD_MONITOR_TELNET_DIR", boukensha_dir.join("telnet").to_s))
   c.manager_dir   = Pathname.new(ENV.fetch("MUD_MONITOR_MANAGER_DIR", boukensha_dir.join("manager").to_s))

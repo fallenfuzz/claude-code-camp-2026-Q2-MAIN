@@ -127,7 +127,7 @@ module Api
       end
 
       def cfg
-        Rails.application.config.x.mud_monitor
+        profile_config
       end
 
       def serializer_for(path)

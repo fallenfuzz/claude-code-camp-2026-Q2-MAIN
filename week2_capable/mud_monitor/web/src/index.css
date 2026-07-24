@@ -67,6 +67,20 @@ body {
   gap: 1rem;
 }
 
+.profile-selector {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  color: #c7ccd4;
+  font-size: 0.8rem;
+}
+
+.profile-selector select,
+.profile-required select {
+  padding: 0.35rem 0.55rem;
+}
+
 .topbar nav a {
   color: #c7ccd4;
   text-decoration: none;

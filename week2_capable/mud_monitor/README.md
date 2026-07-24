@@ -44,3 +44,15 @@ Open http://localhost:5173.
 - `api/` — Rails API-only app (`app/controllers/api/v1`, `config/database.yml`)
 - `web/` — Vite + React + TS app (mirrors `week0_explore/preview/web`'s stack)
 - `Procfile.dev` — the two dev processes, run via `bin/dev` (foreman)
+# Player selection
+
+Mud Monitor discovers player profiles below the configured Boukensha root.
+The top-bar selector stores its choice in
+`localStorage["mud-monitor.profile"]` and mirrors the non-secret ID into the
+same-origin `mud_monitor_profile` cookie. All API readers—including SSE
+streams—resolve their files from that profile. Until a valid profile is
+selected, profile-backed endpoints return
+`409 profile_selection_required`; `GET /api/v1/profiles` remains available.
+
+During migration, unprofiled runtime files at the Boukensha root appear as the
+read-only `legacy` profile. New Boukensha runs cannot select `legacy`.

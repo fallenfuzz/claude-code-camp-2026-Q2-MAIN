@@ -26,7 +26,7 @@ module Boukensha
       settings = config.dig(:tools, :room_survey, :look_candidates) || {}
       return ->(**) { [] } if settings["extractor"].to_s == "none"
 
-      dir   = expand(settings["model_dir"]) || File.join(config.dir, DEFAULT_DIR)
+      dir   = expand(settings["model_dir"]) || File.join(config.root_dir, DEFAULT_DIR)
       model = Model.load(dir)
 
       lambda do |name:, description:, exit_targets: {}, mobs: [], objects: [], exclude: Set.new|

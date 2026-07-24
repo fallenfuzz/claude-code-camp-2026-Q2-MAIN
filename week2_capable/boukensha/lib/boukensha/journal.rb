@@ -109,7 +109,7 @@ module Boukensha
     private
 
     def default_dir
-      File.join(Boukensha.config.dir, DEFAULT_JOURNAL_DIR)
+      File.join(Boukensha.config.profile_dir, DEFAULT_JOURNAL_DIR)
     end
 
     # Stamp seq/session_id/at/mono_ms and append one jsonl line under the mutex.

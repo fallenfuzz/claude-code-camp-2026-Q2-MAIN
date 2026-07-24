@@ -172,7 +172,7 @@ module Boukensha
       max_iterations:    cfg.agent_max_iterations,
       max_turn_tokens:   cfg.agent_max_turn_tokens,
       max_output_tokens: (max_output_tokens || cfg.agent_max_output_tokens),
-      config_dir: cfg.dir,
+      config_dir: cfg.profile_dir,
       provider:   backend,
       model:      model,
       version:    VERSION,

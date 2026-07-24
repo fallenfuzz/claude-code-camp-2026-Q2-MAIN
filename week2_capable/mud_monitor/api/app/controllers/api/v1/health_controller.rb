@@ -2,7 +2,7 @@ module Api
   module V1
     class HealthController < ApplicationController
       def show
-        cfg = Rails.application.config.x.mud_monitor
+        cfg = profile_config
 
         render json: {
           ok: true,
