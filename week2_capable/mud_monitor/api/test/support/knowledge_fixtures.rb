@@ -43,13 +43,32 @@ module KnowledgeFixtures
     cfg = Rails.application.config.x.mud_monitor
     @previous_knowledge_db = cfg.knowledge_db unless defined?(@previous_knowledge_db)
     cfg.knowledge_db = Pathname.new(path)
+    point_profiles_at_tmpdir
     Pathname.new(path)
   end
 
+  # The `legacy` profile every integration test selects only EXISTS when the
+  # boukensha dir looks like a runtime — ProfileRegistry#legacy? probes for
+  # sessions/, telnet/, journal/, manager/ or knowledge.sqlite3. Rooted at the
+  # developer's real ~/.boukensha that is a property of their machine: clear
+  # those directories out and every knowledge test 409s with
+  # `profile_selection_required`, which is a true answer to a question the test
+  # never meant to ask.
+  #
+  # So the registry is rooted at the same throwaway dir the fixture DB lives in,
+  # with one runtime marker in it. The tests then depend on nothing outside
+  # tmpdir — which is what the rest of this file was already careful to do.
+  def point_profiles_at_tmpdir
+    cfg = Rails.application.config.x.mud_monitor
+    @previous_profile_registry = cfg.profile_registry unless defined?(@previous_profile_registry)
+    knowledge_tmpdir.join("sessions").mkpath
+    cfg.profile_registry = ProfileRegistry.new(root: knowledge_tmpdir)
+  end
+
   def restore_knowledge_db
-    if defined?(@previous_knowledge_db)
-      Rails.application.config.x.mud_monitor.knowledge_db = @previous_knowledge_db
-    end
+    cfg = Rails.application.config.x.mud_monitor
+    cfg.knowledge_db = @previous_knowledge_db if defined?(@previous_knowledge_db)
+    cfg.profile_registry = @previous_profile_registry if defined?(@previous_profile_registry)
     FileUtils.remove_entry(@knowledge_tmpdir) if @knowledge_tmpdir&.directory?
   end
 

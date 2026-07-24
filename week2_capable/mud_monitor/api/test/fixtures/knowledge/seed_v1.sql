@@ -1,13 +1,14 @@
--- A knowledge.sqlite3 as the agent writes it.
+-- A knowledge.sqlite3 as an OLDER agent build wrote it: schema V1, before the
+-- player half existed. Frozen on purpose, and the only reason it is kept
+-- alongside seed.sql: the reader must serve one monitor against both an old
+-- and a new agent file, so "V1 still answers" has to be a test and not a hope.
+-- Do not extend this file — extend seed.sql.
 --
 -- SQL, not a committed .sqlite3 binary: a binary fixture cannot be reviewed in
 -- a diff and rots silently the first time boukensha's schema moves. The DDL
--- below is a verbatim copy of Boukensha::Mud::Memory::Schema V1 + V2 (comments
--- stripped, and with V2's ALTERs folded into the player_state CREATE, which is
--- the shape a migrated file ends up in) — if a test starts failing because a
--- column moved, THAT is the signal, and this file is where the drift is
--- recorded. seed_v1.sql is the frozen pre-V2 copy, kept so the reader can be
--- proven to still serve an older agent's file.
+-- below is a verbatim copy of Boukensha::Mud::Memory::Schema::V1 (comments
+-- stripped) — if a test starts failing because a column moved, THAT is the
+-- signal, and this file is where the drift is recorded.
 --
 -- The rows are chosen for edge cases, not realism:
 --   room 1  surveyed, confirmed, look_candidates populated, has entities
@@ -19,12 +20,6 @@
 --   entity 4  has a threat verdict but NO threat_level (unmeasured level),
 --             and equipment, which is a JSON array string like look_candidates
 --   encounters  one row — the live DB has zero, so this is otherwise untested
---   player_state   the full V2 sheet, with char_class/race NULL because no
---             capture proves this build prints them
---   player_skills  a learned one, an unlearned one, and one with no grade at
---             all — proficiency is a WORD in this build, never a percent
---   player_items   both locations, a stacked row, and an equipped row whose
---             slot is filled but whose item the MUD never named
 
 CREATE TABLE rooms (
   id               INTEGER PRIMARY KEY,
@@ -89,42 +84,8 @@ CREATE TABLE player_state (
   level INTEGER, gold INTEGER, exp INTEGER,
   position        TEXT,
   session_id      TEXT,
-  updated_at      TEXT NOT NULL,
-  max_mana         INTEGER,
-  max_move         INTEGER,
-  exp_to_next      INTEGER,
-  armor_class      TEXT,
-  alignment        INTEGER,
-  age_years        INTEGER,
-  title            TEXT,
-  char_class       TEXT,
-  race             TEXT,
-  gold_bank        INTEGER,
-  conditions       TEXT,
-  practices_left   INTEGER,
-  items_updated_at TEXT
+  updated_at      TEXT NOT NULL
 );
-
-CREATE TABLE player_skills (
-  name          TEXT PRIMARY KEY,
-  proficiency   TEXT,
-  learned       INTEGER NOT NULL DEFAULT 0,
-  kind          TEXT,
-  learned_level INTEGER,
-  first_seen_at TEXT NOT NULL,
-  last_seen_at  TEXT NOT NULL
-);
-
-CREATE TABLE player_items (
-  id         INTEGER PRIMARY KEY,
-  location   TEXT NOT NULL CHECK (location IN ('inventory','equipped')),
-  worn_on    TEXT,
-  keyword    TEXT,
-  descr      TEXT NOT NULL,
-  quantity   INTEGER NOT NULL DEFAULT 1,
-  updated_at TEXT NOT NULL
-);
-CREATE INDEX idx_items_location ON player_items(location);
 
 CREATE TABLE encounters (
   id            INTEGER PRIMARY KEY,
@@ -137,7 +98,7 @@ CREATE TABLE encounters (
 );
 CREATE INDEX idx_encounters_entity ON encounters(entity_id);
 
-PRAGMA user_version = 2;
+PRAGMA user_version = 1;
 
 INSERT INTO rooms (id, weak_fingerprint, strong_fingerprint, confidence, name, description,
                    look_candidates, first_seen_at, last_seen_at, visit_count, surveyed_at) VALUES
@@ -187,39 +148,9 @@ INSERT INTO entity_sightings (entity_id, room_id, count, sighting_count, first_s
 
 INSERT INTO player_state (id, current_room_id, prev_room_id, last_direction,
                           hp, max_hp, mana, move, level, gold, exp, position,
-                          session_id, updated_at,
-                          max_mana, max_move, exp_to_next, armor_class, alignment, age_years,
-                          title, char_class, race, gold_bank, conditions, practices_left,
-                          items_updated_at) VALUES
+                          session_id, updated_at) VALUES
   (1, 5, 4, 'up', 18, 20, 100, 72, 2, 15, 900, 'Standing',
-   '20260723T225532Z-7ed8c53a', '2026-07-23T22:56:01Z',
-   162, 94, 1099, '94/10', 0, 17,
-   -- char_class and race are NULL because no capture proves this build's
-   -- `score` prints them. The columns are reserved, the values are not guessed.
-   -- (No semicolons in this block: reader_test strips the whole INSERT with a
-   --  regex that stops at the first one.)
-   'Derrano the Minister', NULL, NULL, NULL, 'hungry,thirsty', 30,
-   -- Deliberately OLDER than updated_at: the bag is a snapshot the agent has
-   -- not refreshed since, and the UI has to say so rather than imply freshness.
-   '2026-07-23T22:55:58Z');
-
-INSERT INTO player_skills (name, proficiency, learned, kind, learned_level, first_seen_at, last_seen_at) VALUES
-  ('armor',      'good',        1, 'spell', 2,    '2026-07-23T22:55:50Z', '2026-07-23T22:55:58Z'),
-  ('bless',      'not learned', 0, 'spell', NULL, '2026-07-23T22:55:50Z', '2026-07-23T22:55:58Z'),
-  ('cure light', 'good',        1, 'spell', 1,    '2026-07-23T22:55:50Z', '2026-07-23T22:55:58Z'),
-  -- Known, but the listing carried no grade for it: proficiency is NULL, which
-  -- is "not read", not "no ability".
-  ('sneak',      NULL,          1, 'skill', NULL, '2026-07-23T22:55:52Z', '2026-07-23T22:55:58Z');
-
-INSERT INTO player_items (id, location, worn_on, keyword, descr, quantity, updated_at) VALUES
-  (1, 'inventory', NULL,           'bottle', 'a bottle',          2, '2026-07-23T22:55:58Z'),
-  (2, 'inventory', NULL,           'lantern', 'a hooded lantern', 1, '2026-07-23T22:55:58Z'),
-  (3, 'equipped',  'worn on body', 'jacket', 'a leather jacket',  1, '2026-07-23T22:55:58Z'),
-  (4, 'equipped',  'wielded',      'club',   'a wooden club',     1, '2026-07-23T22:55:58Z'),
-  -- A filled slot the MUD named nothing for. descr is NOT NULL, so the reader
-  -- gets an empty-ish row rather than a missing slot: "something is worn here"
-  -- is itself a reading.
-  (5, 'equipped',  'worn on finger', NULL,   '',                  1, '2026-07-23T22:55:58Z');
+   '20260723T225532Z-7ed8c53a', '2026-07-23T22:56:01Z');
 
 INSERT INTO encounters (id, room_id, entity_id, player_level, outcome, hp_before, hp_after, at) VALUES
   (1, 1, 2, 1, 'fled', 20, 9, '2026-07-23T22:55:50Z');

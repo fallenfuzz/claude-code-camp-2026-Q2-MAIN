@@ -15,6 +15,13 @@ function Tile({ label, value, sub }: { label: string; value: string | number; su
   );
 }
 
+// "100(162)" when the max was read, "100" when it was not. Never "100 / ?" —
+// the max is absent far more often than it is present here.
+function withMax(value: number | null, max: number | null) {
+  if (value == null) return "?";
+  return max == null ? `${value}` : `${value}(${max})`;
+}
+
 export default function Overview() {
   const { data, error } = usePolling(() => fetchKnowledge(), []);
   useReportEnvelope(data);
@@ -50,7 +57,12 @@ export default function Overview() {
           <div className="stat-grid">
             <Tile label="HP" value={`${player.hp ?? "?"} / ${player.max_hp ?? "?"}`} />
             <Tile label="Level" value={player.level ?? "?"} sub={player.position ?? undefined} />
-            <Tile label="Mana / Move" value={`${player.mana ?? "?"} / ${player.move ?? "?"}`} />
+            {/* max_mana and max_move come from `score` and from nowhere else —
+                the prompt line that rides on every response carries the
+                currents alone. So the denominators are shown when they exist
+                and silently dropped when they do not, rather than printed as
+                "?" twice on the busiest tile on the page. */}
+            <Tile label="Mana / Move" value={`${withMax(player.mana, player.max_mana)} / ${withMax(player.move, player.max_move)}`} />
             <Tile label="Gold" value={player.gold ?? "?"} sub={player.exp != null ? `${player.exp} exp` : undefined} />
           </div>
 

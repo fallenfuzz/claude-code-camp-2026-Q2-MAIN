@@ -45,6 +45,28 @@ module Api
         end
       end
 
+      # GET /knowledge/player
+      #
+      # Its own action rather than more keys on #show, for the same reason
+      # `rooms` and `entities` are: #show is the Overview poll and runs every
+      # 3s on the busiest tab, and a full skill list plus two item snapshots is
+      # not something that page renders. One action per view keeps the cheap
+      # poll cheap.
+      #
+      # Against a V1 file this answers with the four numbers that existed then
+      # and empty lists for the rest — an older agent's memory is served, not
+      # rejected.
+      def player
+        with_reader do |reader|
+          render json: reader.envelope.merge(
+            player: reader.player,
+            skills: reader.player_skills,
+            inventory: reader.player_items(location: "inventory"),
+            equipped: reader.player_items(location: "equipped")
+          )
+        end
+      end
+
       # GET /knowledge/entities?kind=&q=
       def entities
         with_reader do |reader|

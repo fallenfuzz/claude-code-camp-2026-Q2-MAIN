@@ -146,18 +146,142 @@ module Boukensha
           { hp: m[1].to_i, mana: m[2].to_i, move: m[3].to_i }
         end
 
-        # tbaMUD's `score`. Every field is optional and independently matched:
-        # the prompt line already covers hp/mana/move, so this exists only for
-        # level/gold/exp, and a MUD that words one line differently must not
-        # cost us the other two.
+        # tbaMUD's `score`. Every field is optional and independently matched,
+        # because a MUD that words one line differently must not cost us the
+        # others — that contract is why this stays a bag of optional regexes
+        # rather than one template, and it is what let the sheet be widened
+        # here without touching the fields that already worked.
+        #
+        # Every pattern below is anchored on a string this build actually
+        # emits (test/fixtures/player/score.txt), not on what a stock CircleMUD
+        # `score` "should" say:
+        #
+        #   You are 17 years old.  It's your birthday today.
+        #   You have 19(88) hit, 100(162) mana and 83(94) movement points.
+        #   Your armor class is 94/10, and your alignment is 0.
+        #   You have 450000 exp, 5000 gold coins, and 0 questpoints.
+        #   You need 225000 exp to reach your next level.
+        #   This ranks you as Derrano the Minister (level 10).
+        #   You are standing.
+        #
+        # Two of those lines are the reason this method was rewritten. The exp
+        # regex used to be /scored (\d+) exp/ and this build says "You have N
+        # exp", so the score sheet's own exp never landed; and the `N(M)` maxes
+        # for mana/move exist nowhere else in the protocol — the prompt line
+        # carries the currents and throws the denominators away.
         def parse_score(text)
-          s = strip(text.to_s)
+          s    = strip(text.to_s)
+          rows = lines(text)
+          hit  = s.match(/(-?\d+)\((\d+)\) hit/)
+          mana = s.match(/(-?\d+)\((\d+)\) mana/)
+          move = s.match(/(-?\d+)\((\d+)\) movement/)
+
           {
-            level: s[/\(level (\d+)\)/, 1]&.to_i,
-            exp:   s[/scored (\d+) exp/, 1]&.to_i,
-            gold:  s[/(\d+) gold coins/, 1]&.to_i,
-            max_hp: s[/(\d+)\((\d+)\) hit/, 2]&.to_i
+            level:       s[/\(level (\d+)\)/, 1]&.to_i,
+            # "have" and "scored" both anchor it, and the anchor is load-bearing:
+            # "You need 225000 exp to reach your next level" is on the very next
+            # line and an unanchored /(\d+) exp/ reads the wrong number.
+            exp:         s[/(?:have|scored)\s+(\d+)\s+exp\b/, 1]&.to_i,
+            exp_to_next: s[/need\s+(\d+)\s+exp/, 1]&.to_i,
+            gold:        s[/(\d+) gold coins/, 1]&.to_i,
+            hp:          hit && hit[1].to_i,
+            max_hp:      hit && hit[2].to_i,
+            mana:        mana && mana[1].to_i,
+            max_mana:    mana && mana[2].to_i,
+            move:        move && move[1].to_i,
+            max_move:    move && move[2].to_i,
+            # Verbatim, because "94/10" is two numbers (armour and the spell
+            # component of it) and splitting them is a guess about which is
+            # which. The monitor renders what the MUD printed.
+            armor_class: s[/armor class is (\S+?),/, 1],
+            alignment:   s[/alignment is (-?\d+)/, 1]&.to_i,
+            age_years:   s[/You are (\d+) years old/, 1]&.to_i,
+            title:       s[/ranks you as (.+?) \(level \d+\)/, 1],
+            position:    position_of(rows),
+            conditions:  conditions_of(rows)
           }.compact
+        end
+
+        # `inventory`. tbaMUD collapses duplicates onto one line and pads the
+        # count, so the real bytes are "( 2) a bottle" — the space inside the
+        # parens is not a typo and an /^\(\d+\)/ misses every stacked item.
+        #
+        # An empty pack is "  Nothing." under the header, NOT the
+        # "You are not carrying anything." a stock CircleMUD prints; both are
+        # accepted, and both parse to `[]`, which is a valid snapshot rather
+        # than a failure. Text with no header at all is also `[]` — a refusal
+        # must never be mistaken for an empty bag by the caller, which is why
+        # the hook checks the header itself before replacing the snapshot.
+        # Whether a response IS a pack/gear listing at all. `parse_inventory`
+        # answers `[]` both for an empty pack and for "Huh?!?", and those two
+        # must never be confused by a caller about to REPLACE a snapshot: the
+        # first is a real reading, the second would wipe the bag on the strength
+        # of a refusal. So the distinction lives here, in one predicate each,
+        # rather than as a regex the hook re-invents.
+        CARRYING = /^You are carrying:|^You are not carrying anything\./.freeze
+        USING    = /^You are using:|^You are not using anything\./.freeze
+
+        def carrying?(text) = lines(text).any? { |l| l =~ CARRYING }
+        def using?(text)    = lines(text).any? { |l| l =~ USING }
+
+        def parse_inventory(text)
+          body = section(text, /^You are carrying:/) or return []
+
+          body.filter_map do |line|
+            next if line =~ /^Nothing\.$/i
+
+            m = line.match(/^\(\s*(\d+)\)\s*(.+)$/)
+            descr    = m ? m[2].strip : line
+            quantity = m ? m[1].to_i : 1
+            next if descr.empty?
+
+            { descr: descr, quantity: quantity, keyword: guess_keywords(descr).first }
+          end
+        end
+
+        # `equipment`. "<worn on body>       a leather jacket" — the angle
+        # bracket is the slot, everything after it is the item.
+        def parse_equipment(text)
+          body = section(text, /^You are using:/) or return []
+
+          body.filter_map { |line| worn_line(line) }
+        end
+
+        # `practice`. The listing AND the sessions counter, because they arrive
+        # in the same response and the counter lives nowhere else:
+        #
+        #   You have 30 practice sessions remaining.
+        #   You know of the following spells:
+        #   armor                 (good)
+        #   bless                 (not learned)
+        #
+        # Ground truth corrected the plan twice here. This build lists at any
+        # location — there is no guildmaster gate to work around — and
+        # proficiency is a WORD, never a percent. So it is stored verbatim and
+        # the only derived field is `learned`, which is the MUD's own
+        # "(not learned)" and not an invented ranking of the grades above it.
+        def parse_practice(text)
+          s      = strip(text.to_s)
+          header = s[/You know of the following (spells|skills)/, 1]
+          {
+            practices_left: s[/(\d+) practice sessions? remaining/, 1]&.to_i,
+            kind:           header && (header == "spells" ? "spell" : "skill"),
+            skills:         parse_skills(text)
+          }.compact
+        end
+
+        # The listing half of `practice`, on its own. Unrecognised text — a
+        # refusal, an error, output we have never seen — is `[]`, never a raise.
+        def parse_skills(text)
+          body = section(text, /You know of the following (?:spells|skills)/) or return []
+
+          body.filter_map do |line|
+            # Two-or-more spaces is the column gutter; a skill name may itself
+            # contain single spaces ("protection from evil", "cure light").
+            m = line.match(/^(.+?)\s{2,}\((.+)\)$/) or next
+            grade = m[2].strip
+            { name: m[1].strip, proficiency: grade, learned: !grade.match?(/^not learned$/i) }
+          end
         end
 
         # Keyword guesses, best first: the nouns of the leading noun phrase,
@@ -174,6 +298,56 @@ module Boukensha
         end
 
         def lines(text) = text.to_s.split(/\r?\n/).map { |l| strip(l).strip }.reject(&:empty?)
+
+        # The lines a listing owns: everything after its header, up to the
+        # prompt that closes every MUD response. nil — not [] — when the header
+        # is absent, so a caller can tell "the MUD listed nothing" from "this is
+        # not a listing at all". Replacing an item snapshot on the strength of a
+        # refusal is exactly the fabricated-empty-bag the doctrine forbids.
+        def section(text, header)
+          rows = lines(text)
+          at   = rows.index { |l| l =~ header } or return nil
+
+          rows[(at + 1)..].to_a.take_while { |l| l !~ PROMPT_LINE }
+        end
+
+        # "<worn on body>       a leather jacket" -> the slot and the item.
+        # Shared with a MOB's `is using:` block, which prints the same shape —
+        # a slot with no item after it (the cityguard fixture) yields a row with
+        # a nil descr rather than nothing, because "this slot is filled" is
+        # itself the reading.
+        def worn_line(line)
+          m = line.match(/^<([^>]+)>\s*(.*)$/) or return nil
+          descr = m[2].strip
+          { worn_on: m[1].strip, descr: (descr.empty? ? nil : descr),
+            keyword: (descr.empty? ? nil : guess_keywords(descr).first) }
+        end
+
+        # tbaMUD's `score` ends with the position on its own line. Matched
+        # against a closed list rather than /^You are (\w+)\.$/, because "You
+        # are 17 years old." is also a "You are …" line and would win.
+        POSITIONS = %w[standing sitting resting sleeping fighting floating
+                       stunned incapacitated dead].freeze
+
+        def position_of(rows)
+          rows.each do |line|
+            m = line.match(/^You are ([a-z ]+)\.$/) or next
+            return m[1] if POSITIONS.include?(m[1])
+          end
+          nil
+        end
+
+        # "You are hungry." / "You are thirsty." collapsed to "hungry,thirsty".
+        # Low-cardinality and always short, so one joined column beats a table.
+        # Only hungry and thirsty are proven captures for this build; `drunk` is
+        # listed because matching a line the MUD may emit costs nothing and
+        # inventing a VALUE is the thing the doctrine forbids, not a wider regex.
+        CONDITIONS = /^You are (hungry|thirsty|drunk)\.$/.freeze
+
+        def conditions_of(rows)
+          found = rows.filter_map { |l| l[CONDITIONS, 1] }
+          found.empty? ? nil : found.uniq.join(",")
+        end
 
         def strip(line) = line.to_s.gsub(ANSI, "").delete("\r")
 

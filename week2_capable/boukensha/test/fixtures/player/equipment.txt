@@ -1,0 +1,5 @@
+You are using:
+<worn on body>       a leather jacket
+<wielded>            a wooden club
+
+19H 100M 83V (news) (motd) > 

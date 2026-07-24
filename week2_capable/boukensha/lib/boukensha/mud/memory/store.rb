@@ -102,6 +102,91 @@ module Boukensha
 
         def level = player[:level]
 
+        # ---------- skills (EARNED) ---------------------------------------
+
+        # Upserted in place, the shape of remember_entity: a skill the agent
+        # knows does not stop being known because this reading did not mention
+        # it, so nothing here ever deletes. `learned_level` is stamped once, on
+        # the reading that first saw the skill KNOWN — after that it is the
+        # answer to "when did I get this", and re-learning must not move it.
+        def upsert_skills!(skills)
+          rows = Array(skills).reject { |s| s[:name].to_s.strip.empty? }
+          return if rows.empty?
+
+          t = now
+          @db.transaction do
+            rows.each do |s|
+              learned = s[:learned] ? 1 : 0
+              @db.execute(
+                "INSERT INTO player_skills (name, proficiency, learned, kind, learned_level, first_seen_at, last_seen_at) " \
+                "VALUES (?, ?, ?, ?, ?, ?, ?) " \
+                "ON CONFLICT(name) DO UPDATE SET " \
+                "proficiency   = COALESCE(excluded.proficiency, player_skills.proficiency), " \
+                "learned       = excluded.learned, " \
+                "kind          = COALESCE(excluded.kind, player_skills.kind), " \
+                "learned_level = COALESCE(player_skills.learned_level, excluded.learned_level), " \
+                "last_seen_at  = excluded.last_seen_at",
+                [s[:name].to_s, s[:proficiency], learned, s[:kind],
+                 (s[:learned] ? level : nil), t, t]
+              )
+            end
+          end
+          # The grade is the meaningful series — "armor: not learned -> good" is
+          # a progression event. The journal change-detects, so re-reading the
+          # same listing every practice writes nothing.
+          rows.each { |s| jupsert("skill", "#{s[:name]}:proficiency", s[:proficiency]) }
+        end
+
+        def skills
+          @db.execute("SELECT * FROM player_skills ORDER BY name").map { |r| row(r) }
+        end
+
+        # ---------- items (VOLATILE snapshot) -----------------------------
+
+        # Wholesale replace, in ONE transaction — update_player!'s "overwrite,
+        # don't accumulate" with N rows instead of one. A dropped item vanishes
+        # the instant the next snapshot lands, which is the entire point: the
+        # agent must never read back a bag it no longer has.
+        #
+        # The delete is scoped to the `location` being replaced, so a fresh
+        # `inventory` read never wipes the last known `equipment` and vice
+        # versa. An EMPTY list is a legitimate snapshot ("the pack is empty")
+        # and clears the table; refusing to read at all is the caller's job,
+        # not this method's — see Hooks#capture_items.
+        def replace_items!(location:, items:)
+          loc = location.to_s
+          raise ArgumentError, "unknown item location #{loc.inspect}" unless %w[inventory equipped].include?(loc)
+
+          t = now
+          @db.transaction do
+            @db.execute("DELETE FROM player_items WHERE location = ?", [loc])
+            Array(items).each do |i|
+              descr = i[:descr].to_s
+              next if descr.empty?
+
+              @db.execute(
+                "INSERT INTO player_items (location, worn_on, keyword, descr, quantity, updated_at) " \
+                "VALUES (?, ?, ?, ?, ?, ?)",
+                [loc, i[:worn_on], i[:keyword], descr, (i[:quantity] || 1).to_i, t]
+              )
+            end
+          end
+          # Stamped only on a real replacement, which is what makes staleness
+          # honest: a mutation with no following read leaves this untouched and
+          # the monitor says "snapshot as of T" rather than inventing a delta.
+          update_player!(items_updated_at: t)
+        end
+
+        def items(location: nil)
+          sql    = "SELECT * FROM player_items"
+          params = []
+          if location
+            sql += " WHERE location = ?"
+            params << location.to_s
+          end
+          @db.execute("#{sql} ORDER BY location, id", params).map { |r| row(r) }
+        end
+
         # ---------- rooms -------------------------------------------------
 
         def rooms_by_weak(fingerprint)
@@ -319,7 +404,9 @@ module Boukensha
             surveyed:   scalar("SELECT COUNT(*) FROM rooms WHERE surveyed_at IS NOT NULL"),
             frontier:   scalar("SELECT COUNT(*) FROM room_exits WHERE target_room_id IS NULL"),
             entities:   scalar("SELECT COUNT(*) FROM entities"),
-            encounters: scalar("SELECT COUNT(*) FROM encounters")
+            encounters: scalar("SELECT COUNT(*) FROM encounters"),
+            skills:     scalar("SELECT COUNT(*) FROM player_skills"),
+            items:      scalar("SELECT COUNT(*) FROM player_items")
           }
         end
 

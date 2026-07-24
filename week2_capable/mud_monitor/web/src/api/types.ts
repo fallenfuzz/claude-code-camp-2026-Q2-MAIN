@@ -357,6 +357,9 @@ export interface KnowledgeStats {
   frontier: number;
   traversed: number;
   encounters: number;
+  /** Both 0 against a pre-V2 agent file, which has neither table. */
+  skills: number;
+  items: number;
 }
 
 export interface RoomRef {
@@ -369,11 +372,37 @@ export interface KnowledgePlayer {
   max_hp: number | null;
   mana: number | null;
   move: number | null;
+  /**
+   * Only `score` carries these — the prompt line rides on every response but
+   * gives currents alone. So they are null far more often than max_hp is, and
+   * a bar without its denominator must render as a bare number, never as 0%.
+   */
+  max_mana: number | null;
+  max_move: number | null;
   level: number | null;
   gold: number | null;
+  gold_bank: number | null;
   exp: number | null;
+  exp_to_next: number | null;
   position: string | null;
   last_direction: string | null;
+  title: string | null;
+  /** Reserved. Null until a capture proves this build's `score` prints them. */
+  char_class: string | null;
+  race: string | null;
+  /** Verbatim "94/10" — two numbers, and deciding which is which is a guess. */
+  armor_class: string | null;
+  alignment: number | null;
+  age_years: number | null;
+  practices_left: number | null;
+  /** Split server-side from the stored comma list. */
+  conditions: string[];
+  /**
+   * When the item snapshot was last REPLACED — deliberately a different clock
+   * from `updated_at`. The agent does not re-read its pack after every get and
+   * drop, and the page says how old the list is rather than implying it is now.
+   */
+  items_updated_at: string | null;
   /** The boukensha run that last wrote — links belief back to its transcript. */
   session_id: string | null;
   updated_at: string | null;
@@ -381,10 +410,46 @@ export interface KnowledgePlayer {
   prev_room: RoomRef | null;
 }
 
+/** EARNED: survives logout, updated in place, never wiped by a short listing. */
+export interface KnowledgeSkill {
+  name: string;
+  /**
+   * A WORD — "good", "not learned" — because that is what this MUD prints.
+   * There is no percent in the output, so there is none here; null means the
+   * listing carried no grade, not that the character has no ability.
+   */
+  proficiency: string | null;
+  learned: boolean;
+  kind: string | null;
+  learned_level: number | null;
+  first_seen_at: string | null;
+  last_seen_at: string | null;
+}
+
+/** VOLATILE: replaced wholesale on each reading. There is no history here. */
+export interface KnowledgeItem {
+  id: number;
+  location: "inventory" | "equipped";
+  /** Equipped rows only: "wielded", "worn on body". */
+  worn_on: string | null;
+  keyword: string | null;
+  descr: string;
+  quantity: number;
+  updated_at: string | null;
+}
+
 export interface KnowledgeOverview extends KnowledgeEnvelope {
   stats: KnowledgeStats;
   /** null until the agent has looked at something. */
   player: KnowledgePlayer | null;
+}
+
+export interface KnowledgePlayerPage extends KnowledgeEnvelope {
+  player: KnowledgePlayer | null;
+  /** All empty against a pre-V2 file — an older agent's memory, served. */
+  skills: KnowledgeSkill[];
+  inventory: KnowledgeItem[];
+  equipped: KnowledgeItem[];
 }
 
 export interface KnowledgeExit {
@@ -410,6 +475,14 @@ export interface KnowledgeRoom {
   strong_fingerprint: string | null;
   exits: KnowledgeExit[];
   entity_count: number;
+  entities: KnowledgeRoomEntity[];
+}
+
+export interface KnowledgeRoomEntity {
+  id: number;
+  kind: "mob" | "object";
+  descr: string;
+  keyword: string | null;
 }
 
 export interface KnowledgeSighting {

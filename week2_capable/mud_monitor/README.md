@@ -12,8 +12,21 @@ kept). Both logs are off by default (`MUD_MANAGER_LOG_DIR` /
 `MUD_TELNET_LOG_DIR` unset). No dropped/reshaped diffs, correlation ids, or
 world pages yet — those land in later phases.
 
-The **Knowledge** page reads the agent's world memory (`knowledge.sqlite3`). Its
-change history is the append-only journal (`.boukensha/journal/*.jsonl`), served
+The **Knowledge** page reads the agent's world memory (`knowledge.sqlite3`) —
+Overview, Rooms, Entities, Frontier, **Player** and Progression.
+
+- **Knowledge → Player** subtab (`/knowledge/player`, served by
+  `GET /api/v1/knowledge/player`) — the character sheet the map half never had:
+  the full `score` (including the mana/move maxes that exist nowhere but
+  `score`), worn equipment, the carried inventory, and known skills. Its own
+  endpoint so the 3s Overview poll stays cheap. Two honesty rules are visible on
+  the page: inventory is a snapshot **replaced wholesale** on each reading and is
+  headed by its own age, so an item dropped since the last read is simply gone
+  rather than guessed at; and skill proficiency is the **word** this MUD prints
+  (`(good)`, `(not learned)`) — it emits no percentage, so none is invented. See
+  `docs/plans/week_2/player_update.md`.
+
+Its change history is the append-only journal (`.boukensha/journal/*.jsonl`), served
 by `/api/v1/journal` and surfaced two ways:
 
 - **Change Log** (top-level nav, `/journal`) — the raw CDC feed: every

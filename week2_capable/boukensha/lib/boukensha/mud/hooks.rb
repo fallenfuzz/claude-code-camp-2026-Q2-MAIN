@@ -142,9 +142,12 @@ module Boukensha
 
           absorb_mud_text(text)
 
-          # The model is allowed to call `check(score)` itself, and when it does
-          # we get the level reading for free rather than spending our own.
-          @store.update_player!(**RoomParser.parse_score(text)) if local == "check" && score_check?(args)
+          # The model looks at its own sheet, its own pack and its own skill
+          # list on its own initiative, for gameplay reasons. Every one of those
+          # results is a free reading of the character, and this is where we
+          # ride them — no new round trips, exactly as the prompt-line scrape
+          # above rides whatever the model just called.
+          capture_player(local, args, text)
 
           # An item the agent moved on its own initiative: the ledger the review
           # asked for ("when was this added/removed/used"). Recorded off the tool
@@ -592,8 +595,51 @@ module Boukensha
         i ? name.to_s[(i + 2)..] : name.to_s
       end
 
-      def score_check?(args)
-        (args && (args["kind"] || args[:kind])).to_s == "score"
+      # =========================== player ===================================
+      #
+      # Collection rides readings the agent already pays for. There is NO
+      # scheduled `check(inventory)` here and deliberately so: it would buy
+      # freshness with round trips the design spends nowhere else, and the
+      # monitor can say "snapshot as of T" honestly instead.
+
+      def capture_player(local, args, text)
+        case local
+        when "check"
+          case (args && (args["kind"] || args[:kind])).to_s
+          when "score"     then @store.update_player!(**RoomParser.parse_score(text))
+          when "inventory" then capture_items("inventory", text)
+          when "equipment" then capture_items("equipped", text)
+          end
+        when "practice" then capture_practice(text)
+        end
+      end
+
+      # The one place the replace-on-read snapshot is written, and the reason it
+      # checks the header before parsing: `parse_inventory` answers `[]` both
+      # for an empty pack and for a refusal, and replacing the bag on the
+      # strength of "Huh?!?" would delete everything the agent owns. A reading
+      # that is not a listing is no reading at all — the old snapshot stands and
+      # `items_updated_at` keeps saying how old it is.
+      def capture_items(location, text)
+        if location == "inventory"
+          return unless RoomParser.carrying?(text)
+
+          @store.replace_items!(location: location, items: RoomParser.parse_inventory(text))
+        else
+          return unless RoomParser.using?(text)
+
+          @store.replace_items!(location: location, items: RoomParser.parse_equipment(text))
+        end
+      end
+
+      # `practice` carries the listing AND the sessions counter in one response.
+      # Skills are EARNED, so this upserts and never deletes: a listing that
+      # omits a skill is not evidence the character forgot it.
+      def capture_practice(text)
+        practice = RoomParser.parse_practice(text)
+        @store.update_player!(practices_left: practice[:practices_left])
+        skills = practice[:skills].map { |s| s.merge(kind: practice[:kind]) }
+        @store.upsert_skills!(skills)
       end
 
       def parse_json(text)

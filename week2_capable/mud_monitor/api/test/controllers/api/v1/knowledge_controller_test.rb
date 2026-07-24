@@ -15,7 +15,7 @@ module Api
         body = response.parsed_body
         assert body["attached"]
         assert body["live"], "a just-written fixture is inside the live window"
-        assert_equal 1, body["schema_version"]
+        assert_equal 2, body["schema_version"]
         assert body["last_write_at"].present?
       end
 
@@ -91,6 +91,7 @@ module Api
         temple = rooms.find { |r| r["id"] == 1 }
         assert_equal 3, temple["exits"].length
         assert_equal 3, temple["entity_count"]
+        assert_equal %w[cityguard fido mayor], temple["entities"].map { |entity| entity["keyword"] }
         assert_equal [ "wall", "paintings", "giants" ], temple["look_candidates"]
 
         square = rooms.find { |r| r["id"] == 2 }
@@ -179,6 +180,80 @@ module Api
         assert_equal "The Temple Of Midgaard", body["frontier"].first["room_name"]
       end
 
+      # ---------- the player ------------------------------------------------
+
+      test "the player action serves the sheet, the skills and both item lists" do
+        use_knowledge_db
+        get api_v1_knowledge_player_path
+
+        assert_response :success
+        body = response.parsed_body
+        assert body["attached"], "the freshness envelope rides on this payload too"
+
+        player = body["player"]
+        assert_equal "Derrano the Minister", player["title"]
+        assert_equal [ 162, 94 ], [ player["max_mana"], player["max_move"] ]
+        assert_equal %w[hungry thirsty], player["conditions"]
+
+        assert_equal %w[armor bless cure\ light sneak], body["skills"].map { |s| s["name"] }
+        assert_equal "good", body["skills"].first["proficiency"]
+
+        assert_equal [ "a bottle", "a hooded lantern" ], body["inventory"].map { |i| i["descr"] }
+        assert_equal [ "worn on body", "wielded", "worn on finger" ], body["equipped"].map { |i| i["worn_on"] }
+      end
+
+      # Staleness is a fact the page renders, so it has to be ON the payload —
+      # the bag's clock, not the row's.
+      test "the item snapshot ships its own timestamp" do
+        use_knowledge_db
+        get api_v1_knowledge_player_path
+
+        player = response.parsed_body["player"]
+        assert_equal "2026-07-23T22:55:58Z", player["items_updated_at"]
+        assert player["items_updated_at"] < player["updated_at"]
+      end
+
+      # The Overview poll runs every 3s and must not have grown a skill list and
+      # two item snapshots — that is exactly why #player is its own action.
+      test "the overview payload does not carry the player detail" do
+        use_knowledge_db
+        get api_v1_knowledge_path
+
+        body = response.parsed_body
+        assert body["player"].present?
+        assert_nil body["skills"]
+        assert_nil body["inventory"]
+        # …but its counters do include the new tables, so the writer's tally and
+        # the reader's stay symmetric.
+        assert_equal [ 4, 5 ], [ body["stats"]["skills"], body["stats"]["items"] ]
+      end
+
+      test "an older agent's file is served, not rejected" do
+        use_knowledge_db(sql: File.read(Rails.root.join("test/fixtures/knowledge/seed_v1.sql")),
+                         name: "old.sqlite3")
+        get api_v1_knowledge_player_path
+
+        assert_response :success
+        body = response.parsed_body
+        assert_equal 1, body["schema_version"]
+        assert_equal 2, body["player"]["level"], "what V1 knew is still served"
+        assert_nil body["player"]["title"]
+        assert_equal [], body["skills"]
+        assert_equal [], body["equipped"]
+      end
+
+      test "the player action is empty rather than erroring when nothing is attached" do
+        use_missing_knowledge_db
+        get api_v1_knowledge_player_path
+
+        assert_response :success
+        body = response.parsed_body
+        assert_not body["attached"]
+        assert_nil body["player"]
+        assert_equal [], body["skills"]
+        assert_equal [], body["inventory"]
+      end
+
       # ---------- schema drift ----------------------------------------------
 
       test "a schema the reader cannot query is 503 with a named code, not a 500" do
@@ -190,7 +265,7 @@ module Api
         assert_response :service_unavailable
         error = response.parsed_body["error"]
         assert_equal "knowledge_schema_mismatch", error["code"]
-        assert_equal 1, error["schema_version"]
+        assert_equal 2, error["schema_version"]
       end
     end
   end

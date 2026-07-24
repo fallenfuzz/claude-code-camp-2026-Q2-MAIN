@@ -108,7 +108,7 @@ module Knowledge
 
       r = reader
       error = assert_raises(Reader::SchemaMismatch) { r.rooms }
-      assert_equal 1, error.schema_version
+      assert_equal 2, error.schema_version
     ensure
       r&.close
     end
@@ -127,6 +127,7 @@ module Knowledge
       assert_equal %w[east north south], temple[:exits].map { |e| e[:direction] }.sort
       assert_equal 2, temple[:exits].count { |e| e[:target_room_id].nil? }
       assert_equal 3, temple[:entity_count]
+      assert_equal %w[cityguard fido mayor], temple[:entities].map { |entity| entity[:keyword] }
       assert_equal [ "wall", "paintings", "giants" ], temple[:look_candidates]
     ensure
       r&.close
@@ -276,7 +277,8 @@ module Knowledge
       r = reader
 
       assert_equal({ rooms: 5, surveyed: 3, provisional: 1, entities: 4, mobs: 3, objects: 1,
-                     exits: 8, frontier: 4, traversed: 4, encounters: 1 }, r.stats)
+                     exits: 8, frontier: 4, traversed: 4, encounters: 1,
+                     skills: 4, items: 5 }, r.stats)
     ensure
       r&.close
     end
@@ -291,6 +293,139 @@ module Knowledge
       assert_equal "20260723T225532Z-7ed8c53a", player[:session_id]
       assert_equal 18, player[:hp]
       assert_equal 2, player[:level]
+    ensure
+      r&.close
+    end
+
+    # ---------- the player half (V2) --------------------------------------
+
+    test "player carries the whole score sheet, not just the four numbers" do
+      use_knowledge_db
+      r = reader
+      player = r.player
+
+      # The denominators that exist ONLY in `score` — the prompt line carries
+      # the currents and throws these away, so nothing else can supply them.
+      assert_equal [ 100, 162 ], [ player[:mana], player[:max_mana] ]
+      assert_equal [ 72, 94 ], [ player[:move], player[:max_move] ]
+      assert_equal 1099, player[:exp_to_next]
+      # Verbatim: "94/10" is two numbers and splitting them is a guess.
+      assert_equal "94/10", player[:armor_class]
+      assert_equal [ 0, 17, 30 ], [ player[:alignment], player[:age_years], player[:practices_left] ]
+      assert_equal "Derrano the Minister", player[:title]
+    ensure
+      r&.close
+    end
+
+    # Reserved columns, written the day a capture proves this build prints them
+    # and not before. nil here is the honest answer, not a gap to be filled.
+    test "class and race are nil because no capture proves the mud prints them" do
+      use_knowledge_db
+      r = reader
+
+      assert_nil r.player[:char_class]
+      assert_nil r.player[:race]
+    ensure
+      r&.close
+    end
+
+    # Stored joined because it is short and low-cardinality; split here so the
+    # UI never re-parses a column format.
+    test "conditions arrive split and are an empty list when unread" do
+      use_knowledge_db
+      r = reader
+      assert_equal %w[hungry thirsty], r.player[:conditions]
+      r.close
+
+      use_knowledge_db(sql: File.read(KnowledgeFixtures::SEED_SQL).sub("'hungry,thirsty'", "NULL"),
+                       name: "fed.sqlite3")
+      r = reader
+      assert_equal [], r.player[:conditions]
+    ensure
+      r&.close
+    end
+
+    # Honest staleness: the bag has its OWN clock, deliberately not
+    # `updated_at`. An agent that dropped something and never looked again must
+    # not have the UI imply its list is current.
+    test "the item snapshot carries its own age, older than the row's" do
+      use_knowledge_db
+      r = reader
+      player = r.player
+
+      assert_equal "2026-07-23T22:55:58Z", player[:items_updated_at]
+      assert player[:items_updated_at] < player[:updated_at],
+             "the snapshot is older than the row, and the UI has to be able to say so"
+    ensure
+      r&.close
+    end
+
+    test "skills are earned knowledge, graded in the words the mud printed" do
+      use_knowledge_db
+      r = reader
+      skills = r.player_skills
+
+      assert_equal %w[armor bless cure\ light sneak], skills.map { |s| s[:name] }
+      armor = skills.first
+      # A WORD, never a percent — this build prints "(good)" and there is no
+      # number anywhere in the listing to convert.
+      assert_equal "good", armor[:proficiency]
+      assert armor[:learned]
+      assert_equal [ "spell", 2 ], [ armor[:kind], armor[:learned_level] ]
+      assert_not skills.find { |s| s[:name] == "bless" }[:learned]
+      # NULL grade means the listing carried none, NOT that the skill is absent.
+      sneak = skills.find { |s| s[:name] == "sneak" }
+      assert_nil sneak[:proficiency]
+      assert sneak[:learned]
+    ensure
+      r&.close
+    end
+
+    test "items are readable as one bag, or split by where they are" do
+      use_knowledge_db
+      r = reader
+
+      assert_equal 5, r.player_items.length
+      assert_equal [ [ "a bottle", 2 ], [ "a hooded lantern", 1 ] ],
+                   r.player_items(location: "inventory").map { |i| [ i[:descr], i[:quantity] ] }
+      assert_equal [ "worn on body", "wielded", "worn on finger" ],
+                   r.player_items(location: "equipped").map { |i| i[:worn_on] }
+      # A filled slot the MUD named nothing for is still a slot.
+      assert_equal "", r.player_items(location: "equipped").last[:descr]
+      # An unknown location is not a filter — it would silently show everything,
+      # so it is ignored and the caller gets the whole bag it asked wrongly for.
+      assert_equal 5, r.player_items(location: "banana").length
+    ensure
+      r&.close
+    end
+
+    # ---------- serving an OLDER agent's file -----------------------------
+    #
+    # The seam the whole `player_half?` gate exists for. Named columns are the
+    # drift detector, and a named SELECT of a column that does not exist RAISES
+    # — so without the gate, one monitor upgrade would turn every V1 file into a
+    # schema-mismatch banner.
+
+    test "a v1 file still answers, with the player half simply absent" do
+      use_knowledge_db(sql: File.read(Rails.root.join("test/fixtures/knowledge/seed_v1.sql")),
+                       name: "old.sqlite3")
+      r = reader
+
+      assert_equal 1, r.schema_version
+      player = r.player
+      # Everything V1 knew is still there…
+      assert_equal [ 18, 2, 15 ], [ player[:hp], player[:level], player[:gold] ]
+      assert_equal({ id: 5, name: "The Common Square" }, player[:current_room])
+      # …and everything it did not know reads as "no reading", which is exactly
+      # what these fields say on a V2 file the agent has not scored on yet.
+      assert_nil player[:max_mana]
+      assert_nil player[:title]
+      assert_nil player[:items_updated_at]
+      assert_equal [], player[:conditions]
+      assert_equal [], r.player_skills
+      assert_equal [], r.player_items
+      assert_equal({ skills: 0, items: 0 }, r.stats.slice(:skills, :items))
+      assert_equal 5, r.stats[:rooms], "the map half is unaffected"
     ensure
       r&.close
     end

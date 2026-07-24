@@ -40,6 +40,7 @@ Rails.application.routes.draw do
       # this route with no helper at all.
       get "knowledge/rooms/:id", to: "knowledge#room", as: :knowledge_room, constraints: { id: /\d+/ }
       get "knowledge/entities",  to: "knowledge#entities"
+      get "knowledge/player",    to: "knowledge#player"
       get "knowledge/frontier",  to: "knowledge#frontier"
     end
   end

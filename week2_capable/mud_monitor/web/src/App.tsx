@@ -7,6 +7,7 @@ import Entities from "./pages/knowledge/Entities";
 import Frontier from "./pages/knowledge/Frontier";
 import Knowledge from "./pages/knowledge/Knowledge";
 import Overview from "./pages/knowledge/Overview";
+import Player from "./pages/knowledge/Player";
 import Progression from "./pages/knowledge/Progression";
 import RoomDetail from "./pages/knowledge/RoomDetail";
 import Rooms from "./pages/knowledge/Rooms";
@@ -34,6 +35,7 @@ export default function App() {
           <Route path="rooms/:id" element={<RoomDetail />} />
           <Route path="entities" element={<Entities />} />
           <Route path="frontier" element={<Frontier />} />
+          <Route path="player" element={<Player />} />
           <Route path="progression" element={<Progression />} />
         </Route>
         <Route path="health" element={<HealthPage />} />

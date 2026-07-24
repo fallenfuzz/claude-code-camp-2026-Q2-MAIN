@@ -23,7 +23,16 @@ module Knowledge
     # anyway — memory/schema.rb migrations are additive by construction ("append
     # to MIGRATIONS, never edit an applied one") — but the number is reported so
     # a surprise is visible rather than silent.
-    KNOWN_SCHEMA_VERSION = 1
+    KNOWN_SCHEMA_VERSION = 2
+
+    # V2 added the player half — the score sheet's other two thirds, plus
+    # `player_skills` and `player_items`. Additive DDL means a NEWER file is
+    # served without changes here, but an OLDER one is the real problem: a
+    # NAMED select of a column that does not exist raises, and named columns are
+    # the whole drift-detection mechanism, so they cannot simply be dropped. So
+    # every V2 read is gated on the version the file itself reports, and one
+    # monitor serves both an old and a new agent.
+    PLAYER_HALF_VERSION = 2
 
     # A SELECT that the file's schema can't answer. Carries the version so the
     # UI can say *which* schema it choked on.
@@ -124,23 +133,45 @@ module Knowledge
           (SELECT COUNT(*) FROM encounters)                                  AS encounters
       SQL
 
+      # The player half is a SECOND statement rather than two more subselects,
+      # because a V1 file has neither table and the whole statement would raise.
+      # Keeps Store#stats' shape either way — a divergence between what the
+      # writer counts and what the reader counts stays visible side by side.
+      row = row.merge(query_one(<<~SQL) || {}) if player_half?
+        SELECT (SELECT COUNT(*) FROM player_skills) AS skills,
+               (SELECT COUNT(*) FROM player_items)  AS items
+      SQL
+
       EMPTY_STATS.merge(row.transform_keys(&:to_sym).transform_values(&:to_i))
     end
 
     EMPTY_STATS = {
       rooms: 0, surveyed: 0, provisional: 0, entities: 0, mobs: 0, objects: 0,
-      exits: 0, frontier: 0, traversed: 0, encounters: 0
+      exits: 0, frontier: 0, traversed: 0, encounters: 0, skills: 0, items: 0
     }.freeze
 
+    # ---------- the player ----------------------------------------------
+
+    PLAYER_V1_COLUMNS = "ps.current_room_id, ps.prev_room_id, ps.last_direction, " \
+                        "ps.hp, ps.max_hp, ps.mana, ps.move, ps.level, ps.gold, ps.exp, " \
+                        "ps.position, ps.session_id, ps.updated_at".freeze
+    PLAYER_V2_COLUMNS = "ps.max_mana, ps.max_move, ps.exp_to_next, ps.armor_class, ps.alignment, " \
+                        "ps.age_years, ps.title, ps.char_class, ps.race, ps.gold_bank, " \
+                        "ps.conditions, ps.practices_left, ps.items_updated_at".freeze
+
+    SKILL_COLUMNS = "name, proficiency, learned, kind, learned_level, first_seen_at, last_seen_at".freeze
+    ITEM_COLUMNS  = "id, location, worn_on, keyword, descr, quantity, updated_at".freeze
+
     # nil until the agent has looked at something — `player_state` is a single
-    # row that does not exist in a fresh file.
+    # row that does not exist in a fresh file. Against a V1 file the score
+    # sheet's new fields come back nil, which is the same thing they say on a V2
+    # file the agent has not read `score` on yet: "no reading".
     def player
       return nil unless attached?
 
-      row = query_one(<<~SQL)
-        SELECT ps.current_room_id, ps.prev_room_id, ps.last_direction,
-               ps.hp, ps.max_hp, ps.mana, ps.move, ps.level, ps.gold, ps.exp,
-               ps.position, ps.session_id, ps.updated_at,
+      cols = player_half? ? "#{PLAYER_V1_COLUMNS}, #{PLAYER_V2_COLUMNS}" : PLAYER_V1_COLUMNS
+      row  = query_one(<<~SQL)
+        SELECT #{cols},
                cr.name AS current_room_name, pr.name AS prev_room_name
           FROM player_state ps
           LEFT JOIN rooms cr ON cr.id = ps.current_room_id
@@ -150,10 +181,29 @@ module Knowledge
       return nil unless row
 
       {
-        hp: row["hp"], max_hp: row["max_hp"], mana: row["mana"], move: row["move"],
+        hp: row["hp"], max_hp: row["max_hp"],
+        mana: row["mana"], move: row["move"],
+        # The denominators live only in `score` (the prompt line carries the
+        # currents and throws these away), so they are frequently nil even on a
+        # V2 file — a bar without one must render as a bare number, not as 0%.
+        max_mana: row["max_mana"], max_move: row["max_move"],
         level: row["level"], gold: row["gold"], exp: row["exp"],
+        exp_to_next: row["exp_to_next"], gold_bank: row["gold_bank"],
         position: row["position"],
         last_direction: row["last_direction"],
+        title: row["title"],
+        # Reserved columns. NULL until a capture proves this build prints them.
+        char_class: row["char_class"], race: row["race"],
+        armor_class: row["armor_class"], alignment: row["alignment"],
+        age_years: row["age_years"], practices_left: row["practices_left"],
+        # Stored joined because it is short and low-cardinality; split here so
+        # the UI renders chips without re-parsing a column format.
+        conditions: row["conditions"].to_s.split(",").map(&:strip).reject(&:empty?),
+        # When the item snapshot below was last REPLACED — deliberately not the
+        # same clock as updated_at. A bag the agent has not looked in since it
+        # dropped something says so, and the UI shows the age instead of
+        # implying the list is current.
+        items_updated_at: row["items_updated_at"],
         # The boukensha run that last wrote — what lets the overview link belief
         # back to the transcript that produced it.
         session_id: row["session_id"],
@@ -161,6 +211,56 @@ module Knowledge
         current_room: room_ref(row["current_room_id"], row["current_room_name"]),
         prev_room: room_ref(row["prev_room_id"], row["prev_room_name"])
       }
+    end
+
+    # EARNED: what the character knows. Empty on a V1 file, which is the same
+    # answer as "the agent has never run `practice`" — both are honestly "we
+    # have no skill readings", and neither is an error.
+    def player_skills
+      return [] unless attached? && player_half?
+
+      query("SELECT #{SKILL_COLUMNS} FROM player_skills ORDER BY name").map do |row|
+        {
+          name: row["name"],
+          # A WORD — "good", "not learned" — because that is what this MUD
+          # prints. There is no percent anywhere in the output, so there is no
+          # percent here, and NULL means the listing carried no grade rather
+          # than that the character has no ability.
+          proficiency: row["proficiency"],
+          learned: row["learned"].to_i == 1,
+          kind: row["kind"],
+          learned_level: row["learned_level"],
+          first_seen_at: row["first_seen_at"],
+          last_seen_at: row["last_seen_at"]
+        }
+      end
+    end
+
+    # VOLATILE: the bag and the paperdoll as of the last reading. Not a history
+    # — the writer replaces this wholesale — so there is nothing to page through
+    # and no `since` cursor to offer.
+    def player_items(location: nil)
+      return [] unless attached? && player_half?
+
+      sql    = +"SELECT #{ITEM_COLUMNS} FROM player_items"
+      params = []
+      if %w[inventory equipped].include?(location.to_s)
+        sql << " WHERE location = ?"
+        params << location.to_s
+      end
+      sql << " ORDER BY location, id"
+
+      query(sql, params).map do |row|
+        {
+          id: row["id"],
+          location: row["location"],
+          worn_on: row["worn_on"],
+          keyword: row["keyword"],
+          descr: row["descr"],
+          quantity: row["quantity"],
+          updated_at: row["updated_at"]
+        }
+      end
     end
 
     # ---------- rooms ---------------------------------------------------
@@ -207,12 +307,14 @@ module Knowledge
       ids  = rows.map { |r| r["id"] }
 
       exits  = exits_for(ids)
-      counts = entity_counts_for(ids)
+      entities = entity_summaries_for(ids)
 
       rows.map do |row|
+        room_entities = entities.fetch(row["id"], [])
         room_payload(row).merge(
           exits: exits.fetch(row["id"], []),
-          entity_count: counts.fetch(row["id"], 0)
+          entity_count: room_entities.length,
+          entities: room_entities
         )
       end
     end
@@ -223,9 +325,11 @@ module Knowledge
       row = query_one("SELECT #{ROOM_COLUMNS} FROM rooms WHERE id = ?", [ id ])
       return nil unless row
 
+      room_entities = entity_summaries_for([ id ]).fetch(id, [])
       room_payload(row).merge(
         exits: exits_for([ id ]).fetch(id, []),
-        entity_count: entity_counts_for([ id ]).fetch(id, 0)
+        entity_count: room_entities.length,
+        entities: room_entities
       )
     end
 
@@ -375,6 +479,17 @@ module Knowledge
 
     def wal_path = Pathname.new("#{@path}-wal")
 
+    # Does this file have the player half at all? Read from the file's OWN
+    # reported version, not from KNOWN_SCHEMA_VERSION — the point is to serve a
+    # file older than this reader, so the file is the authority. Memoized
+    # because `player` and `stats` both ask within one request and the pragma is
+    # constant for the life of a connection.
+    def player_half?
+      return @player_half unless @player_half.nil?
+
+      @player_half = schema_version.to_i >= PLAYER_HALF_VERSION
+    end
+
     def db
       @db ||= begin
         # NOT `readonly: true`. A readonly connection cannot create the `-shm`
@@ -477,14 +592,27 @@ module Knowledge
       end
     end
 
-    def entity_counts_for(room_ids)
+    def entity_summaries_for(room_ids)
       return {} if room_ids.empty?
 
-      query(<<~SQL, room_ids).to_h { |r| [ r["room_id"], r["n"] ] }
-        SELECT room_id, COUNT(*) AS n FROM entity_sightings
-         WHERE room_id IN (#{placeholders(room_ids)})
-         GROUP BY room_id
+      rows = query(<<~SQL, room_ids)
+        SELECT s.room_id, e.id, e.kind, e.descr, e.keyword
+          FROM entity_sightings s
+          JOIN entities e ON e.id = s.entity_id
+         WHERE s.room_id IN (#{placeholders(room_ids)})
+         ORDER BY s.room_id, e.kind, e.keyword, e.id
       SQL
+
+      rows.group_by { |r| r["room_id"] }.transform_values do |group|
+        group.map do |row|
+          {
+            id: row["id"],
+            kind: row["kind"],
+            descr: row["descr"],
+            keyword: row["keyword"]
+          }
+        end
+      end
     end
 
     def sightings_for(entity_ids)

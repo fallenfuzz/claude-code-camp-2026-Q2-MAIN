@@ -1,0 +1,12 @@
+You are 17 years old.  It's your birthday today.
+You have 19(88) hit, 100(162) mana and 83(94) movement points.
+Your armor class is 94/10, and your alignment is 0.
+You have 450000 exp, 5000 gold coins, and 0 questpoints.
+You need 225000 exp to reach your next level.
+You have earned 0 quest points.
+You have completed 0 quests, and you are not on a quest at the moment.
+You have been playing for 0 days and 0 hours.
+This ranks you as Derrano the Minister (level 10).
+You are standing.
+
+19H 100M 83V (news) (motd) > 

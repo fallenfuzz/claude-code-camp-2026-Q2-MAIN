@@ -20,6 +20,7 @@ const TABS = [
   { to: "/knowledge/rooms", end: false, label: "Rooms" },
   { to: "/knowledge/entities", end: true, label: "Entities" },
   { to: "/knowledge/frontier", end: true, label: "Frontier" },
+  { to: "/knowledge/player", end: true, label: "Player" },
   { to: "/knowledge/progression", end: true, label: "Progression" },
 ];
 

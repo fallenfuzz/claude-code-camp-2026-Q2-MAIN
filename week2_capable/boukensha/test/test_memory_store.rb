@@ -194,7 +194,110 @@ class TestMemoryStore < Minitest::Test
     @store.record_exits!(id, dirs: %w[north])
     @store.mark_surveyed!(id)
 
-    assert_equal({ rooms: 1, surveyed: 1, frontier: 1, entities: 0, encounters: 0 }, @store.stats)
+    assert_equal({ rooms: 1, surveyed: 1, frontier: 1, entities: 0, encounters: 0, skills: 0, items: 0 },
+                 @store.stats)
+  end
+
+  # --- V2: the player half ---------------------------------------------------
+
+  # The guarantee the whole additive-DDL doctrine rests on. A file written by an
+  # older build must reach V2 with every existing row intact — if V2 ever has to
+  # rewrite a table to land, the monitor attaching this file read-only is the
+  # thing that breaks.
+  def test_a_v1_file_migrates_forward_with_every_row_intact
+    # A genuine V1 file: only V1's DDL has ever run against it.
+    db = SQLite3::Database.new(":memory:")
+    db.results_as_hash = true
+    db.execute_batch(M::Schema::V1)
+    db.execute("PRAGMA user_version = 1")
+    old = M::Store.new(db)
+    id  = old.create_room(name: "Market Square", description: "A famous square.",
+                          weak_fingerprint: F.weak(name: "Market Square", description: "A famous square.",
+                                                   exit_dirs: %w[north]))
+    old.record_exits!(id, dirs: %w[north])
+    old.update_player!(current_room_id: id, hp: 19, level: 10)
+
+    assert_equal 2, M::Schema::LATEST_VERSION, "V2 is appended, never edited into V1"
+    assert_equal 2, M::Schema.migrate!(db)
+    assert_equal 2, db.get_first_value("PRAGMA user_version")
+
+    # Every V1 row survived.
+    assert_equal "Market Square", old.room(id)[:name]
+    assert_equal %w[north], old.exits_for(id).map { |e| e[:direction] }
+    assert_equal [10, id, 19], [old.player[:level], old.player[:current_room_id], old.player[:hp]]
+    # …and the new columns exist, unset. "No reading yet" is a real state and
+    # is nil, never a zero that would render as a real value.
+    assert_nil old.player[:max_mana]
+    assert_equal({ skills: 0, items: 0 }, old.stats.slice(:skills, :items))
+    db.close
+  end
+
+  # Nil means "no reading this time", never "clear it" — the rule the score
+  # sheet's twelve new columns inherit for free from update_player!'s
+  # compact-then-merge, and the reason a `poll` cannot wipe a `score`.
+  def test_the_widened_score_sheet_merges_rather_than_overwrites
+    @store.update_player!(level: 10, max_mana: 162, title: "Derrano the Minister",
+                          armor_class: "94/10", conditions: nil)
+    @store.update_player!(hp: 19)
+
+    p = @store.player
+    assert_equal [10, 162, "Derrano the Minister", "94/10", 19],
+                 [p[:level], p[:max_mana], p[:title], p[:armor_class], p[:hp]]
+    assert_nil p[:conditions]
+  end
+
+  # EARNED. A skill the agent knows does not stop being known because this
+  # reading did not mention it, so nothing here ever deletes — and the level it
+  # was first seen KNOWN at is stamped once and never moves.
+  def test_skills_upsert_in_place_and_pin_the_level_they_were_learned_at
+    @store.update_player!(level: 10)
+    @store.upsert_skills!([{ name: "armor", proficiency: "not learned", learned: false, kind: "spell" },
+                           { name: "cure light", proficiency: "good", learned: true, kind: "spell" }])
+    @store.update_player!(level: 14)
+    @store.upsert_skills!([{ name: "armor", proficiency: "good", learned: true, kind: "spell" }])
+
+    armor, cure = @store.skills
+    assert_equal %w[armor cure\ light], [armor[:name], cure[:name]]
+    assert_equal ["good", 1, 14], [armor[:proficiency], armor[:learned], armor[:learned_level]]
+    # Not re-stamped to 14 by the second reading: it was already known at 10.
+    assert_equal 10, cure[:learned_level]
+    assert_equal 2, @store.stats[:skills]
+  end
+
+  # VOLATILE. The rule the whole table exists to enforce: an item the agent
+  # dropped ten rooms ago must not still appear in its knowledge.
+  def test_an_item_snapshot_is_replaced_wholesale_not_accumulated
+    @store.replace_items!(location: "inventory", items: [
+                            { descr: "a bottle", quantity: 2, keyword: "bottle" },
+                            { descr: "a torch", quantity: 1, keyword: "torch" }
+                          ])
+    @store.replace_items!(location: "inventory", items: [{ descr: "a bottle", quantity: 2, keyword: "bottle" }])
+
+    assert_equal ["a bottle"], @store.items(location: "inventory").map { |i| i[:descr] }
+    # An EMPTY list is a legitimate snapshot — the pack really is empty — and
+    # clears the table rather than being ignored as "no reading".
+    @store.replace_items!(location: "inventory", items: [])
+    assert_empty @store.items(location: "inventory")
+  end
+
+  # Scoped to the location being replaced, or a routine `inventory` read would
+  # silently wipe the last known worn gear.
+  def test_replacing_the_pack_does_not_wipe_the_worn_gear
+    @store.replace_items!(location: "equipped",
+                          items: [{ worn_on: "wielded", descr: "a wooden club", keyword: "club" }])
+    @store.replace_items!(location: "inventory", items: [{ descr: "a bottle", quantity: 2 }])
+
+    assert_equal ["a wooden club"], @store.items(location: "equipped").map { |i| i[:descr] }
+    assert_equal 2, @store.stats[:items]
+  end
+
+  # Staleness is a fact the monitor renders, so it is stamped only by a real
+  # replacement — never by a mutation the agent did not follow with a read.
+  def test_the_snapshot_stamps_its_own_freshness
+    assert_nil @store.player[:items_updated_at]
+    @store.replace_items!(location: "inventory", items: [])
+
+    refute_nil @store.player[:items_updated_at]
   end
 
   # --- generic CDC: every mutation emits a journal delta ---------------------

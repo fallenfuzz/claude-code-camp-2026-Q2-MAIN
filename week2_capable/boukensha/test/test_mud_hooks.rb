@@ -453,6 +453,146 @@ class TestMudHooks < Minitest::Test
     @store = nil
   end
 
+  # --- the player sheet ------------------------------------------------------
+  #
+  # Collection rides readings the agent already pays for, so every test below
+  # asserts the SAME cost claim from a different angle: `fake.tools_called` must
+  # not grow. The fixtures are the bytes this build really emitted
+  # (bin/seed_player --emit-fixtures).
+
+  def player_fixture(name) = File.read(File.expand_path("fixtures/player/#{name}.txt", __dir__))
+
+  # `before_turn` already spends one `check(score)` per process for the level
+  # reading. Widening the parser means the other two thirds of that sheet —
+  # which used to be thrown away — now land for free.
+  def test_the_score_before_turn_already_pays_for_lands_whole
+    h, fake = hooks_for({ "check:score" => player_fixture("score"), "poll" => "" })
+    h.before_turn(context: ctx)
+
+    assert_equal %w[check], fake.tools_called, "no round trip beyond the one already spent"
+    p = @store.player
+    assert_equal [10, 450_000, 225_000, 5_000], [p[:level], p[:exp], p[:exp_to_next], p[:gold]]
+    assert_equal [162, 94], [p[:max_mana], p[:max_move]], "the denominators the prompt line has no room for"
+    assert_equal ["94/10", 0, "Derrano the Minister", "standing"],
+                 [p[:armor_class], p[:alignment], p[:title], p[:position]]
+  end
+
+  # …and the same catch when the MODEL calls score itself, which is the reading
+  # we get for nothing at all.
+  def test_a_models_own_score_check_is_caught_for_free
+    h, fake = hooks_for(MARKET_SQUARE)
+    h.after_tool(name: "tbamud__check", args: { "kind" => "score" },
+                 result: player_fixture("score"), context: ctx)
+
+    assert_empty fake.tools_called
+    assert_equal "Derrano the Minister", @store.player[:title]
+  end
+
+  def test_the_pack_and_the_gear_are_captured_off_the_models_own_checks
+    h, fake = hooks_for(MARKET_SQUARE)
+    c = ctx
+    h.after_tool(name: "tbamud__check", args: { "kind" => "inventory" },
+                 result: player_fixture("inventory"), context: c)
+    h.after_tool(name: "tbamud__check", args: { "kind" => "equipment" },
+                 result: player_fixture("equipment"), context: c)
+
+    assert_empty fake.tools_called, "no new round trips — we ride the model's own reads"
+    assert_equal [["a bottle", 2]], @store.items(location: "inventory").map { |i| [i[:descr], i[:quantity]] }
+    assert_equal [["worn on body", "a leather jacket"], ["wielded", "a wooden club"]],
+                 @store.items(location: "equipped").map { |i| [i[:worn_on], i[:descr]] }
+  end
+
+  # The rule the snapshot exists to enforce: an item the agent no longer carries
+  # must not still be in its knowledge the moment it looks again.
+  def test_a_dropped_item_is_gone_from_the_next_snapshot
+    h, = hooks_for(MARKET_SQUARE)
+    c  = ctx
+    h.after_tool(name: "tbamud__check", args: { "kind" => "inventory" },
+                 result: player_fixture("inventory"), context: c)
+    h.after_tool(name: "tbamud__drop_item", args: { "item" => "bottle" },
+                 result: "You drop a bottle.\r\n19H 100M 83V > ", context: c)
+    h.after_tool(name: "tbamud__check", args: { "kind" => "inventory" },
+                 result: player_fixture("inventory_empty"), context: c)
+
+    assert_empty @store.items(location: "inventory")
+  end
+
+  # Honest staleness. A mutation the agent did not follow with a read leaves the
+  # snapshot ALONE and leaves `items_updated_at` where it was — the monitor then
+  # says "as of T" rather than showing a bag nobody ever read.
+  def test_a_mutation_without_a_following_read_does_not_fabricate_a_delta
+    h, = hooks_for(MARKET_SQUARE)
+    c  = ctx
+    h.after_tool(name: "tbamud__check", args: { "kind" => "inventory" },
+                 result: player_fixture("inventory"), context: c)
+    stamped = @store.player[:items_updated_at]
+    h.after_tool(name: "tbamud__drop_item", args: { "item" => "bottle" },
+                 result: "You drop a bottle.\r\n19H 100M 83V > ", context: c)
+
+    assert_equal 1, @store.items(location: "inventory").length, "the delta is not guessed"
+    assert_equal stamped, @store.player[:items_updated_at], "and freshness is not claimed"
+  end
+
+  # A refusal parses to the same `[]` an empty pack does, so replacing on it
+  # would delete everything the agent owns. The header is what separates them.
+  def test_a_refusal_never_wipes_the_bag
+    h, = hooks_for(MARKET_SQUARE)
+    c  = ctx
+    h.after_tool(name: "tbamud__check", args: { "kind" => "inventory" },
+                 result: player_fixture("inventory"), context: c)
+    h.after_tool(name: "tbamud__check", args: { "kind" => "inventory" },
+                 result: "Huh?!?\r\n19H 100M 83V > ", context: c)
+
+    assert_equal ["a bottle"], @store.items(location: "inventory").map { |i| i[:descr] }
+  end
+
+  # Skills are EARNED: the listing the model asked for is captured in place, and
+  # the sessions counter rides along in the same response.
+  def test_practice_lands_the_skill_list_and_the_sessions_counter
+    h, fake = hooks_for(MARKET_SQUARE)
+    h.after_tool(name: "tbamud__practice", args: {}, result: player_fixture("practice_guild"), context: ctx)
+
+    assert_empty fake.tools_called
+    assert_equal 30, @store.player[:practices_left]
+    armor = @store.skills.find { |s| s[:name] == "armor" }
+    assert_equal ["good", 1, "spell"], [armor[:proficiency], armor[:learned], armor[:kind]]
+    assert_equal 17, @store.stats[:skills]
+  end
+
+  # …and never deletes. A listing that omits a skill is not evidence the
+  # character forgot it — that is the whole difference between EARNED and the
+  # replace-on-read bag above.
+  def test_a_later_listing_upserts_rather_than_replacing
+    h, = hooks_for(MARKET_SQUARE)
+    c  = ctx
+    h.after_tool(name: "tbamud__practice", args: {}, result: player_fixture("practice_guild"), context: c)
+    h.after_tool(name: "tbamud__practice", args: {}, result: player_fixture("practice_refuse"), context: c)
+
+    assert_equal 17, @store.stats[:skills], "the shorter listing did not erase the longer one"
+    # The grade itself is CURRENT ability, so the freshest reading wins — the
+    # two-row listing here is the level-1 capture, and it says armor is back to
+    # "not learned". What survives is the row and the level it was first known
+    # at; what moves is the grade.
+    armor = @store.skills.find { |s| s[:name] == "armor" }
+    assert_equal ["not learned", 0], [armor[:proficiency], armor[:learned]]
+    assert_equal "not learned", @store.skills.find { |s| s[:name] == "bless" }[:proficiency]
+  end
+
+  # Every new path is inside `guard`, same as room capture: a player-capture
+  # failure degrades to "no player detail", never to a dead turn.
+  def test_broken_player_capture_leaves_the_turn_alive
+    h, = hooks_for(MARKET_SQUARE)
+    @store.close
+    c = ctx
+
+    assert_nil h.after_tool(name: "tbamud__check", args: { "kind" => "inventory" },
+                            result: player_fixture("inventory"), context: c)
+    assert_nil h.after_tool(name: "tbamud__practice", args: {},
+                            result: player_fixture("practice_guild"), context: c)
+  ensure
+    @store = nil
+  end
+
   # --- the turn policy -------------------------------------------------------
 
   def test_the_turn_policy_is_off_unless_asked_for

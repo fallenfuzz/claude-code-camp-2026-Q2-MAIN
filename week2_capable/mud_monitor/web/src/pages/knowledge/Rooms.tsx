@@ -15,6 +15,8 @@ const FILTERS = [
   { value: "provisional", label: "provisional" },
 ];
 
+const MAX_VISIBLE_ENTITIES = 3;
+
 // An exit whose destination is known links; one whose destination has never
 // been walked renders as plain text. That difference is the frontier, and
 // making it a link-vs-not distinction means it reads correctly everywhere
@@ -80,7 +82,7 @@ export default function Rooms() {
               <th>Room</th>
               <th>Exits</th>
               <th className="nowrap">Visits</th>
-              <th className="nowrap">Here</th>
+              <th>Entities seen</th>
               <th>Look targets</th>
               <th className="nowrap">Last seen</th>
             </tr>
@@ -111,7 +113,27 @@ export default function Rooms() {
                   <ExitList exits={room.exits} />
                 </td>
                 <td className="nowrap">{room.visit_count}</td>
-                <td className="nowrap">{room.entity_count || <span className="muted-cell">—</span>}</td>
+                <td>
+                  {room.entities.length === 0 ? (
+                    <span className="muted-cell">—</span>
+                  ) : (
+                    <>
+                      {room.entities.slice(0, MAX_VISIBLE_ENTITIES).map((entity) => (
+                        <span key={entity.id} className="tag" title={entity.descr}>
+                          {entity.keyword || entity.descr}
+                        </span>
+                      ))}
+                      {room.entities.length > MAX_VISIBLE_ENTITIES && (
+                        <span
+                          className="tag"
+                          title={`${room.entities.length - MAX_VISIBLE_ENTITIES} more shown on the room page`}
+                        >
+                          +{room.entities.length - MAX_VISIBLE_ENTITIES}
+                        </span>
+                      )}
+                    </>
+                  )}
+                </td>
                 <td>
                   {room.look_candidates.length === 0 ? (
                     <span className="muted-cell">—</span>

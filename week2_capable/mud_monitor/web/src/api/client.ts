@@ -4,6 +4,7 @@ import type {
   KnowledgeEntitiesPage,
   KnowledgeFrontierPage,
   KnowledgeOverview,
+  KnowledgePlayerPage,
   KnowledgeRoomDetail,
   KnowledgeRoomsPage,
   JournalPage,
@@ -134,6 +135,13 @@ export function fetchKnowledgeEntities(filters: KnowledgeEntityFilters = {}): Pr
 
 export function fetchKnowledgeFrontier(): Promise<KnowledgeFrontierPage> {
   return get("/knowledge/frontier");
+}
+
+// Its own endpoint rather than more keys on /knowledge, for the same reason
+// rooms and entities are: the Overview polls every 3s and must not start
+// carrying a full skill list and two item snapshots to render four tiles.
+export function fetchKnowledgePlayer(): Promise<KnowledgePlayerPage> {
+  return get("/knowledge/player");
 }
 
 // The progression journal, folded into series server-side. A snapshot of the

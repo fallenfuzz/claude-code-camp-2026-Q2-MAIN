@@ -138,7 +138,84 @@ module Boukensha
           CREATE INDEX idx_encounters_entity ON encounters(entity_id);
         SQL
 
-        MIGRATIONS = [V1].freeze
+        # The player half of the knowledgebase. The map half was rich — rooms,
+        # exits, entities, encounters — while the character was four numbers on
+        # one row, so a monitor could draw the world and not the adventurer in
+        # it.
+        #
+        # Player data is not one KIND of thing, so it does not get one answer,
+        # and sorting each fact into its lifetime IS the design:
+        #
+        #   score core   VOLATILE  extra columns on player_state  (one of each)
+        #   skills       EARNED    player_skills                  (in place)
+        #   items        VOLATILE  player_items                   (replaced whole)
+        #
+        # The sharpest edge is the last one. An item the agent dropped ten rooms
+        # ago must not still appear in its knowledge, so the bag is a snapshot
+        # the writer OVERWRITES in full on each reading — never an append log,
+        # and never somewhere the agent reads durable belief. player_state is
+        # one row because there is one player; player_items is N rows because
+        # there are N items, and the overwrite semantics are identical.
+        # The add/remove/use HISTORY is the journal's job, not this file's.
+        V2 = <<~SQL.freeze
+          -- Extend the single volatile row. Every column NULLable — "no reading
+          -- yet" is a real state, and update_player!'s compact-then-merge
+          -- already treats nil as "no reading this time", never "clear it".
+          ALTER TABLE player_state ADD COLUMN max_mana         INTEGER; -- score gives it; the prompt does not
+          ALTER TABLE player_state ADD COLUMN max_move         INTEGER;
+          ALTER TABLE player_state ADD COLUMN exp_to_next      INTEGER; -- "You need N exp to reach your next level"
+          ALTER TABLE player_state ADD COLUMN armor_class      TEXT;    -- "94/10" — verbatim, it is two numbers
+          ALTER TABLE player_state ADD COLUMN alignment        INTEGER;
+          ALTER TABLE player_state ADD COLUMN age_years        INTEGER;
+          ALTER TABLE player_state ADD COLUMN title            TEXT;    -- "Derrano the Minister"
+          -- Reserved, and written only the day a capture proves this build
+          -- prints them. `score` does not (test/fixtures/player/score.txt), so
+          -- they stay NULL. Reserving a column is free; inventing a parser for
+          -- text the MUD never emits is not.
+          ALTER TABLE player_state ADD COLUMN char_class       TEXT;
+          ALTER TABLE player_state ADD COLUMN race             TEXT;
+          ALTER TABLE player_state ADD COLUMN gold_bank        INTEGER; -- from `check(gold)` if ever issued
+          ALTER TABLE player_state ADD COLUMN conditions       TEXT;    -- "hungry,thirsty" — small and joined
+          ALTER TABLE player_state ADD COLUMN practices_left   INTEGER; -- practice sessions remaining
+          ALTER TABLE player_state ADD COLUMN items_updated_at TEXT;    -- when the snapshot below was last replaced
+
+          -- EARNED: what the character knows. Survives logout, updated in place.
+          -- Losing a skill row because the agent walked away would be a lie of a
+          -- different kind from a stale bag, so this is the opposite of
+          -- player_items: upserted, never wiped.
+          CREATE TABLE player_skills (
+            name          TEXT PRIMARY KEY,
+            -- TEXT, not INTEGER. This build grades in WORDS — "(good)",
+            -- "(not learned)" — and there is no percent anywhere in the output
+            -- (test/fixtures/player/practice_guild.txt). Mapping "good" onto a
+            -- number would be a remembered-CircleMUD guess dressed as data, so
+            -- the grade is stored as printed and `learned` — the MUD's own
+            -- "(not learned)" — is the only derived field.
+            proficiency   TEXT,
+            learned       INTEGER NOT NULL DEFAULT 0,
+            kind          TEXT,                    -- 'spell' | 'skill', from the listing header
+            learned_level INTEGER,                 -- player level when first seen known
+            first_seen_at TEXT NOT NULL,
+            last_seen_at  TEXT NOT NULL
+          );
+
+          -- VOLATILE snapshot: what is carried / worn RIGHT NOW. Wholesale
+          -- replaced on each reading — there is no history here, and there must
+          -- not be. No FK to a world table: items are the character's, not a
+          -- room's.
+          CREATE TABLE player_items (
+            id         INTEGER PRIMARY KEY,
+            location   TEXT NOT NULL CHECK (location IN ('inventory','equipped')),
+            worn_on    TEXT,                       -- "wielded", "worn on body" … equipped rows only
+            keyword    TEXT,                       -- best-guess handle (RoomParser.guess_keywords)
+            descr      TEXT NOT NULL,              -- the line as the MUD printed it
+            quantity   INTEGER NOT NULL DEFAULT 1,
+            updated_at TEXT NOT NULL
+          );
+          CREATE INDEX idx_items_location ON player_items(location);
+        SQL
+
+        MIGRATIONS = [V1, V2].freeze
 
         LATEST_VERSION = MIGRATIONS.size
 

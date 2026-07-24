@@ -1,0 +1,6 @@
+You have 3 practice sessions remaining.
+You know of the following spells:
+armor                 (not learned)
+cure light            (not learned)
+[0;00m
+19H 100M 83V (news) (motd) > 
