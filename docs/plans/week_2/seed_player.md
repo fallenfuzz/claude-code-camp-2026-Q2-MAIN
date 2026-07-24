@@ -1,214 +1,289 @@
-# SEED_PLAYER — a harness that creates and populates a test character
+# SEED_PLAYER — replace and fully populate a test character
 
-> **Status: plan, for review.** A script at `week2_capable/bin/seed_player` that logs an
-> **immortal** in beside a fresh **mortal** character and grants it a level, gold, skills,
-> and items — then reads back `score` / `inventory` / `equipment` / `practice` as that
-> mortal and captures the real bytes. Its reason to exist is `player_update.md`: that plan
-> cannot parse inventory/equipment/skills it has never seen, and today the agent is a
-> level-1 pauper with an empty pack, so there is nothing to harvest. This script
-> manufactures a rich character on demand and harvests the fixtures `player_update.md`'s
-> parsers are built and tested against.
+> **Status: implemented; live protocol verification pending.** `week2_capable/bin/seed_player` is a deterministic
+> dev harness that deletes the configured mortal if it exists, creates that same player
+> again from scratch, and applies a configurable uplift (level, money, stats, skills,
+> inventory, and equipment). It then captures the populated player's real `score`,
+> `inventory`, `equipment`, and `practice` output for `player_update.md`.
 
-## Why this, and why now
+## Required behavior
 
-The player half of the knowledgebase is empty because the *source* is empty:
+Every invocation produces a new character, never a top-up of an old one:
 
-- `parse_score` drops `exp` on this build (matches the stock `"scored N exp"`, but this MUD
-  says `"You have N exp"`), and `parse_inventory` / `parse_equipment` / `parse_skills`
-  **do not exist**.
-- Even if they did, a level-1 newbie with `"You are not carrying anything."` and no
-  practised skills gives them nothing to chew on.
+1. Validate all seed settings before connecting.
+2. Detect whether `PLAYER_NAME` exists.
+3. If it exists, authenticate it, run this MUD's verified character-deletion flow, close
+   the session, and prove on a fresh connection that the name is now treated as new.
+4. Create `PLAYER_NAME` from scratch with the configured password, gender, and class.
+5. Verify the new character reached the in-world prompt with a level-1 `score`.
+6. Log in the immortal and apply every configured uplift.
+7. Dress the configured equipment from the mortal session.
+8. Read back and verify the actual player against the configuration.
+9. Print the captures and optionally emit parser fixtures.
 
-`player_update.md` §0 is explicit that **fixtures are harvested, not authored** — every
-parser test is seeded from a real string pulled out of the telnet log, because tbaMUD is
-forked per install and the engine source is not in this repo. So before that plan can move,
-we need real captures of a *populated* character's `score`, `inventory`, `equipment`, and
-`practice`. That is this script's whole job: **stand up the character `player_update.md`
-needs, and record what the MUD actually prints.**
+There is deliberately no “reuse existing character,” “top up,” or timestamped-name path.
+Re-running is idempotent because it replaces the player before applying uplift, so money,
+items, and other values cannot accumulate between runs.
 
-This is a test/dev harness, not part of the live agent path. It ships in `bin/`, beside
-`move_player_to_start_room` and `rebuild`.
+## One easy edit point
 
-## What already exists (reuse, don't rebuild)
-
-The MUD SDK is done; this script is glue over it, exactly like `move_player_to_start_room`:
-
-| Piece | What it gives us |
-|---|---|
-| `MudManager::Session` | telnet client: `open`, `login(user, pass)`, `send_command(cmd)`, `read_until(pattern)`, `read_until_quiet(s)`, `read_until_prompt`, `close` |
-| `MudManager::Primitives` | builds validated command lines; mortal surface (`info_self("score"/"inventory"/"equipment")`, `practice`, `equip`, `get`, `drop`) **and** immortal `goto` / `transfer` / `teleport` / `at_location`; `START_ROOM = 3001` |
-| `bin/move_player_to_start_room` | the template — logs in a player **and** an admin on separate sessions, issues an immortal command, reads the result; env-overridable creds (`ADMIN_USERNAME`/`ADMIN_PASSWORD` default `admin`/`password`, `PLAYER_USERNAME`/`PLAYER_PASSWORD` default `dummy`/`helloworld`, `MUD_HOST`/`MUD_PORT` default `localhost:4000`) |
-
-So the connection, login, immortal-session, and read-until machinery are all solved. Two
-things are genuinely missing and are the substance of this plan: **the immortal grant
-commands** and **new-character creation**.
-
-## Ground truth first — this install, not CircleMUD memory
-
-Per the project rule (and `[[mud-engine-is-tbamud]]` / `[[verify-mud-mechanics-against-source]]`):
-the exact god-command syntax and the character-creation prompt sequence are **forked per
-install and must be confirmed against this MUD before being hardcoded.** The standard
-CircleMUD/tbaMUD forms below are the *starting hypothesis*, not the spec:
-
-| Intent | Hypothesised command | Must verify |
-|---|---|---|
-| set level | `advance <name> <level>` | name; whether it must be done while player is online; level cap for the granting immortal |
-| set gold | `set <name> gold <n>` | field name (`gold`), and `set` vs `set file` for online vs offline |
-| set exp | `set <name> exp <n>` | field name (`exp` vs `experience`) |
-| set alignment | `set <name> align <n>` | field name |
-| grant a skill | `skillset <name> '<skill>' <percent>` | quoting of multi-word skills; percent range; whether the skill must be legal for the class |
-| spawn an item | `load obj <vnum>` | that it lands in the **loader's** inventory (so admin must then `give` it to the player), or whether a target arg exists |
-
-**Phase 0 is a capture-only dry run** that issues each of these against the live MUD once
-and records the reply, so every later hardcoded command is backed by a real transcript —
-the same discipline `player_update.md` applies to its parsers. If a command comes back
-`"Huh?!"` or an error, the transcript says so and the plan adjusts before automating it.
-
-## New primitives (`MudManager::Primitives`)
-
-Add the four immortal grant builders, in the existing style (build the line, validate args,
-return a `Command`; never check live preconditions). They live in the `Admin / immortal`
-section beside `goto`/`teleport`:
+All frequently changed non-secret values and the names of their secret environment
+variables are hardcoded together at the top of `week2_capable/bin/seed_player`. The
+password values themselves live in `.env` under the resolved Boukensha directory:
 
 ```ruby
-def advance(name, level)          # "advance <name> <level>"
-def set_field(name, field, value) # "set <name> <field> <value>"   (gold, exp, align, …)
-def skillset(name, skill, pct)    # "skillset <name> '<skill>' <pct>"
-def load_obj(vnum)                # "load obj <vnum>"
+require "dotenv"
+require_relative "../boukensha/lib/boukensha_loader"
+
+rc = BoukenshaLoader.load_rc
+boukensha_dir = ENV["BOUKENSHA_DIR"] ||
+  BoukenshaLoader.expand_rc_path(rc["boukensha_dir"]) ||
+  File.join(Dir.home, ".boukensha")
+ENV_FILE = File.join(File.expand_path(boukensha_dir), ".env")
+Dotenv.load(ENV_FILE)
+
+HOST = "localhost"
+PORT = 4000
+
+ADMIN_NAME         = "admin"
+ADMIN_PASSWORD_ENV = "MUD_PASSWORD_ADMIN"
+
+PLAYER_NAME         = "Andrew"
+PLAYER_PASSWORD_ENV = "MUD_PASSWORD_ANDREW"
+PLAYER_GENDER       = "M" # exact creation-menu input, verified in P0
+PLAYER_CLASS        = "C" # exact creation-menu input, verified in P0
+
+ADMIN_PASSWORD  = ENV.fetch(ADMIN_PASSWORD_ENV)
+PLAYER_PASSWORD = ENV.fetch(PLAYER_PASSWORD_ENV)
+
+UPLIFT = {
+  level: 10,
+
+  money: {
+    gold: 5_000,
+    bank: 1_000
+  },
+
+  stats: {
+    align: 0
+  },
+
+  skills: {
+    "armor" => 75,
+    "cure light" => 75
+  },
+
+  # Spawned and left in the player's pack.
+  inventory: [
+    { vnum: 3001, keyword: "bottle", quantity: 2 }
+  ],
+
+  # Spawned, given to the player, then equipped with `wear`.
+  equipment: [
+    { vnum: 3023, keyword: "club", quantity: 1, wear: "wield" },
+    { vnum: 3043, keyword: "jacket", quantity: 1, wear: "wear" }
+  ]
+}.freeze
 ```
 
-`set_field` is deliberately generic (one builder, any field) rather than one method per
-stat — the field set is large and install-specific, and Phase 0 tells us which fields this
-build honours. `skillset` quotes the skill name (multi-word skills like `second attack`).
-All four validate types (`Integer` level/pct/vnum, non-empty name) but **not** legality —
-that is the MUD's job and its refusal is itself a capture worth keeping.
+The example vnums and uplift defaults come from the checked-in CircleMUD world data but
+still require P0 confirmation against the running install. `money`, `stats`, and `skills` are separate so the
+uplift is easy to scan. `inventory` means items left carried; `equipment` means items that
+are spawned, transferred, and then dressed. `quantity` expands to repeated object loads.
+`keyword` is the exact one-token identifier used to give and wear the freshly loaded object.
 
-## New-character creation (`Session#create_character`, or script-local)
+For example, the shared secret file contains:
 
-`Session#login` only knows the **existing-user** flow (`Name → Password → into game`). A
-brand-new name diverges into a prompt walk that this MUD's exact wording must be captured
-for (Phase 0), but shapes up as:
-
-```
-Name?                         → <newname>
-Did I get that right (Y/N)?   → Y
-New character. Password:       → <pw>
-Retype password:              → <pw>
-Sex (M/F)?                    → M
-Select a class: …             → <class letter>
-[MOTD] → press RETURN         → \n
-… into the game at the start room
+```dotenv
+MUD_PASSWORD_ADMIN=...
+MUD_PASSWORD_ANDREW=...
 ```
 
-Implemented as a `read_until(pattern)` walk (the Session already exposes it). Two honest
-choices for **which** character, recommend the first:
+The script validates the complete block before opening a socket:
 
-- **A reusable fixture character** (default name e.g. `fixture`, overridable). Created once;
-  on later runs the name already exists, so the script logs in and *re-populates* instead of
-  re-creating. Keeps the MUD's pfile dir from filling with junk, and makes runs idempotent.
-- **A fresh timestamped name each run** (`fixture_<ts>`). Guarantees a clean slate but
-  litters pfiles and needs cleanup. Offer behind `--fresh`.
+- the resolved Boukensha directory's `.env` exists and is a regular file;
+- both configured password-variable names are non-empty and exist in the loaded
+  environment with non-empty values;
+- names/gender/class are non-empty and creation choices are allowlisted;
+- the player name cannot equal the admin name;
+- numeric values, percentages, quantities, and vnums are integers in valid ranges;
+- every equipment entry has a supported mortal wear command;
+- duplicate or contradictory equipment declarations fail with a useful error.
 
-The creation walk is the most install-fragile part; it is gated behind Phase 0's captured
-transcript and wrapped so a prompt mismatch fails loudly with the raw buffer, never hangs.
+The editable configuration therefore contains `MUD_PASSWORD_ANDREW`, not Andrew's
+password. `Dotenv.load` does not overwrite a value already present in the process
+environment; that standard precedence is acceptable, but the script must print only the
+selected variable names and never their values. Both resolved passwords must be redacted
+from terminal output, exceptions, and telnet logs.
 
-## What the script does (end to end)
+## Reuse the existing SDK
 
-`bin/seed_player` — env/flag-overridable throughout, mirroring `move_player_to_start_room`:
+The script is glue over the existing MUD Manager, following the shape of
+`week2_capable/bin/reset`:
 
-1. **Ensure the mortal exists.** Try `login`; on "unknown name", run the creation walk.
-2. **Bring the mortal in-world** (they must be online for `advance`/`set`/`skillset`/`give`).
-3. **Log the immortal in** on a second session.
-4. **Grant**, each command echoed and its reply printed (and captured):
-   - `advance <name> <target_level>` (default e.g. 10);
-   - `set <name> gold <n>`, `set <name> exp <n>`, `set <name> align <n>`;
-   - `skillset <name> '<skill>' <pct>` for a small class-legal set;
-   - for each item vnum: immortal `goto <name>` → `load obj <vnum>` → `give <obj> <name>`
-     (or whatever Phase 0 proves is the working path to the **player's** pack).
-5. **Dress the mortal** so `equipment` is non-empty: player-session `wear`/`wield` some of
-   the received items, leaving the rest carried — so both `inventory` and `equipment`
-   capture real, non-empty output.
-6. **Read back as the mortal**, capturing each verbatim: `score`, `inventory`, `equipment`,
-   and `practice` (noting the guild caveat below).
-7. **Emit fixtures** (see next section) and a human-readable summary of what was granted.
+| Existing piece | Use |
+|---|---|
+| `MudManager::Session` | `open`, prompt reads, command sends, login, quiet reads, and close |
+| `MudManager::Primitives` | mortal `score`/`inventory`/`equipment`/`practice`, item actions, and existing immortal movement commands |
+| `week2_capable/bin/reset` | two-session lifecycle, redacted credentials, banners, and guarded cleanup |
 
-Positions in the world matter: `practice` with no argument lists skills **only at a
-guildmaster** on stock CircleMUD (`player_update.md` §3 flags this). So step 6 optionally
-`teleport`s the mortal to their class guild before `practice`, and captures both the guild
-listing and the non-guild refusal — both are fixtures the parser must handle.
+New behavior belongs in narrowly scoped `Session` helpers when it is reusable
+(`character_exists?`, `delete_character`, `create_character`); install-specific orchestration
+may stay in the script. Prompt walking must use bounded `read_until` calls and fail loudly
+with the raw buffer on a mismatch rather than hanging.
 
-## The output — fixtures for `player_update.md`
+## Ground truth first
 
-The captures are the deliverable. Written where that plan's parser tests will read them,
-mirroring how room fixtures are seeded:
+The exact deletion, creation, and god-command protocols are fork-specific. P0 must capture
+them from this installation before implementation hardcodes them. These are hypotheses,
+not specifications:
 
+| Intent | Starting hypothesis | Must verify |
+|---|---|---|
+| delete player | main-menu option `5` → password verification → `yes` | exact prompts and proof the pfile/index entry is gone |
+| create player | name confirmation → password twice → gender → class → MOTD | exact prompt text and accepted gender/class inputs |
+| set level | `advance <name> <level>` | target must be online; valid range |
+| set money/stat | `set <name> <field> <value>` | exact field names (`gold`, bank money, `exp`, alignment) |
+| grant skill | `skillset <name> '<skill>' <percent>` | quoting, percent range, and class legality |
+| spawn item | `load obj <vnum>` then `give` | where the item lands and how to identify it reliably for transfer |
+
+The discovery transcript must include successful output and known refusal output so the
+script can distinguish acceptance from `"Huh?!"`, invalid fields, illegal skills, bad
+vnums, and failed transfers.
+
+## Delete, prove absence, then create
+
+Existence detection must use the login/name conversation and classify its captured prompt;
+it must not infer existence from a timeout.
+
+If the player exists, authenticate with the password resolved from `PLAYER_PASSWORD_ENV`,
+remain at the tbaMUD main menu, select option `5`, re-enter the password, and type `yes`.
+If authentication fails, a confirmation prompt differs, deletion is refused, or a new
+connection still recognizes the name as existing, stop before uplift. Never seed over the
+old character, silently choose a different name, or attempt a guessed admin deletion
+command.
+
+Deletion is destructive but tightly scoped:
+
+- only the literal `PLAYER_NAME` constant can be targeted;
+- `ADMIN_NAME` is explicitly rejected as a target;
+- print `Resetting <name>: delete → recreate → uplift` before beginning;
+- never accept an arbitrary deletion target from CLI input;
+- never delete a pfile directly from the filesystem, because the MUD may maintain indexes
+  or other in-memory state.
+
+Once absence is proven, creation walks the captured prompts using `PLAYER_NAME`, the
+resolved player password, `PLAYER_GENDER`, and `PLAYER_CLASS`. Success means reaching the
+in-world prompt and reading a level-1 score. A partial or ambiguous creation stops the run.
+
+## New immortal primitives
+
+Add builders beside the existing immortal primitives, using the exact syntax proven by P0:
+
+```ruby
+def advance(name, level)
+def set_field(name, field, value)
+def skillset(name, skill, percent)
+def load_obj(vnum)
 ```
+
+They build and validate command lines but do not claim the live MUD accepted them.
+`set_field` stays generic because supported fields are install-specific. `skillset` safely
+quotes multi-word names. Unit tests cover command construction, escaping, types, ranges,
+and rejection of empty input.
+
+If deletion is an immortal command on this build, add one dedicated, strongly named
+primitive for the verified command. Do not overload `purge`: removing a character from a
+room is not proof that its saved player record was deleted.
+
+## Applying the uplift
+
+Keep both player and immortal sessions open after successful creation. Apply settings in a
+stable order, echoing every non-secret command and checking each reply:
+
+1. Advance to `UPLIFT[:level]`.
+2. Apply every `money` and `stats` field with the verified `set` syntax.
+3. Apply every configured skill percentage.
+4. For each inventory/equipment entry and each unit of `quantity`, load the vnum and
+   transfer that exact object to the player.
+5. From the player session, issue the entry's configured `wear`/`wield` action for every
+   equipment item. Inventory entries remain carried.
+
+Object transfer must not rely on a vague keyword when two loaded objects could collide.
+P0 must establish the reliable identifier/ordering strategy. Any rejected command, failed
+transfer, or failed wear action is fatal; the final summary must not call a partial seed
+successful.
+
+After applying uplift, read `score`, `inventory`, `equipment`, and `practice` and compare
+what is observable with the configuration:
+
+- configured level, money, exp, and alignment match;
+- every configured carried item and quantity appears;
+- every configured equipped item appears in an equipment slot;
+- configured skills appear at their expected percentages.
+
+For fields that this MUD does not expose in those commands, print them as “applied but not
+observable,” backed by the accepted immortal response. The summary shows configured versus
+actual values and exits non-zero on any observable mismatch.
+
+`practice` may list skills only at a class guildmaster. If confirmed in P0, the script
+temporarily teleports the player to the configured class guild for the capture and also
+captures the non-guild refusal.
+
+## Fixture output
+
+The normal run prints captures and verification but does not overwrite fixtures.
+`--emit-fixtures` writes the hand-reviewable raw bytes (ANSI retained) to:
+
+```text
 week2_capable/boukensha/test/fixtures/player/
-  score.txt          # populated: level, gold, exp, AC, align, title, conditions, maxes
-  inventory.txt      # a pack with several items incl. a "(N) a torch" stack
-  inventory_empty.txt# the "You are not carrying anything." baseline
-  equipment.txt      # worn slots: <wielded>, <worn on body>, …
-  practice_guild.txt # the skill listing at a guildmaster
-  practice_refuse.txt# "You can't practice here." elsewhere
+  score.txt
+  inventory.txt
+  inventory_empty.txt
+  equipment.txt
+  practice_guild.txt
+  practice_refuse.txt
 ```
 
-Plain `.txt` of the raw bytes (ANSI kept — the parser strips it, and the fixture must be
-what the MUD really sent). A run also appends to the telnet log automatically, so the
-captures are cross-checkable against `.boukensha/telnet/` exactly as the level-1 `score`
-fixture already is. **Writing fixtures is behind `--emit-fixtures`**; the default run just
-prints, so a curious run never overwrites a hand-checked fixture.
-
-## Safety & etiquette
-
-- **Read-only by default beyond the grants it announces.** It never deletes a character,
-  never `set`s destructive fields, and prints every immortal command before sending it.
-- **Guarded teardown** like the template's `ensure player&.close; admin&.close`.
-- **Redaction.** Passwords come from env and are sent with `send_command(cmd, redact: true)`
-  so they never reach the telnet log (the Session already supports `redact:`).
-- **Local MUD only.** Defaults target `localhost:4000`; this is a dev fixture harness, not a
-  tool to point at a shared server.
+The populated files come from the final recreated/uplifted player. Empty/refusal fixtures
+must be separately captured at the appropriate point in the lifecycle, not authored.
+Fixture writes are atomic so a failed run cannot leave a mixture of old and new captures.
 
 ## Phasing
 
-- **P0 — Discovery capture (dry run).** A throwaway `--probe` mode that logs the immortal in
-  and issues each hypothesised command **once** against an existing char (`dummy`), plus a
-  one-time manual capture of the new-character prompt sequence, recording every reply.
-  *Done when* we have a transcript confirming the real syntax of `advance`/`set`/`skillset`/
-  `load`/`give` and the creation prompts on **this** install.
-- **P1 — Primitives.** Add `advance`, `set_field`, `skillset`, `load_obj` to
-  `MudManager::Primitives` with unit tests (line-building + arg validation, the shape the
-  existing primitive specs use). *Done when* the primitive suite is green.
-- **P2 — Creation walk.** `Session#create_character` (or script-local) driven off the P0
-  transcript, with a mismatch failing loudly. *Done when* a run creates the fixture char
-  from cold and lands it in the start room.
-- **P3 — Seed script.** `bin/seed_player`: ensure-exists → grant → dress → read-back, all
-  echoed. *Done when* one invocation yields a level-N character with gold, skills, worn gear,
-  and a non-empty pack, and prints its `score`/`inventory`/`equipment`/`practice`.
-- **P4 — Fixtures.** `--emit-fixtures` writes the six `.txt` captures. *Done when*
-  `test/fixtures/player/` is populated and hands `player_update.md` its P0 inputs.
+- **P0 — Protocol and data discovery.** Capture deletion and creation conversations plus
+  successful/refused `advance`, `set`, `skillset`, `load`, `give`, and wear operations.
+  Select valid default skills, object vnums, and any class-guild room. Done when every
+  hardcoded protocol and example seed value is backed by this install.
+- **P1 — Primitives.** Add and unit-test the required immortal command builders. Done when
+  construction, quoting, validation, and rejection tests pass.
+- **P2 — Reset lifecycle.** Implement existence detection, authenticated deletion,
+  post-delete absence proof, creation, and level-1 proof. Done when two consecutive runs
+  each demonstrate that the prior player was deleted and a new one was created.
+- **P3 — Uplift and verification.** Add the top-level configuration, grants, item
+  quantities, dressing, readback, and actual-versus-configured checks. Done when
+  consecutive runs produce identical configured state without accumulation.
+- **P4 — Fixtures.** Add atomic `--emit-fixtures` output and hand-check captures against
+  the telnet log. Done when `player_update.md` has real populated and baseline fixtures.
 
 ## Invariants
 
-1. **Ground truth over memory.** Every hardcoded god command traces to a P0 capture from
-   this install; an unproven command is probed, not assumed.
-2. **Reuse the SDK.** Connection/login/immortal/read machinery is `MudManager::Session` +
-   `Primitives`; this script adds only the four grant builders and the creation walk.
-3. **Idempotent by default.** Re-running re-populates the same fixture character rather than
-   spawning a new one; `--fresh` is the opt-in that litters pfiles.
-4. **Announce every mutation.** Each immortal command is printed before it is sent; nothing
-   destructive is issued.
-5. **Captures are verbatim.** Fixtures are the raw bytes (ANSI intact); the parser adapts to
-   the MUD, never the reverse.
-6. **Dev-only, local-only.** Not on the agent path; defaults target the local MUD.
+1. **Replacement, not mutation-in-place.** An existing configured player is deleted and
+   proven absent before creation or uplift.
+2. **One edit point, no embedded secrets.** Name, password environment-variable name,
+   gender, class, uplift, money, skills, items, and equipment live together at the top of
+   the script; actual passwords come from the resolved Boukensha directory's `.env`.
+3. **Ground truth over memory.** Every hardcoded MUD command and prompt traces to P0.
+4. **Fail closed.** Authentication, deletion, creation, grant, transfer, wear, or
+   verification ambiguity stops the run with a non-zero exit.
+5. **Announce mutations and redact secrets.** Commands are visible; passwords never are.
+6. **Captures are verbatim.** Parsers adapt to real MUD bytes, including ANSI.
+7. **Dev-only and local by default.** This is a fixture harness, not part of the live agent
+   path.
 
-## Not now / out of scope
+## Out of scope
 
-- **Building the parsers or schema V2.** That is `player_update.md`; this script only feeds
-  its fixtures. The two are adjacent, not merged.
-- **A returning-character "top-up" for the live agent.** Auto-granting the *real* agent
-  character levels/gold to speed play is a different (and judgment-laden) tool; this harness
-  is for producing fixtures, not for pay-to-win.
-- **Deleting/cleaning pfiles.** If `--fresh` litters, cleanup is a manual `purge`/pfile
-  chore for now, not automated here.
-- **Non-player world seeding** (spawning mobs/rooms for other tests) — the same immortal
-  `load`/`goto` primitives would serve it, but that is a later harness.
+- Building the parsers/schema described by `player_update.md`.
+- Top-ups or grants for the live agent character.
+- Direct pfile manipulation, wildcard deletion, or bulk player cleanup.
+- Non-player world seeding such as spawning mobs or rooms.

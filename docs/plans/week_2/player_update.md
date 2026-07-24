@@ -1,10 +1,45 @@
 # PLAYER — teaching the knowledgebase who the agent *is*
 
-> **Status: plan, for review.** The map half of the knowledgebase is rich (rooms,
-> exits, entities, encounters); the *player* half is four numbers on a single
-> `player_state` row. This plan closes that gap — score sheet, skills, inventory,
+> **Status: implemented (P0–P6).** The map half of the knowledgebase is rich (rooms,
+> exits, entities, encounters); the *player* half was four numbers on a single
+> `player_state` row. This plan closed that gap — score sheet, skills, inventory,
 > equipment — using the same three-lifetime doctrine and the same "free reading"
-> discipline the room memory already runs on. Nothing here changes how rooms work.
+> discipline the room memory already runs on. Nothing here changed how rooms work.
+
+## As built — where ground truth overruled the plan
+
+Fixtures were harvested from the live MUD with `bin/seed_player --emit-fixtures`
+against **Derrano** (a level-10 cleric), into `boukensha/test/fixtures/player/`.
+Re-running that command regenerates them. Four things in §0–§8 below were written
+from what a stock CircleMUD "should" print and are wrong for this build; the code
+follows the capture, and this section is the record of the difference:
+
+1. **Skill proficiency is a WORD, not a percent.** `practice` prints
+   `armor (good)` / `bless (not learned)` and emits no number anywhere. So
+   `player_skills.proficiency` is **TEXT**, stored verbatim, with `learned`
+   (the MUD's own "not learned") as the only derived field — §2's
+   `proficiency INTEGER` and §8's progress bar are not built, because
+   ranking "good" on a 0–100 scale would be exactly the remembered-CircleMUD
+   guess §11.1 forbids. A `kind` column (`spell`/`skill`, from the listing
+   header) was added instead, since that IS in the text.
+2. **`practice` lists everywhere in this build** — there is no guildmaster gate.
+   §3's caveat is resolved: the level-1 capture, taken in the newbie start room,
+   is a full listing. `parse_skills` still returns `[]` on a refusal.
+3. **`practices_left` comes from `practice`, not `score`.** This build's `score`
+   never prints it, so `parse_practice` owns it and `parse_score` does not.
+4. **An empty pack is `"  Nothing."`**, not "You are not carrying anything.", and
+   a stacked item is `"( 2) a bottle"` — with the space. Both wordings are
+   accepted. Because a refusal and an empty pack both parse to `[]`,
+   `RoomParser.carrying?`/`using?` gate the snapshot replacement, so "Huh?!?"
+   can never wipe the bag.
+
+Two smaller deviations: `parse_examine` keeps returning raw strings (its output
+is the `entities.equipment` JSON column, so changing its shape is not additive);
+the shared `<slot> item` line reader §3 asked for is `RoomParser.worn_line`, used
+by `parse_equipment` and documented for the mob shape. And the monitor's
+knowledge test fixtures now root the profile registry at their own tmpdir —
+without it, every knowledge test 409s with `profile_selection_required` depending
+on what happens to be in the developer's `.boukensha`.
 
 ## What this builds
 

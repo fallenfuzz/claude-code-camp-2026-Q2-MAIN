@@ -286,12 +286,12 @@ Depends on §7's decision.
 
 ## 6. Adjacent finding: ~0.42s per logged event
 
-> **CORRECTION (see `look_candidates_runtime.md` §12.6).** This section blames
-> the logger. Measured since: `Logger#write_log` costs **0.003 ms/event**, the
-> MCP round trip **0.2 ms**, the MUD **62 ms**. The ~0.42 s floor is real and
-> appears between *every* pair of events — including ones that do no work — but
-> it is not the log write. Current suspect is GVL contention with the TUI's
-> 60 ms render tick. Verify with a `--no-tui` run before changing anything.
+> **SUPERSEDED — see [`tui_latency.md`](tui_latency.md) for the resolved
+> summary.** This section blames the logger. It is wrong: `Logger#write_log`
+> costs **0.003 ms/event**, the MCP round trip **0.2 ms**, the MUD **62 ms**. The
+> ~0.42 s floor is real and appears between *every* pair of events — including
+> ones that do no work — because the **TUI's 60 ms render tick starves the worker
+> thread under the GVL**, confirmed by a `--no-tui` run. Do not touch the logging.
 
 
 Sixteen of the 33.8s are inter-phase gaps averaging **420ms**, appearing

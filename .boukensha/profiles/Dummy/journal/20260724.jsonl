@@ -115,3 +115,12 @@
 {"kind":"change","stream":"stat","key":"current_room_id","from":25,"to":26,"seq":115,"session_id":"20260724T173654Z-84a3eee5","at":"2026-07-24T13:59:55.307-04:00","mono_ms":548302948}
 {"kind":"change","stream":"stat","key":"prev_room_id","from":24,"to":25,"seq":116,"session_id":"20260724T173654Z-84a3eee5","at":"2026-07-24T13:59:55.307-04:00","mono_ms":548302948}
 {"kind":"change","stream":"stat","key":"last_direction","from":"north","to":"east","seq":117,"session_id":"20260724T173654Z-84a3eee5","at":"2026-07-24T13:59:55.307-04:00","mono_ms":548302948}
+{"kind":"change","stream":"stat","key":"session_id","from":null,"to":"20260724T195732Z-031b1659","seq":118,"session_id":"20260724T195732Z-031b1659","at":"2026-07-24T15:57:52.576-04:00","mono_ms":555383032}
+{"kind":"change","stream":"stat","key":"level","from":null,"to":1,"seq":119,"session_id":"20260724T195732Z-031b1659","at":"2026-07-24T15:57:55.776-04:00","mono_ms":555383416}
+{"kind":"change","stream":"stat","key":"gold","from":null,"to":0,"seq":120,"session_id":"20260724T195732Z-031b1659","at":"2026-07-24T15:57:56.206-04:00","mono_ms":555383847}
+{"kind":"change","stream":"stat","key":"max_hp","from":null,"to":20,"seq":121,"session_id":"20260724T195732Z-031b1659","at":"2026-07-24T15:57:56.589-04:00","mono_ms":555384230}
+{"id":26,"kind":"event","stream":"room","op":"visit","seq":122,"session_id":"20260724T195732Z-031b1659","at":"2026-07-24T15:57:59.029-04:00","mono_ms":555386670}
+{"kind":"change","stream":"stat","key":"current_room_id","from":null,"to":26,"seq":123,"session_id":"20260724T195732Z-031b1659","at":"2026-07-24T15:57:59.413-04:00","mono_ms":555387054}
+{"kind":"change","stream":"stat","key":"hp","from":null,"to":20,"seq":124,"session_id":"20260724T195732Z-031b1659","at":"2026-07-24T15:57:59.795-04:00","mono_ms":555387436}
+{"kind":"change","stream":"stat","key":"mana","from":null,"to":100,"seq":125,"session_id":"20260724T195732Z-031b1659","at":"2026-07-24T15:58:00.223-04:00","mono_ms":555387864}
+{"kind":"change","stream":"stat","key":"move","from":null,"to":85,"seq":126,"session_id":"20260724T195732Z-031b1659","at":"2026-07-24T15:58:00.600-04:00","mono_ms":555388240}

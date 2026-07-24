@@ -1,0 +1,3 @@
+player:
+  name: Admin
+  password_env: MUD_PASSWORD_ADMIN

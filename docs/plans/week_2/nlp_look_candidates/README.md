@@ -1,5 +1,9 @@
 # NLP for `look_candidates` — Dataset, Validation, and Tier Bake-off
 
+> **New here?** Read [`MODEL.md`](MODEL.md) first — the student-facing explainer
+> for *why* we built a custom model, *what* it is, and *how*. This file is the
+> working plan behind it.
+
 `look_candidates` is the one field in the room-survey schema that needs
 judgement (see `../scripted_room_survey.md` §7.1). Every proposal so far — mine
 included — argued about which extractor to build from intuition. We have the

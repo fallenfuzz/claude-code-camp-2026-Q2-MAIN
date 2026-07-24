@@ -1,0 +1,3 @@
+player:
+  name: Derrano
+  password_env: MUD_PASSWORD_DERRANO

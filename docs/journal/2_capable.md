@@ -306,18 +306,30 @@ I can' tell right now until we progress further.
 I notice it didn't add invetory, equipment, skills or other player information because it was like "you have no exp, no levels and nothing
 so why build that out?" So I will make a script to create a new player and give them stuff via the admin user.
 
-## Farther along Player Creation Script
+##  15 Populated Player Creation Script and Player Scopying
 
 While I did create a script a plan to seed a player with data
 doc/plans/week_2/seed_player.md
 
-The only problem is that our knowledge base things only one user exits.
-
+The only problem is that our knowledge base thinks there is only one user that exits.
 We have to right now handle scoping for another player.
+
+I decided to have profiles within .bounkensha and we will have its own database and log files.
+I have a drop down in Mud Monitor to change players.
+You have to specify --profile to boukensha.
 
 docs/plans/week_2/player_scoping.md
 
-## 15 Player Update
+Okay we need to now update our seed_player script how is it going to know what to call the player, password and how much to populate it with?
+It would be ideal if we had an agent that had access to admin commands but that sounds like alot of work.
+
+I mean there is no reason I can't have the admin as a profile, I was just thinking
+it wouldn't be optimal, but if I did I would need to have prompt override for player so it knows
+that its an admin and policy at the profile layer or a flag that its an admin player so it has conditional access to admin commands.
+I'll circle back to this some other time.
+
+
+## 16 Player Update
 We want in our hook oupdate the vitals information, inventory and etc
 
 doc/plans/week_2/player_update
@@ -325,7 +337,6 @@ doc/plans/week_2/player_update
 
 ## Technical Conclusions
 Reflecting back your education guesses from the technical uncertainty section what was the technical outcomes. Is there any new technical uncertainty that has been put aside for future exploration. Are there any next steps or technical considerations worth noting?
-
 
 ## Key Takeaway
 In one sentence. State the most important lesson from the week.
