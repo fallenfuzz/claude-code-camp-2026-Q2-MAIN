@@ -1,6 +1,11 @@
 import type {
   ApiError,
   DroppedDiff,
+  KnowledgeEntitiesPage,
+  KnowledgeFrontierPage,
+  KnowledgeOverview,
+  KnowledgeRoomDetail,
+  KnowledgeRoomsPage,
   ManagerPage,
   MessagesTimeline,
   SessionDetail,
@@ -85,6 +90,49 @@ export function fetchDropped(filters: DroppedFilters = {}): Promise<DroppedDiff>
   if (filters.to) params.set("to", filters.to);
   const qs = params.toString();
   return get(`/diffs/dropped${qs ? `?${qs}` : ""}`);
+}
+
+// ---------- Knowledge ----------
+//
+// No stream sibling for any of these: knowledge is a snapshot, not a log, so
+// the pages poll (usePolling) rather than tailing a cursor.
+
+export function fetchKnowledge(): Promise<KnowledgeOverview> {
+  return get("/knowledge");
+}
+
+export interface KnowledgeRoomFilters {
+  q?: string;
+  filter?: string;
+}
+
+export function fetchKnowledgeRooms(filters: KnowledgeRoomFilters = {}): Promise<KnowledgeRoomsPage> {
+  const params = new URLSearchParams();
+  if (filters.q) params.set("q", filters.q);
+  if (filters.filter) params.set("filter", filters.filter);
+  const qs = params.toString();
+  return get(`/knowledge/rooms${qs ? `?${qs}` : ""}`);
+}
+
+export function fetchKnowledgeRoom(id: number | string): Promise<KnowledgeRoomDetail> {
+  return get(`/knowledge/rooms/${encodeURIComponent(String(id))}`);
+}
+
+export interface KnowledgeEntityFilters {
+  kind?: string;
+  q?: string;
+}
+
+export function fetchKnowledgeEntities(filters: KnowledgeEntityFilters = {}): Promise<KnowledgeEntitiesPage> {
+  const params = new URLSearchParams();
+  if (filters.kind) params.set("kind", filters.kind);
+  if (filters.q) params.set("q", filters.q);
+  const qs = params.toString();
+  return get(`/knowledge/entities${qs ? `?${qs}` : ""}`);
+}
+
+export function fetchKnowledgeFrontier(): Promise<KnowledgeFrontierPage> {
+  return get("/knowledge/frontier");
 }
 
 export { ApiRequestError };

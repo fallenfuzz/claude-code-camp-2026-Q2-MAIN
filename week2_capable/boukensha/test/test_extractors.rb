@@ -219,7 +219,7 @@ class TestExtractors < Minitest::Test
   # `dir` is the boukensha dir; model_dir defaults to <dir>/models/look_candidates,
   # so these pass it explicitly rather than reconstructing that layout.
   FakeConfig = Struct.new(:dir, :settings) do
-    def dig(*keys) = keys == %i[tools inspect_room look_candidates] ? settings : nil
+    def dig(*keys) = keys == %i[tools room_survey look_candidates] ? settings : nil
   end
 
   def test_extractor_none_returns_a_lambda_that_never_speaks

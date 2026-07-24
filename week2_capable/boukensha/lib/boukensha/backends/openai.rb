@@ -69,8 +69,8 @@ module Boukensha
         {
           model: @model,
           instructions: context.system,
-          input: to_input(context.messages),
-          tools: tools.nil? ? to_tools(context.tools) : tools,
+          input: to_input(context.request_messages),
+          tools: tools.nil? ? to_tools(context.advertised_tools) : tools,
           max_output_tokens: max_output_tokens,
           reasoning: { effort: "none" }
         }

@@ -8,11 +8,11 @@ module Boukensha
     end
 
     def to_messages
-      @backend.to_messages(@context.messages)
+      @backend.to_messages(@context.request_messages)
     end
 
     def to_tools
-      @backend.to_tools(@context.tools)
+      @backend.to_tools(@context.advertised_tools)
     end
 
     def to_api_payload(max_output_tokens: 1024, tools: nil)

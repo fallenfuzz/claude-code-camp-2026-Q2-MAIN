@@ -12,6 +12,7 @@ export default function Layout() {
           <Link to="/sessions">Sessions</Link>
           <Link to="/manager">Manager</Link>
           <Link to="/telnet">Telnet</Link>
+          <Link to="/knowledge">Knowledge</Link>
           <Link to="/health">Health</Link>
         </nav>
       </header>

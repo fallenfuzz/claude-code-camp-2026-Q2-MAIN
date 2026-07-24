@@ -67,8 +67,8 @@ module Boukensha
         {
           model: @model,
           stream: false,
-          messages: to_messages(context.system, context.messages),
-          tools: tools.nil? ? to_tools(context.tools) : tools,
+          messages: to_messages(context.system, context.request_messages),
+          tools: tools.nil? ? to_tools(context.advertised_tools) : tools,
           think: false
         }
       end

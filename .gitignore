@@ -23,3 +23,10 @@ docs/plans/week_2/nlp_look_candidates/data/t3_preds.json
 docs/plans/week_2/nlp_look_candidates/data/sample.txt
 docs/plans/week_2/nlp_look_candidates/build/
 docs/plans/week_2/nlp_look_candidates/venv/
+
+# The agent's earned knowledge of the world (rooms, exits, mobs, encounters).
+# Binary, rewritten every run, and reproducible only by playing — it is a save
+# file, not source. mud_monitor attaches the same file read-only.
+.boukensha/knowledge.sqlite3
+.boukensha/knowledge.sqlite3-wal
+.boukensha/knowledge.sqlite3-shm

@@ -7,6 +7,31 @@ module Boukensha
                 :turn_tokens, :compaction_threshold
     attr_accessor :current_tokens
 
+    # Volatile state the agent should reason over RIGHT NOW — where it is, what
+    # is in the room with it, how much HP it has.
+    #
+    # Deliberately not a message. A tool_result is appended to @messages
+    # forever and re-sent on every subsequent API call, so eleven room surveys
+    # means the eleventh call carries all ten previous rooms' full prose (~1,740
+    # tokens in the sampled session, and growing). Compaction eventually clears
+    # them by throwing away the OLDEST memories — precisely the rooms nearest
+    # the start of an exploration.
+    #
+    # A state block lives here instead: re-rendered before each model call, in
+    # exactly one copy that is always current, never duplicated, never stale,
+    # never compacted away. ~45 tokens, flat, however long the walk gets.
+    #
+    # It renders at the TAIL of the request, after any prompt-cache breakpoint
+    # on the system+tools+history prefix, so rewriting it every iteration costs
+    # nothing in cache terms.
+    attr_accessor :state_block
+
+    # An optional Permissions computed for THIS iteration — e.g. `move` pinned
+    # to the directions the MUD just printed on the exits line. It may only ever
+    # NARROW: a call must satisfy both the task's `allow:` block and this, and
+    # this can never grant something settings.yaml didn't.
+    attr_accessor :turn_policy
+
     def initialize(system:, context_window: 200_000, working_dir: nil, compaction_threshold: 0.85)
       @system               = system
       @context_window       = context_window
@@ -24,6 +49,28 @@ module Boukensha
 
     def add_message(role, content, tool_use_id: nil)
       @messages << Message.new(role, content, tool_use_id)
+    end
+
+    # What actually goes on the wire: the conversation, plus the state block as
+    # a trailing user turn if one is set.
+    #
+    # Built fresh on every read and never stored, which is the entire trick —
+    # @messages stays the pure transcript (so compaction, /clear and the turn
+    # counter all keep meaning what they meant), and the state block can be
+    # rewritten between iterations without leaving a trail of stale copies
+    # behind it.
+    def request_messages
+      return @messages if @state_block.nil? || @state_block.to_s.strip.empty?
+
+      @messages + [Message.new(:user, @state_block.to_s, nil)]
+    end
+
+    # The tools to advertise this iteration. `turn_policy` may hide a tool the
+    # task allows; it can never reveal one the task doesn't.
+    def advertised_tools
+      return @tools if @turn_policy.nil?
+
+      @tools.select { |name, _| @turn_policy.allow_tool?(name) }
     end
 
     # Update the known context size from the last API response's input_tokens.

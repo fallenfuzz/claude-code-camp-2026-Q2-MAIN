@@ -85,8 +85,8 @@ module Boukensha
       def to_payload(context, max_output_tokens: 1024, tools: nil)
         {
           systemInstruction: { parts: [{ text: context.system }] },
-          contents: to_messages(context.messages),
-          tools: tools.nil? ? to_tools(context.tools) : tools,
+          contents: to_messages(context.request_messages),
+          tools: tools.nil? ? to_tools(context.advertised_tools) : tools,
           generationConfig: {
             maxOutputTokens: max_output_tokens,
             thinkingConfig: thinking_config

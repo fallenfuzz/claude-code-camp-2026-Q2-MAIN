@@ -1456,3 +1456,206 @@ table.sessions a:hover {
   min-width: 5.5rem;
   text-align: right;
 }
+
+/* ---------- Knowledge tab (docs/plans/week_2/knowledge_tab.md) ---------- */
+
+.subnav {
+  display: flex;
+  gap: 0.25rem;
+  margin-bottom: 1.25rem;
+  border-bottom: 1px solid var(--border);
+}
+
+.subnav-link {
+  padding: 0.4rem 0.8rem;
+  color: var(--muted);
+  text-decoration: none;
+  font-size: 0.9rem;
+  border-bottom: 2px solid transparent;
+  margin-bottom: -1px;
+}
+
+.subnav-link:hover {
+  color: var(--text);
+}
+
+.subnav-link-active {
+  color: var(--accent);
+  border-bottom-color: var(--accent);
+  font-weight: 600;
+}
+
+.knowledge-footer {
+  margin-top: 2rem;
+  font-size: 0.75rem;
+  color: var(--muted);
+  font-family: ui-monospace, monospace;
+}
+
+.knowledge-facts {
+  display: grid;
+  grid-template-columns: max-content 1fr;
+  gap: 0.35rem 1rem;
+  margin: 0 0 1.25rem;
+  font-size: 0.9rem;
+}
+
+.knowledge-facts dt {
+  color: var(--muted);
+  font-size: 0.75rem;
+  text-transform: uppercase;
+  letter-spacing: 0.02em;
+  padding-top: 0.15rem;
+}
+
+.knowledge-facts dd {
+  margin: 0;
+}
+
+.knowledge-list {
+  margin: 0 0 1.25rem;
+  padding-left: 1.2rem;
+  font-size: 0.9rem;
+}
+
+.muted-cell {
+  color: var(--muted);
+}
+
+/* A room the fingerprint resolver is not sure about must never look like a
+   confirmed one — this tab exists to surface exactly that doubt. */
+.room-provisional {
+  background: color-mix(in srgb, var(--tool-bg) 55%, transparent);
+}
+
+.room-description {
+  color: var(--muted);
+  font-size: 0.8rem;
+  margin-top: 0.2rem;
+  max-width: 34rem;
+}
+
+.room-description-full {
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 0.7rem 0.9rem;
+  white-space: pre-wrap;
+  font-size: 0.85rem;
+  line-height: 1.45;
+  margin: 0 0 1.25rem;
+  max-width: 60rem;
+}
+
+.tag {
+  display: inline-block;
+  background: color-mix(in srgb, var(--panel) 80%, var(--text) 20%);
+  border-radius: 4px;
+  padding: 0.05rem 0.4rem;
+  margin-right: 0.3rem;
+  font-size: 0.75rem;
+  color: var(--muted);
+  white-space: nowrap;
+}
+
+.tag-provisional,
+.tag-frontier {
+  background: color-mix(in srgb, var(--tool-border) 35%, transparent);
+  color: var(--text);
+}
+
+/* Exits: a walked exit is a link, an unwalked one is not. That single
+   difference is the frontier, everywhere, with no legend needed. */
+.exit-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.15rem 0.7rem;
+  font-size: 0.85rem;
+}
+
+.exit {
+  white-space: nowrap;
+}
+
+.exit-dir {
+  color: var(--muted);
+  margin-right: 0.3rem;
+  font-family: ui-monospace, monospace;
+  font-size: 0.75rem;
+}
+
+.exit a {
+  color: var(--accent);
+  text-decoration: none;
+}
+
+.exit a:hover {
+  text-decoration: underline;
+}
+
+.exit-frontier span:not(.exit-dir) {
+  color: var(--muted);
+  border-bottom: 1px dashed var(--border);
+}
+
+.exit-row-frontier td {
+  background: color-mix(in srgb, var(--panel) 96%, var(--text) 4%);
+}
+
+/* consider's verdict and the level it was measured at, welded together —
+   the verdict alone is misleading after a single level-up. */
+.threat-chip {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 0.35rem;
+  white-space: nowrap;
+}
+
+.threat-verdict {
+  font-size: 0.85rem;
+}
+
+.threat-level {
+  font-size: 0.7rem;
+  color: var(--muted);
+  font-family: ui-monospace, monospace;
+}
+
+.entity-keyword {
+  margin-left: 0.4rem;
+  font-size: 0.7rem;
+  color: var(--muted);
+  background: color-mix(in srgb, var(--panel) 85%, var(--text) 15%);
+  border-radius: 3px;
+  padding: 0.05rem 0.3rem;
+}
+
+.sighting-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.1rem;
+  font-size: 0.85rem;
+}
+
+.sighting-list a {
+  color: var(--accent);
+  text-decoration: none;
+}
+
+.sighting-list a:hover {
+  text-decoration: underline;
+}
+
+.fingerprint {
+  font-size: 0.75rem;
+  color: var(--muted);
+}
+
+table.knowledge-rooms a {
+  color: var(--accent);
+  text-decoration: none;
+}
+
+table.knowledge-rooms a:hover {
+  text-decoration: underline;
+}

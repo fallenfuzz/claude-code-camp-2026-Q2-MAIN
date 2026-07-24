@@ -28,5 +28,10 @@ Gem::Specification.new do |spec|
   # Optional in practice: without the model artifact the extractor returns [].
   spec.add_dependency "onnxruntime", "~> 0.11"
 
+  # The agent's room memory (Mud::Memory::Store). `require`d lazily inside the
+  # store — the same posture onnxruntime has — so a checkout without it still
+  # boots and simply explores without remembering.
+  spec.add_dependency "sqlite3", "~> 2.0"
+
   # open3, net/http, and json are stdlib. Users supply their own ANTHROPIC_API_KEY.
 end

@@ -13,6 +13,21 @@ module Boukensha
     def initialize(registry, logger: nil)
       @registry = registry
       @logger   = logger
+      @hooks    = nil
+    end
+
+    # Install the run's lifecycle hooks (a Boukensha::Hooks subclass), or read
+    # back what was installed. Setting them from inside the block rather than
+    # passing them to .run/.repl is what lets a hook reach `logger` — a MUD hook
+    # that spends its own round trips has to log them into THIS session file, or
+    # mud_monitor shows an agent that moved between rooms it never looked at.
+    #
+    #   Boukensha.repl do
+    #     hooks Boukensha::Mud::Hooks.new(logger: logger)
+    #   end
+    def hooks(obj = nil)
+      @hooks = obj unless obj.nil?
+      @hooks
     end
 
     def tool(name, description:, parameters: {}, &block)
@@ -24,10 +39,13 @@ module Boukensha
     end
 
     # Invoke an already-registered tool by name (including MCP tools such as
-    # `tbamud__inspect_room`) and return its result. This is what lets a
-    # native tool defined in a run/repl block compose over the tools the MCP
-    # servers contributed — the seam the player's `inspect_room` uses to reach
-    # the daemon survey before delegating the parse to a subagent.
+    # `tbamud__look`) and return its result. This is what lets a native tool
+    # defined in a run/repl block compose over the tools the MCP servers
+    # contributed, under the player's own permissions.
+    #
+    # Note this is NOT what the MUD hooks use: they need a slice the player does
+    # not have, so they go through Boukensha.tool_dispatcher and its separate
+    # Registry instead.
     def call_tool(name, **args)
       @registry.dispatch(name.to_s, args)
     end

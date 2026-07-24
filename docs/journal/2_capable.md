@@ -228,6 +228,56 @@ Now that I can see how much tokens I am using per call I beg the question:
 - is it better to put a cap on accumlative max token budget or how much a single session call grows:
   - eg. cumalitive stop at 60K tokens or single request 6k tokens.
 
+## Step 12 The Move Issue
+- I wanted confidence that the tool results can be reasoned upon and yet it does if its in the message history.
+- its not listening to do inspect_room before moving
+  - what we will need to do is limit its tools, generic agents don't do this but we have full control of our loop.
+  - so we can check if we don't have an entry for the current area.
+
+A few ways to fix the move issue:
+  - have our own move that will then call the tbamud_move and have code that can will check our memory where we currently art and whether it will permit the move or not
+  - create generic before and after hooks on any tool call, basically doing the same as above but more flexbile
+  - somehow limit tool calls conditionally, I guess this would have to indiciate state change of world or player data which only can observe through our local memory store.
+
+I think we need lifecycle hooks:
+  before_agent_call
+  before_tool_call
+  after_tool_call
+
+Before we can create the lifecycle hooks I think we actually need to store something in the db, at least our current location and a rooms table. Actually I think we will need to implement both.
+
+We really do need the most condensed version of data to the agent, most description is describing where things are but we have pure exit information. Can we boil down the descriptiWon without a heavy LLM call?UI
+
+We have a new plan execute at docs/plans/week_2/basic_memory.md
+
+We need to test it and see what gets written to the db.
+I think we should have a db viewer in the mud monitor 
+
+
+## Step 13 Database Preview Mud Monitor
+Obviously I should be able to use VSCode extension or thirdy party program but its not working.
+So I will simply have in the mud monitor a way of observing the data there.
+
+We have now a knowledge tab, with overview of player stats, room, entities and frontier, not sure what frontier means.
+I need to determine if how we are giving the agent context of the location before it acts.
+
+Frontier is an edge and not a room. A direction the agent has seen but never walked.
+
+It appears that it does update as it goes but I'll have to investage the code closely for how its implemented.
+
+I would really like a visual of what it thinks it sees as a map, and possibly
+overlayed against the world data we do know of. The only thing is that they could end up constructing a different map than what we know.
+
+## 14 Step IbnouT Adaption of Mud Observer
+
+Our bootcamper IbnouT created an impressive realtime mud observer which show the map with movements
+and vital stats and tasks in realtime.
+
+I reviewed the plan and I don't know how that plan drove it or if a model like fable was used.
+I had claude reverse engineer it into technical spec, and the second step will be to have it adapt
+that plan based on my projects requirements. Some functionality we do not have currently is task management
+so we cannot fully realize that exact implementaiton yet.
+
 
 ## Technical Conclusions
 Reflecting back your education guesses from the technical uncertainty section what was the technical outcomes. Is there any new technical uncertainty that has been put aside for future exploration. Are there any next steps or technical considerations worth noting?

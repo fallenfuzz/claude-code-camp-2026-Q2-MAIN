@@ -78,8 +78,8 @@ module Boukensha
           model: @model,
           system: context.system,
           max_tokens: max_output_tokens,
-          tools: tools.nil? ? to_tools(context.tools) : tools,
-          messages: to_messages(context.messages)
+          tools: tools.nil? ? to_tools(context.advertised_tools) : tools,
+          messages: to_messages(context.request_messages)
         }
       end
 

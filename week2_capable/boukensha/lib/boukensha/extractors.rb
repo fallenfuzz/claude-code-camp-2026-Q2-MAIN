@@ -23,7 +23,7 @@ module Boukensha
     # the weights they were measured against. A settings override would let a
     # rebuild silently decouple the number from its evidence.
     def self.look_candidates(config: Boukensha.config)
-      settings = config.dig(:tools, :inspect_room, :look_candidates) || {}
+      settings = config.dig(:tools, :room_survey, :look_candidates) || {}
       return ->(**) { [] } if settings["extractor"].to_s == "none"
 
       dir   = expand(settings["model_dir"]) || File.join(config.dir, DEFAULT_DIR)

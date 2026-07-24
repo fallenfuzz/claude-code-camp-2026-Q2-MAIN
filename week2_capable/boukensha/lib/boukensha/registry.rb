@@ -31,6 +31,13 @@ module Boukensha
       raise UnknownToolError, "No tool registered as '#{name}'" unless tool
       raise UnauthorizedToolError, "#{name} is not permitted with #{args.inspect}" \
         unless @permissions.call_permitted?(name, args)
+      # A per-iteration narrowing computed from the world (e.g. `move` pinned to
+      # the directions the MUD just printed). It is checked in ADDITION to the
+      # task's rules, never instead of them, so a turn policy can only ever take
+      # something away — it cannot grant what settings.yaml withheld.
+      policy = @context.respond_to?(:turn_policy) ? @context.turn_policy : nil
+      raise UnauthorizedToolError, "#{name} is not available this turn with #{args.inspect}" \
+        if policy && !policy.call_permitted?(name, args)
       tool.block.call(**args.transform_keys(&:to_sym))
     end
   end

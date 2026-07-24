@@ -54,6 +54,7 @@ module Boukensha
     context_window:   nil,
     max_output_tokens: nil,
     working_dir:      Dir.pwd,
+    hooks:            nil,
     &block
   )
     cfg           = config                           # loads .env; populates ENV
@@ -83,7 +84,11 @@ module Boukensha
       provider:          backend
     })
 
-    RunDSL.new(registry, logger: logger).instance_eval(&block) if block
+    dsl = RunDSL.new(registry, logger: logger)
+    dsl.instance_eval(&block) if block
+    # An explicit hooks: argument wins; otherwise the block may have installed
+    # its own, which is the path that gets to use `logger`.
+    hooks ||= dsl.hooks
 
     perms.validate_referenced!(registry.tool_names)
 
@@ -92,6 +97,7 @@ module Boukensha
     builder = PromptBuilder.new(ctx, be)
     client  = Client.new(builder)
     agent   = Agent.new(context: ctx, registry: registry, builder: builder, client: client, logger: logger,
+                        hooks: hooks,
                         max_iterations: cfg.agent_max_iterations,
                         max_turn_tokens: cfg.agent_max_turn_tokens,
                         max_output_tokens: (max_output_tokens || cfg.agent_max_output_tokens))
@@ -117,6 +123,7 @@ module Boukensha
     max_output_tokens: nil,
     working_dir:      Dir.pwd,
     tui:              true,
+    hooks:            nil,
     &block
   )
     cfg           = config                           # loads .env; populates ENV
@@ -144,7 +151,9 @@ module Boukensha
       provider:          backend
     })
 
-    RunDSL.new(registry, logger: logger).instance_eval(&block) if block
+    dsl = RunDSL.new(registry, logger: logger)
+    dsl.instance_eval(&block) if block
+    hooks ||= dsl.hooks
 
     perms.validate_referenced!(registry.tool_names)
 
@@ -159,6 +168,7 @@ module Boukensha
       builder:    builder,
       client:     client,
       logger:     logger,
+      hooks:      hooks,
       max_iterations:    cfg.agent_max_iterations,
       max_turn_tokens:   cfg.agent_max_turn_tokens,
       max_output_tokens: (max_output_tokens || cfg.agent_max_output_tokens),
@@ -189,14 +199,16 @@ module Boukensha
   # `input` as the sole user message, and runs the agent loop to completion.
   #
   # The subagent's tools come from the SAME shared MCP clients the parent uses
-  # (#mcp_clients), scoped by the task's `tools:` filter — so an agentic
-  # room_inspector drives the player's live MUD session (no second login) but
-  # sees only its slice (e.g. inspect_room + consider + examine). It runs for up
-  # to the task's own `max_iterations`, because gathering a room and appraising
-  # its mobs is several tool calls, not one.
+  # (#mcp_clients), scoped by the task's `tools:` filter — so a subagent drives
+  # the player's live MUD session (no second login) but sees only its slice. It
+  # runs for up to the task's own `max_iterations`.
   #
   # Because provider/model/prompt come from the task's settings block, swapping
-  # room_inspector to a local Ollama model later is config-only (plan §9).
+  # a subagent to a local Ollama model later is config-only.
+  #
+  # Nothing ships that uses this today: the one subagent that did — the agentic
+  # `room_inspector` — became scripted Ruby and then a lifecycle hook. The seam
+  # stays because delegation is a framework capability, not a MUD one.
   #
   # `logger:` — pass the CALLER's logger (the player's) and the sub-run appends
   # to that session file, bracketed by task_start/task_end and with every event
@@ -347,16 +359,21 @@ module Boukensha
   end
   private_class_method :register_task_tools
 
-  # A permission-scoped tool dispatcher for a native tool that has NO model.
+  # A permission-scoped tool dispatcher for code that runs alongside the agent
+  # rather than inside it — a lifecycle hook, or the room survey it drives.
   #
-  #   call = Boukensha.tool_dispatcher("inspect_room", logger: parent)
+  #   call = Boukensha.tool_dispatcher("room_survey", logger: parent)
   #   call.call("tbamud__look", {})   # => the MUD's text
   #
-  # `inspect_room` used to be an LLM subagent, so it reached its tools through
-  # run_task. It is a plain Ruby survey now, but it still must NOT inherit the
-  # player's permissions — `look` is off the player deliberately, and the survey
-  # is the only route to it. So the tool keeps its own `allow:` block under
-  # `tools.<name>.allow`, and this hands it exactly that slice.
+  # The room survey used to be an LLM subagent, so it reached its tools through
+  # run_task; then a plain Ruby tool; and now not a tool at all. What survived
+  # all three shapes is the scoping: it must NOT inherit the player's
+  # permissions — `look` is off the player deliberately, and this is the only
+  # route to it — so it keeps its own `allow:` block under `tools.<name>.allow`
+  # and this hands it exactly that slice.
+  #
+  # It is also a SEPARATE Registry, which is what keeps a hook's own poll/look
+  # from re-entering after_tool and recursing through the agent loop.
   #
   # Everything except the agent is what run_task already assembles: the same
   # shared MCP clients (#mcp_clients, so the survey drives the player's live
@@ -414,11 +431,22 @@ require_relative "boukensha/backends/ollama"
 require_relative "boukensha/backends/ollama_cloud"
 require_relative "boukensha/backends/openai"
 require_relative "boukensha/client"
+require_relative "boukensha/hooks"
 require_relative "boukensha/agent"
 require_relative "boukensha/run_dsl"
 require_relative "boukensha/repl"
 require_relative "boukensha/tools/mcp"
-require_relative "boukensha/tools/inspect_room"
+# `tools/` now holds only the MCP bridge, which is what boukensha's own comments
+# have claimed all along. Everything that knows what a MUD is lives under
+# `mud/`, reaching the framework through the public Hooks seam rather than by
+# being a tool the model has to remember to call.
+require_relative "boukensha/mud/room_parser"
+require_relative "boukensha/mud/room_survey"
+require_relative "boukensha/mud/state_block"
+require_relative "boukensha/mud/hooks"
+require_relative "boukensha/mud/memory/fingerprint"
+require_relative "boukensha/mud/memory/schema"
+require_relative "boukensha/mud/memory/store"
 # `onnxruntime` is only required when a model is actually loaded, so a checkout
 # without the artifact (or without the gem) still boots.
 require_relative "boukensha/extractors"

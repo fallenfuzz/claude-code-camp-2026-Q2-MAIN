@@ -31,12 +31,15 @@ module Boukensha
 
     attr_reader :logger, :context, :model, :version
 
-    def initialize(context:, registry:, builder:, client:, logger:, config_dir: nil, provider: nil, model: nil, version: nil, api_key: nil, servers: nil, max_iterations: nil, max_turn_tokens: nil, max_output_tokens: nil)
+    def initialize(context:, registry:, builder:, client:, logger:, hooks: nil, config_dir: nil, provider: nil, model: nil, version: nil, api_key: nil, servers: nil, max_iterations: nil, max_turn_tokens: nil, max_output_tokens: nil)
       @context    = context
       @registry   = registry
       @builder    = builder
       @client     = client
       @logger     = logger
+      # Handed to every per-turn Agent below. One Hooks instance for the whole
+      # REPL, because what it remembers has to outlive a turn.
+      @hooks      = hooks
       @config_dir = config_dir
       @provider   = provider
       @model      = model
@@ -128,6 +131,7 @@ module Boukensha
         builder:  @builder,
         client:   @client,
         logger:   @logger,
+        hooks:    @hooks,
         max_iterations:    @max_iterations,
         max_turn_tokens:   @max_turn_tokens,
         max_output_tokens: @max_output_tokens

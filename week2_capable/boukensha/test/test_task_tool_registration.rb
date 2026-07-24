@@ -1,7 +1,7 @@
 require_relative "helper"
 
 # Coverage for docs/plans/week_2/native_tool_permissions.md: a native tool
-# (registered by a run/repl block, e.g. the player's inspect_room) is gated by
+# (registered by a run/repl block) is gated by
 # `allow:` exactly like an MCP tool, and the ordering bug where
 # validate_referenced! used to run BEFORE native tools existed in the registry
 # is fixed — register_task_tools no longer validates itself; the caller
@@ -21,7 +21,7 @@ class TestTaskToolRegistration < Minitest::Test
       tasks:
         player:
           allow:
-            - inspect_room
+            - native_probe
             - tbamud__poll
       mcp_servers:
         mud:
@@ -45,13 +45,13 @@ class TestTaskToolRegistration < Minitest::Test
       # Simulate a run/repl block's native tool registration — the exact seam
       # RunDSL#tool uses — happening AFTER register_task_tools, mirroring
       # Boukensha.run/.repl's call order.
-      registry.tool("inspect_room", description: "d") { |**_| "json" }
+      registry.tool("native_probe", description: "d") { |**_| "json" }
 
       # Must not raise: by the time validate_referenced! runs, both the
       # MCP-derived and the native tool are in the registry.
       perms.validate_referenced!(registry.tool_names)
 
-      assert_includes registry.tool_names, "inspect_room"
+      assert_includes registry.tool_names, "native_probe"
       assert_includes registry.tool_names, "tbamud__poll"
     end
   ensure
@@ -71,10 +71,10 @@ class TestTaskToolRegistration < Minitest::Test
       ctx      = Boukensha::Context.new(system: "t")
       registry = Boukensha::Registry.new(ctx, permissions: perms)
 
-      registry.tool("inspect_room", description: "d") { |**_| "json" }
+      registry.tool("native_probe", description: "d") { |**_| "json" }
 
-      refute_includes registry.tool_names, "inspect_room"
-      assert_raises(Boukensha::UnknownToolError) { registry.dispatch("inspect_room") }
+      refute_includes registry.tool_names, "native_probe"
+      assert_raises(Boukensha::UnknownToolError) { registry.dispatch("native_probe") }
     end
   end
 end

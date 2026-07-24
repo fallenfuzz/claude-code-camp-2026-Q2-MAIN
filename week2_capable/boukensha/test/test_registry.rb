@@ -2,7 +2,7 @@ require_relative "helper"
 
 # Registry is the single enforcement point for a task's `allow:` rules: every
 # tool reaches it through #tool, whether it's MCP-derived (Tools::Mcp) or
-# registered natively (RunDSL#tool, e.g. the player's inspect_room). These
+# registered natively (RunDSL#tool). These
 # tests exercise that gate directly, independent of either caller.
 class TestRegistry < Minitest::Test
   def test_permissive_default_registers_and_dispatches_freely
@@ -48,12 +48,12 @@ class TestRegistry < Minitest::Test
   # involved) — a native tool is gated identically to an MCP tool.
   def test_a_native_style_tool_not_named_by_any_rule_is_never_registered
     ctx = Boukensha::Context.new(system: "t")
-    perms = Boukensha::Permissions.from(["poll"]) # does not name inspect_room
+    perms = Boukensha::Permissions.from(["poll"]) # does not name native_probe
     reg = Boukensha::Registry.new(ctx, permissions: perms)
 
-    reg.tool("inspect_room", description: "d") { |**_| "json" }
+    reg.tool("native_probe", description: "d") { |**_| "json" }
 
-    refute_includes reg.tool_names, "inspect_room"
-    assert_raises(Boukensha::UnknownToolError) { reg.dispatch("inspect_room") }
+    refute_includes reg.tool_names, "native_probe"
+    assert_raises(Boukensha::UnknownToolError) { reg.dispatch("native_probe") }
   end
 end

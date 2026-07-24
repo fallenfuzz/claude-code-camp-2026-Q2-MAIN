@@ -1,6 +1,21 @@
-# Native tools (registered at the entrypoint, not by an MCP server).
+# Room memory. The agent's knowledge of the world lives in
+# <boukensha dir>/knowledge.sqlite3 — the same path mud_monitor already probes
+# for its /api/v1/health `knowledge_attached` flag. boukensha is the only
+# writer; the monitor attaches it read-only.
+memory:
+  # Pin `move` to the directions the MUD printed on the exits line, so the agent
+  # cannot waste a turn on "Alas, you cannot go that way." Default OFF: the
+  # constraint itself cannot be wrong (it came from the MUD in the same breath
+  # as the room), but tbaMUD's `[ Exits: ]` line omits CLOSED doors, so the pin
+  # would make `open door; east` unreachable in a room we have never opened one
+  # in. Any direction we have ever learned a destination name for is added back;
+  # this flag stays off until that mitigation has been watched for a session.
+  turn_policy: false
+
+# The room survey's own tool slice (it is not a tool the model can call — see
+# below — but it is still permission-scoped).
 tools:
-  inspect_room:
+  room_survey:
     # `look_candidates` — which nouns in the room prose are worth `look`ing at.
     # Scored locally by a 41M ONNX model (~7ms/room, $0), NOT by an LLM: a model
     # trained on the world files' own extra-descriptions beats a paid one at the
@@ -20,14 +35,27 @@ tools:
       extractor: model                      # none | model
 
     # The survey's own tool slice, default-deny. It is NOT the player's: `look`
-    # appears here and nowhere in `tasks.player.allow`, which is what makes
-    # inspect_room the only route to a room survey. This used to live under
+    # appears here and nowhere in `tasks.player.allow`, which is what keeps a
+    # room survey off the model's tool surface entirely. This used to live under
     # `tasks.room_inspector` because the survey was an LLM subagent; the model
-    # is gone, the scoping is not.
+    # is gone, then the tool went too, and the scoping outlived both.
+    #
+    # `Mud::Hooks` shares this slice, because the hooks and the survey are the
+    # same actor from the MUD's point of view — the code that reads the world
+    # without the player asking it to. Two entries are here for the hooks rather
+    # than the survey:
+    #   poll   — moved OUT of the survey. Inside it, poll ran immediately after
+    #            a command whose own pre-send drain had just emptied the buffer,
+    #            which is why 79% of them came back empty. It now runs between
+    #            the model's response and the first dispatch, the one window
+    #            where the output that arrived during inference still exists.
+    #   score  — `threat` is only meaningful next to the level it was measured
+    #            at, so without a level reading every appraisal is either reused
+    #            forever or never. One call per session.
     allow:
       - tbamud__poll
       - tbamud__look
-      - "tbamud__check(kind: exits)"
+      - "tbamud__check(kind: exits|score)"
       - tbamud__consider
       - tbamud__examine
 
@@ -46,15 +74,15 @@ tasks:
     prompt_override:
       system: true
     # Pure allowlist (default-deny): the player may call ONLY these. `look` is
-    # absent (room surveys go through the native inspect_room tool), and `check`
-    # is pinned to every kind EXCEPT exits — each rule is validated against the
-    # tool's own enum at startup. Rule names are explicitly prefixed
-    # (`tbamud__...`) to match the mud server's `prefix:` below exactly, rather
-    # than relying on bare-name matching across servers.
+    # absent — the agent is TOLD where it is before every model call and never
+    # has to ask — and `check` is pinned to every kind EXCEPT exits. Each rule
+    # is validated against the tool's own enum at startup. Rule names are
+    # explicitly prefixed (`tbamud__...`) to match the mud server's `prefix:`
+    # below exactly, rather than relying on bare-name matching across servers.
+    #
+    # There are no native tools here any more. `inspect_room` used to be one;
+    # the state block replaced it, and the tool surface shrank by one.
     allow:
-      # Native tool (registered at the entrypoint, not by an MCP server) — no
-      # prefix: form exists for it, unlike every other rule below.
-      - inspect_room
       - tbamud__move
       - tbamud__flee
       - tbamud__set_position

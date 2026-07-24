@@ -13,13 +13,16 @@ module Boukensha
       single next action you would take.
     MSG
 
-    def initialize(context:, registry:, builder:, client:, logger: Logger.new,
+    def initialize(context:, registry:, builder:, client:, logger: Logger.new, hooks: nil,
                    max_iterations: MAX_ITERATIONS, max_turn_tokens: nil, max_output_tokens: nil)
       @context           = context
       @registry          = registry
       @builder           = builder
       @client            = client
       @logger            = logger
+      # A null object by default, so an agent with no hooks runs the identical
+      # code path rather than a branchier one.
+      @hooks             = hooks || Hooks.new
       @max_iterations    = (max_iterations || MAX_ITERATIONS).to_i
       @max_turn_tokens   = max_turn_tokens.to_i      # 0 = disabled
       @max_output_tokens = max_output_tokens
@@ -29,6 +32,7 @@ module Boukensha
     def run
       @context.reset_turn_tokens
       compact_if_needed
+      @hooks.before_turn(context: @context)
 
       loop do
         # Two independent ceilings; stop at whichever trips first. Limits are
@@ -46,7 +50,15 @@ module Boukensha
 
         @iteration += 1
         @logger.iteration(n: @iteration, max: @max_iterations)
-        @logger.prompt(messages: @context.messages, tools: @context.tools, context_window: @context.context_window)
+        # Before EVERY model call, not just the first: the agent moves inside
+        # this loop, so anything that reconciles "where am I" has to run per
+        # iteration or the model reasons about the room it left.
+        @hooks.before_model(context: @context)
+        # request_messages/advertised_tools, not messages/tools: this event is
+        # the readable view of the call, and it would be lying if it showed the
+        # transcript without the state block or a tool the turn policy hid.
+        @logger.prompt(messages: @context.request_messages, tools: @context.advertised_tools,
+                       context_window: @context.context_window)
         # The definitive record: the exact body about to go on the wire. Built
         # from the same (context, opts) the client will use a line later, so it
         # is byte-identical to what @client.call sends.
@@ -65,6 +77,7 @@ module Boukensha
           @logger.response(text: text, usage: response["usage"], stop_reason: parsed[:stop_reason], backend: @builder.backend)
           @logger.turn_end(reason: "completed", iterations: @iteration, tokens: @context.turn_tokens)
           @context.add_message(:assistant, text)
+          @hooks.after_turn(context: @context, text: text)
           return text
         end
       end
@@ -120,11 +133,13 @@ module Boukensha
       @logger.response(text: text, usage: response["usage"], stop_reason: parsed_wrap[:stop_reason], backend: @builder.backend)
       @logger.turn_end(reason: reason, iterations: @iteration, tokens: @context.turn_tokens)
       @context.add_message(:assistant, text)
+      @hooks.after_turn(context: @context, text: text)
       text
     rescue ApiError
       msg = fallback_message(reason)
       @logger.turn_end(reason: reason, iterations: @iteration, tokens: @context.turn_tokens)
       @context.add_message(:assistant, msg)
+      @hooks.after_turn(context: @context, text: msg)
       msg
     end
 
@@ -169,18 +184,32 @@ module Boukensha
 
       @context.add_message(:assistant, content)
 
+      # The last moment the output that arrived during inference is still in the
+      # buffer. The first dispatch below drains it.
+      @hooks.before_tools(calls: tool_calls, context: @context)
+
       tool_calls.each do |block|
         name   = block["name"]
         args   = block["input"]
         use_id = block["id"]
 
         @logger.tool_call(name: name, args: args)
+        ok = true
         begin
           result = @registry.dispatch(name, args)
           @logger.tool_result(name: name, result: result, ok: true)
         rescue StandardError => e
+          ok     = false
           result = "ERROR: #{e.class}: #{e.message}"
           @logger.tool_result(name: name, result: result, ok: false, error: e.message)
+        end
+
+        # Deliberately AFTER @logger.tool_result and BEFORE add_message: the
+        # session log keeps the MUD's exact words (mud_monitor stops being a
+        # faithful record otherwise), and only the model's copy is replaced. A
+        # hook never gets to rewrite a failure — it never sees one.
+        if ok && (replacement = @hooks.after_tool(name: name, args: args, result: result, context: @context))
+          result = replacement
         end
 
         @context.add_message(:tool_result, result.to_s, tool_use_id: use_id)

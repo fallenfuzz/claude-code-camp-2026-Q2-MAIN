@@ -103,50 +103,69 @@ module BoukenshaLoader
     # --no-tui falls back to the plain terminal REPL (no charm-ruby).
     no_tui = ARGV.delete("--no-tui")
 
-    # Most tools come from settings.yaml's `mcp_servers:` block. The one native
-    # tool we register here is `inspect_room`: the player calls it to get the
-    # current room back as structured JSON. Tools::InspectRoom drives the shared
-    # MUD session itself (poll → look → exits, then consider/examine per
-    # distinct mob) and parses the result. The player never fetches or parses
-    # room text, and never sees `look`.
+    # Every tool the player has comes from settings.yaml's `mcp_servers:` block.
+    # It used to have one native tool as well — `inspect_room`, which it called
+    # to get the current room back as JSON — and it does not any more.
     #
-    # No LLM is involved: the sequence is fixed and the parse is mechanical, so
-    # this costs five MUD round trips and ~7ms of local model inference for
-    # `look_candidates` instead of three Haiku calls (docs/plans/week_2/
-    # scripted_room_survey.md, look_candidates_runtime.md).
+    # The reason is in the session logs. 11 surveys covered 8 distinct rooms:
+    # 27% of them re-derived a room the agent had already been told about, at
+    # ~5 MUD round trips each, because nothing let it know it had been there.
+    # And every result was a tool_result, so it sat in the transcript forever
+    # and was re-sent on every following API call.
+    #
+    # So room state stops being something the model asks for and becomes
+    # something it is given: `Mud::Hooks` reconciles position against SQLite
+    # before each model call and renders one small, always-current state block.
+    # A revisit now costs zero round trips and zero accumulated tokens. The
+    # `look`/`exits`/`consider`/`examine` sequence still exists — it is
+    # `Mud::RoomSurvey`, it still runs under its own allowlist, and it runs only
+    # for a room the agent has genuinely never stood in.
+    #
     # This glue is deployment-specific, which is why it lives at the entrypoint
-    # and not in the framework core.
+    # and not in the framework core: boukensha is an MCP host that ships no
+    # tools and knows nothing about MUDs. `Hooks` is the seam that keeps that
+    # true.
     #
     # Note the MUD_* env override was dropped upstream. A spawned server
     # inherits this process's environment, so exporting MUD_HOST still reaches
     # the daemon, but only for keys its `env:` block doesn't set: config now
     # wins over the environment, where it used to lose.
     Boukensha.repl(tui: !no_tui) do
-      # Captured out of the DSL so the survey's tool calls append to the
-      # player's session file, labelled `inspect_room`, instead of opening one
-      # file per room visited (plan Amendment A).
+      # Captured out of the DSL so the hook's own MUD calls append to the
+      # player's session file instead of opening one file per room visited
+      # (plan Amendment A).
       parent = logger
+      cfg    = Boukensha.config
 
       # Built once per session, not per room: the dispatcher resolves the
       # allowlist and MCP registry, and the extractor loads a ~40MB ONNX graph.
-      name       = Boukensha::Tools::InspectRoom::NAME
+      #
+      # This dispatcher is a SEPARATE Registry from the player's, which is what
+      # keeps the hook's own poll/look from re-entering after_tool and
+      # recursing — and what keeps `look` off the player's tool surface while
+      # remaining reachable here.
+      name       = Boukensha::Mud::RoomSurvey::NAME
       call_tool  = Boukensha.tool_dispatcher(name, logger: parent)
       candidates = Boukensha::Extractors.look_candidates
 
-      tool "inspect_room",
-           description:
-             "Survey the current room and get it back as structured JSON " \
-             "(name, exits and where they lead, mobs and their threat level, " \
-             "objects, and anything that happened while you were idle). Use this " \
-             "whenever you arrive somewhere new or need to decide where to go " \
-             "next. Takes no arguments." do |**_|
-        # task_start/task_end bracket the WHOLE survey, so mud_monitor shows
-        # one `inspect_room` group per room with its MUD calls nested at depth
-        # 1 — the same shape as when a subagent produced them, minus the
-        # prompt/plan/response events in between.
-        parent.task(name) do
-          Boukensha::Tools::InspectRoom.call(call_tool: call_tool, look_candidates: candidates)
-        end
+      begin
+        store = Boukensha::Mud::Memory::Store.for_dir(cfg.dir)
+        at_exit { store.close rescue nil }
+
+        hooks Boukensha::Mud::Hooks.new(
+          store: store,
+          call_tool: call_tool,
+          look_candidates: candidates,
+          logger: parent,
+          # Default off for a session of observation: pinning `move` to the
+          # exits line cannot be WRONG, but tbaMUD omits closed doors from that
+          # line, and a mitigation deserves to be watched before it is trusted.
+          turn_policy: cfg.dig(:memory, :turn_policy) == true
+        )
+      rescue Boukensha::Mud::Memory::Store::Unavailable => e
+        # No memory is a degraded agent, not a dead one: it explores exactly as
+        # it did before this feature existed.
+        warn "[boukensha] #{e.message} — continuing without room memory"
       end
     end
   end

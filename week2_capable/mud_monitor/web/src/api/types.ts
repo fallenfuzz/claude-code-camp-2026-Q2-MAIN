@@ -327,3 +327,163 @@ export interface DroppedDiff {
   dropped: DroppedEvent[];
   summary: DroppedSummary;
 }
+
+// ---------- Knowledge (docs/plans/week_2/knowledge_tab.md) ----------
+//
+// Everything above this line describes a LOG — an ordered record of what
+// happened, with a cursor. Knowledge is a snapshot of BELIEF: what the agent
+// currently thinks the world is. Hence no `seq`, no `next_seq`, no `eof`.
+
+// Present on every knowledge payload so any view can render freshness without
+// a second request.
+export interface KnowledgeEnvelope {
+  attached: boolean;
+  live: boolean;
+  last_write_at: string | null;
+  schema_version: number | null;
+  /** WAL size — grows all session and only shrinks on checkpoint (plan §7). */
+  wal_bytes: number | null;
+}
+
+export interface KnowledgeStats {
+  rooms: number;
+  surveyed: number;
+  provisional: number;
+  entities: number;
+  mobs: number;
+  objects: number;
+  exits: number;
+  /** Exits whose destination the agent has never stood in. */
+  frontier: number;
+  traversed: number;
+  encounters: number;
+}
+
+export interface RoomRef {
+  id: number;
+  name: string | null;
+}
+
+export interface KnowledgePlayer {
+  hp: number | null;
+  max_hp: number | null;
+  mana: number | null;
+  move: number | null;
+  level: number | null;
+  gold: number | null;
+  exp: number | null;
+  position: string | null;
+  last_direction: string | null;
+  /** The boukensha run that last wrote — links belief back to its transcript. */
+  session_id: string | null;
+  updated_at: string | null;
+  current_room: RoomRef | null;
+  prev_room: RoomRef | null;
+}
+
+export interface KnowledgeOverview extends KnowledgeEnvelope {
+  stats: KnowledgeStats;
+  /** null until the agent has looked at something. */
+  player: KnowledgePlayer | null;
+}
+
+export interface KnowledgeExit {
+  direction: string;
+  target_name: string | null;
+  /** null IS the exploration frontier — a named door never walked through. */
+  target_room_id: number | null;
+  traversals: number;
+  last_seen_at: string;
+}
+
+export interface KnowledgeRoom {
+  id: number;
+  name: string;
+  description: string;
+  confidence: "confirmed" | "provisional";
+  look_candidates: string[];
+  visit_count: number;
+  first_seen_at: string;
+  last_seen_at: string;
+  surveyed_at: string | null;
+  weak_fingerprint: string;
+  strong_fingerprint: string | null;
+  exits: KnowledgeExit[];
+  entity_count: number;
+}
+
+export interface KnowledgeSighting {
+  room_id: number;
+  room_name: string;
+  count: number;
+  sighting_count: number;
+  last_seen_at: string;
+}
+
+export interface KnowledgeEntity {
+  id: number;
+  kind: "mob" | "object";
+  descr: string;
+  keyword: string | null;
+  equipment: string[];
+  /** consider's verdict — meaningless without threat_level (see ThreatChip). */
+  threat: string | null;
+  /** The player level the verdict was measured at. Null = never appraised. */
+  threat_level: number | null;
+  seen_count: number;
+  first_seen_at: string;
+  last_seen_at: string;
+  /** Present on /entities; absent on a room's inhabitant list. */
+  sightings?: KnowledgeSighting[];
+  /** Present only on a room's inhabitant list — that room's own counters. */
+  count?: number;
+  sighting_count?: number;
+}
+
+export interface KnowledgeEncounter {
+  id: number;
+  room_id: number | null;
+  room_name: string | null;
+  entity_id: number | null;
+  entity_descr: string | null;
+  player_level: number | null;
+  outcome: "won" | "fled" | "died" | "abandoned" | null;
+  hp_before: number | null;
+  hp_after: number | null;
+  at: string;
+}
+
+export interface InboundExit {
+  room_id: number;
+  room_name: string;
+  direction: string;
+}
+
+export interface KnowledgeRoomsPage extends KnowledgeEnvelope {
+  rooms: KnowledgeRoom[];
+}
+
+export interface KnowledgeRoomDetail extends KnowledgeEnvelope {
+  room: KnowledgeRoom;
+  entities: KnowledgeEntity[];
+  encounters: KnowledgeEncounter[];
+  inbound: InboundExit[];
+}
+
+export interface KnowledgeEntitiesPage extends KnowledgeEnvelope {
+  entities: KnowledgeEntity[];
+}
+
+export interface FrontierExit {
+  room_id: number;
+  room_name: string;
+  direction: string;
+  target_name: string | null;
+  last_seen_at: string;
+  room_surveyed: boolean;
+}
+
+export interface KnowledgeFrontierPage extends KnowledgeEnvelope {
+  frontier: FrontierExit[];
+  count: number;
+}

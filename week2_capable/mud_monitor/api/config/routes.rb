@@ -23,6 +23,17 @@ Rails.application.routes.draw do
       get "telnet/stream", to: "telnet#stream"
 
       get "diffs/dropped", to: "diffs#dropped"
+
+      # The agent's world memory. A snapshot, not a log — no /stream sibling,
+      # because there is no cursor to follow (see KnowledgeController).
+      get "knowledge",           to: "knowledge#show"
+      get "knowledge/rooms",     to: "knowledge#rooms"
+      # Named explicitly: auto-naming derives `knowledge_rooms` from the static
+      # segments here too, collides with the line above, and silently leaves
+      # this route with no helper at all.
+      get "knowledge/rooms/:id", to: "knowledge#room", as: :knowledge_room, constraints: { id: /\d+/ }
+      get "knowledge/entities",  to: "knowledge#entities"
+      get "knowledge/frontier",  to: "knowledge#frontier"
     end
   end
 
