@@ -1,0 +1,91 @@
+#!/usr/bin/env ruby
+# frozen_string_literal: true
+
+require "dotenv"
+require_relative "../mud_manager/lib/mud_manager"
+require_relative "../boukensha/lib/boukensha_loader"
+
+# Edit this block to choose the character and its complete seeded state. Keep
+# passwords in the Boukensha runtime directory's .env; only their variable
+# names belong here. Directory precedence matches the Boukensha launcher:
+# BOUKENSHA_DIR, then `boukensha_dir` in ~/.boukensharc, then ~/.boukensha.
+BOUKENSHA_RC = BoukenshaLoader.load_rc
+BOUKENSHA_DIR = File.expand_path(
+  ENV["BOUKENSHA_DIR"] ||
+  BoukenshaLoader.expand_rc_path(BOUKENSHA_RC["boukensha_dir"]) ||
+  File.join(Dir.home, ".boukensha")
+)
+ENV_FILE = File.join(BOUKENSHA_DIR, ".env")
+raise "missing #{ENV_FILE}" unless File.file?(ENV_FILE)
+Dotenv.load(ENV_FILE)
+
+HOST = "localhost"
+PORT = 4000
+TIMEOUT = 10.0
+
+ADMIN_NAME = "admin"
+ADMIN_PASSWORD_ENV = "MUD_PASSWORD_ADMIN"
+
+PLAYER_NAME = "Derrano"
+PLAYER_PASSWORD_ENV = "MUD_PASSWORD_DERRANO"
+PLAYER_GENDER = "M"
+PLAYER_CLASS = "C"
+
+UPLIFT = {
+  level: 10,
+  money: {
+    gold: 5_000,
+    bank: 1_000
+  },
+  stats: {
+    align: 0
+  },
+  # Keep these class-legal. Derrano is a cleric (`PLAYER_CLASS = "C"`).
+  skills: {
+    "armor" => 75,
+    "cure light" => 75
+  },
+  inventory: [
+    { vnum: 3001, keyword: "bottle", quantity: 2 }
+  ],
+  equipment: [
+    # Clerics use blunt weapons; a dagger is rejected by class restrictions.
+    { vnum: 3023, keyword: "club", quantity: 1, wear: "wield" },
+    { vnum: 3043, keyword: "jacket", quantity: 1, wear: "wear" }
+  ]
+}.freeze
+
+FIXTURE_DIR = File.expand_path("../boukensha/test/fixtures/player", __dir__)
+
+def secret!(variable_name)
+  value = ENV[variable_name]
+  raise "#{variable_name} is missing or empty in #{ENV_FILE}" if value.to_s.empty?
+  value
+end
+
+begin
+  config = {
+    host: HOST,
+    port: PORT,
+    timeout: TIMEOUT,
+    admin_name: ADMIN_NAME,
+    admin_password: secret!(ADMIN_PASSWORD_ENV),
+    player_name: PLAYER_NAME,
+    player_password: secret!(PLAYER_PASSWORD_ENV),
+    gender: PLAYER_GENDER,
+    player_class: PLAYER_CLASS,
+    uplift: UPLIFT
+  }
+
+  unknown_args = ARGV - ["--emit-fixtures"]
+  raise ArgumentError, "unknown arguments: #{unknown_args.join(' ')}" unless unknown_args.empty?
+
+  seeder = MudManager::CharacterSeeder.new(config).run
+  if ARGV.include?("--emit-fixtures")
+    files = seeder.emit_fixtures(FIXTURE_DIR)
+    puts "Wrote fixtures: #{files.join(', ')}"
+  end
+rescue MudManager::CharacterSeeder::Error, MudManager::Session::Error, KeyError, ArgumentError => e
+  warn "seed_player failed: #{e.message}"
+  exit 1
+end

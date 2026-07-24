@@ -439,6 +439,41 @@ module MudManager
           location: location, command: command)
     end
 
+    # Raise an online player to a level. The MUD enforces immortal level and
+    # target-level constraints; this builder only validates the command shape.
+    def advance(name, level)
+      require_token!(name, :name)
+      require_integer!(level, :level, min: 1)
+      cmd(:advance, "advance", "advance #{name} #{level}", name: name, level: level)
+    end
+
+    # Set one install-specific player field (gold, bankgold, exp, align, ...).
+    # Both identifiers are single tokens to prevent command injection.
+    def set_field(name, field, value)
+      require_token!(name, :name)
+      require_token!(field, :field)
+      raise ArgumentError, "value is required" if value.nil? || value.to_s.strip.empty?
+      raise ArgumentError, "value must not contain a newline" if value.to_s.match?(/[\r\n]/)
+      cmd(:set_field, "set", "set #{name} #{field} #{value}",
+          name: name, field: field, value: value)
+    end
+
+    # Set a skill percentage. Apostrophes/backslashes are rejected because the
+    # tbaMUD command grammar uses single quotes around multi-word skill names.
+    def skillset(name, skill, percent)
+      require_token!(name, :name)
+      require_str!(skill, :skill)
+      raise ArgumentError, "skill contains unsupported quoting" if skill.match?(/['\\\r\n]/)
+      require_integer!(percent, :percent, min: 0, max: 100)
+      cmd(:skillset, "skillset", "skillset #{name} '#{skill}' #{percent}",
+          name: name, skill: skill, percent: percent)
+    end
+
+    def load_obj(vnum)
+      require_integer!(vnum, :vnum, min: 1)
+      cmd(:load_obj, "load", "load obj #{vnum}", vnum: vnum)
+    end
+
     # ---------- internals ----------
 
     def cmd(primitive, verb, raw, **args)
@@ -459,5 +494,18 @@ module MudManager
       raise ArgumentError, "#{name} is required" if value.nil? || value.to_s.strip.empty?
     end
     private_class_method :require_str!
+
+    def require_token!(value, name)
+      require_str!(value, name)
+      raise ArgumentError, "#{name} must be one token" unless value.to_s.match?(/\A[[:alnum:]_]+\z/)
+    end
+    private_class_method :require_token!
+
+    def require_integer!(value, name, min: nil, max: nil)
+      raise ArgumentError, "#{name} must be an integer" unless value.is_a?(Integer)
+      raise ArgumentError, "#{name} must be at least #{min}" if min && value < min
+      raise ArgumentError, "#{name} must be at most #{max}" if max && value > max
+    end
+    private_class_method :require_integer!
   end
 end
