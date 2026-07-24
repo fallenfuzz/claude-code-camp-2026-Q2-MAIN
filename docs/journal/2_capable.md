@@ -295,6 +295,28 @@ self contained to just the SQLITE file since its portable.
 
 doc/plans/week_2/change_capture
 
+The agent has concerned about jittery values and did not implement my full generic CDC.
+But I told it to do as I say and I will decide how to solve noise if that occurs.
+Honestly things like HP are not a concern because an agent doesn't activity poll watching a battle
+or if it does not fast or it runs out of tokens.
+
+It did create ticker graphs under progressiong but HP did not appear to be working but they say it does.
+I can' tell right now until we progress further.
+
+I notice it didn't add invetory, equipment, skills or other player information because it was like "you have no exp, no levels and nothing
+so why build that out?" So I will make a script to create a new player and give them stuff via the admin user.
+
+## Farther along Player Creation Script
+
+While I did create a script a plan to seed a player with data
+doc/plans/week_2/seed_player.md
+
+The only problem is that our knowledge base things only one user exits.
+
+We have to right now handle scoping for another player.
+
+docs/plans/week_2/player_scoping.md
+
 ## 15 Player Update
 We want in our hook oupdate the vitals information, inventory and etc
 
