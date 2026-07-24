@@ -3,6 +3,7 @@ import type {
   DroppedDiff,
   KnowledgeEntitiesPage,
   KnowledgeFrontierPage,
+  KnowledgeMapPage,
   KnowledgeOverview,
   KnowledgePlayerPage,
   KnowledgeRoomDetail,
@@ -106,14 +107,34 @@ export function fetchKnowledge(): Promise<KnowledgeOverview> {
 export interface KnowledgeRoomFilters {
   q?: string;
   filter?: string;
+  /** Server clamps to 1..1000; the default is 200. */
+  limit?: number;
 }
 
 export function fetchKnowledgeRooms(filters: KnowledgeRoomFilters = {}): Promise<KnowledgeRoomsPage> {
   const params = new URLSearchParams();
   if (filters.q) params.set("q", filters.q);
   if (filters.filter) params.set("filter", filters.filter);
+  if (filters.limit != null) params.set("limit", String(filters.limit));
   const qs = params.toString();
   return get(`/knowledge/rooms${qs ? `?${qs}` : ""}`);
+}
+
+/**
+ * The map's payload: two existing requests, one poll tick.
+ *
+ * A dedicated `knowledge#map` action would buy nothing at this size and cost a
+ * controller action, a reader method and a serializer shape that all restate
+ * `#rooms`. The trigger to revisit is payload size, not request count:
+ * /knowledge/rooms ships full `description` text per room, which is fine to a
+ * couple of hundred rooms and wasteful past ~500 polled every 3s. The fix then
+ * is a `fields=map` param on THIS action that drops `description` and
+ * `entities[].descr` — not a second action.
+ */
+export function fetchKnowledgeMap(): Promise<KnowledgeMapPage> {
+  return Promise.all([ fetchKnowledgeRooms({ limit: 1000 }), fetchKnowledge() ]).then(
+    ([ rooms, overview ]) => ({ ...rooms, player: overview.player }),
+  );
 }
 
 export function fetchKnowledgeRoom(id: number | string): Promise<KnowledgeRoomDetail> {

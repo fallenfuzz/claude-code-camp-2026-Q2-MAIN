@@ -749,13 +749,18 @@ SSE, and timing.
 
 ### 8. Future hooks (designed for, not built)
 
-- **Map from agent knowledge.** `Knowledge::Room`, `Knowledge::Exit` on the
-  `knowledge` connection; `GET /api/v1/map` joins them against the world bundles
-  server-side and returns nodes/edges; the client renders with `@xyflow/react` +
-  `dagre` — already dependencies, already used by `preview/src/pages/WorldMap.tsx`,
-  so the renderer is a port too. The interesting half is the diff: rooms the
-  agent *knows* vs rooms that *exist* — the real measure of exploration, and the
-  third member of the same family as §3.6.
+- **Map from agent knowledge.** ~~`GET /api/v1/map` … `@xyflow/react` + `dagre`~~
+  — **superseded, see `knowledge_map.md`.** Built as `/knowledge/map` with no new
+  endpoint and no new runtime dependency. Both halves of the original sketch were
+  wrong: `/knowledge/rooms` already returns nodes and edges, and `dagre` is a
+  layered-DAG layout whose entire job is to replace geometry with its own ranking
+  — which throws away the only spatial information the agent has. The requirement
+  is "north is north"; that is a BFS over an integer grid (`pages/knowledge/
+  layout.ts`), not a graph-layout library. `@xyflow/react` was dropped for the
+  same reason its nodes would all have been custom anyway.
+  Still open, and still the interesting half: the diff between rooms the agent
+  *knows* and rooms that *exist* — the real measure of exploration, and the third
+  member of the same family as §3.6.
 - **Player stats/inventory.** Already flowing past as
   `tbamud__check(kind: score|inventory|equipment|gold)` results. A
   `StatsExtractor` over the transcript gives a last-known-value panel with an

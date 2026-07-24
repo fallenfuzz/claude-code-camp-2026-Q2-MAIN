@@ -536,6 +536,16 @@ export interface KnowledgeRoomsPage extends KnowledgeEnvelope {
   rooms: KnowledgeRoom[];
 }
 
+/**
+ * The rooms payload plus the player pin, stitched client-side from the two
+ * endpoints that already exist — /knowledge/rooms is already a graph (`id`,
+ * `name`, `exits[].target_room_id`), so the map is a renderer over an unchanged
+ * API rather than a seventh endpoint restating the sixth.
+ */
+export interface KnowledgeMapPage extends KnowledgeRoomsPage {
+  player: KnowledgePlayer | null;
+}
+
 export interface KnowledgeRoomDetail extends KnowledgeEnvelope {
   room: KnowledgeRoom;
   entities: KnowledgeEntity[];

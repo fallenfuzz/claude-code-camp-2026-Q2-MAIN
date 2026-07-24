@@ -330,10 +330,83 @@ I'll circle back to this some other time.
 
 
 ## 16 Player Update
-We want in our hook oupdate the vitals information, inventory and etc
+We want in our hook oupdate the vitals information, inventory and etc,
+We updated the schema, and now have a player tab in the knowledge tab in mud monitor.
+I don't know if it actually works as expected yet.
 
 doc/plans/week_2/player_update
 
+I want to first a visualize of room layouts tab in knowledge and then I will take the time verify
+a new end to end bakery route. I suspect that look, score and other commands are needlessly being
+run, and so I want to make sure we are collecting information correctly after next step.
+
+## 17 Known Map
+
+We want a new knowledge->Map
+It should show rooms and exits, and indicate frontiers yet explored. 
+It would be nice to be able to see targets and entities
+It would be nice if the nodes are orgranized based on their actual positioning
+
+docs/plans/week_2/knowledge_map.md
+
+## Review Pathing
+
+Now with all my observability I can reset the player and find the bakery
+http://localhost:5173/sessions/20260724T221941Z-e99aa04f
+
+Observations
+Iteration 0
+- the agent should not have to check 'score' manually as hooks should collect information
+  - context about the user should have been injected already from our memory
+  - we might want to remove score from our tool list to stop it
+  - 1.9s seems really slow
+Iteration 1
+- look should have not been called, since inspect_room gets us all the information we need
+  - if we need to deeper search that would be a future logic step and it would just search across the knowledgebase of room descriptions
+Did the agent actually call score or look or is this our underling calls from RoomParser
+I don't think we updated anyway to expose that kind of logging of RoomParser into the Agent Session
+Request 1:
+it doesn't show those two tool calls look and score so maybe it is RoomParser
+
+```sh
+[here] The Temple Of Midgaard  (visit 6)
+exits: d→The Temple Square ? | e→The Midgaard Donation Room ✓ | n→By The Temple Altar ✓ | s→The Temple Square ✓ | w→The Reading Room ?
+here: Admin the Implementor (linkless) is standing here. (mob) | Derrano the Minister (linkless) is standing here. (mob) | An automatic teller machine has been installed in the wall here. (object)
+you: 20/20hp 100mana 85mv · lvl 1 · 0 gold · standing
+```
+Is this summary optimal, maybe we should let our agent know of the template in the system prompt
+or have a legend, might allow us to have more compact summary for multiple messages.
+Iternation 2
+- tbamud_move is called, and see the full description but in the request 2 we see 'moved west → The Reading Room'
+  - we obviously want the latter but why wouldn't this be shown in our tbamud_move, did we wrap tbamud_move with a native move tool or there is a hook.
+    - it should better reflect in the actual session so its not confusing.
+Iteration 3
+tbamud__move(direction: "d") error: error [argument_error]: invalid direction: "d" (expected one of north, east, south, west, up, down)
+  - why is this invalid? seems like it would be down, maybe when navigating it should use at least two character or whatever will avoid this issue.
+Iteration 4
+- the agent thanks us for the context, what context is it even talking about? did we insert something we donk't see let me check the requests.
+
+Request 4
+```txt
+user
+tool_result · toolu_01JgqvJLYvpzpPR6LSbg59pd
+error: error [argument_error]: invalid direction: "d" (expected one of north, east, south, west, up, down)
+user
+[here] The Temple Of Midgaard  (visit 7)
+exits: d→The Temple Square ? | e→The Midgaard Donation Room ✓ | n→By The Temple Altar ✓ | s→The Temple Square ✓ | w→The Reading Room ✓
+here: Admin the Implementor (linkless) is standing here. (mob) | Derrano the Minister (linkless) is standing here. (mob) | An automatic teller machine has been installed in the wall here. (object)
+you: 20/20hp 100mana 83mv · lvl 1 · 0 gold · standing
+```
+- Yep it clearly does give context, but this doesn't show up during our main session information.
+
+Okay so the main conclusion:
+- If a agent is trying to find a destination we need a tool_call to: "plan_route"
+  - If we already know of the location in the map it should return back the route
+  - If the location is not known it should best reason where to look
+    - this is where it would make sense to spawn tasks
+  - It could be we dont know anything, so then we need broad strategy to explore
+
+docs/plans/week_2/observ_improvements.
 
 ## Technical Conclusions
 Reflecting back your education guesses from the technical uncertainty section what was the technical outcomes. Is there any new technical uncertainty that has been put aside for future exploration. Are there any next steps or technical considerations worth noting?

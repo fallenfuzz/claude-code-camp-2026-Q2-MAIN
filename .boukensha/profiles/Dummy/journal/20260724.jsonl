@@ -124,3 +124,123 @@
 {"kind":"change","stream":"stat","key":"hp","from":null,"to":20,"seq":124,"session_id":"20260724T195732Z-031b1659","at":"2026-07-24T15:57:59.795-04:00","mono_ms":555387436}
 {"kind":"change","stream":"stat","key":"mana","from":null,"to":100,"seq":125,"session_id":"20260724T195732Z-031b1659","at":"2026-07-24T15:58:00.223-04:00","mono_ms":555387864}
 {"kind":"change","stream":"stat","key":"move","from":null,"to":85,"seq":126,"session_id":"20260724T195732Z-031b1659","at":"2026-07-24T15:58:00.600-04:00","mono_ms":555388240}
+{"kind":"change","stream":"stat","key":"session_id","from":null,"to":"20260724T221941Z-e99aa04f","seq":127,"session_id":"20260724T221941Z-e99aa04f","at":"2026-07-24T18:20:14.032-04:00","mono_ms":563921674}
+{"kind":"change","stream":"stat","key":"level","from":null,"to":1,"seq":128,"session_id":"20260724T221941Z-e99aa04f","at":"2026-07-24T18:20:14.034-04:00","mono_ms":563921674}
+{"kind":"change","stream":"stat","key":"exp","from":null,"to":181,"seq":129,"session_id":"20260724T221941Z-e99aa04f","at":"2026-07-24T18:20:14.034-04:00","mono_ms":563921674}
+{"kind":"change","stream":"stat","key":"exp_to_next","from":null,"to":1819,"seq":130,"session_id":"20260724T221941Z-e99aa04f","at":"2026-07-24T18:20:14.034-04:00","mono_ms":563921674}
+{"kind":"change","stream":"stat","key":"gold","from":null,"to":0,"seq":131,"session_id":"20260724T221941Z-e99aa04f","at":"2026-07-24T18:20:14.034-04:00","mono_ms":563921674}
+{"kind":"change","stream":"stat","key":"hp","from":null,"to":20,"seq":132,"session_id":"20260724T221941Z-e99aa04f","at":"2026-07-24T18:20:14.034-04:00","mono_ms":563921674}
+{"kind":"change","stream":"stat","key":"max_hp","from":null,"to":20,"seq":133,"session_id":"20260724T221941Z-e99aa04f","at":"2026-07-24T18:20:14.034-04:00","mono_ms":563921674}
+{"kind":"change","stream":"stat","key":"mana","from":null,"to":100,"seq":134,"session_id":"20260724T221941Z-e99aa04f","at":"2026-07-24T18:20:14.034-04:00","mono_ms":563921674}
+{"kind":"change","stream":"stat","key":"max_mana","from":null,"to":100,"seq":135,"session_id":"20260724T221941Z-e99aa04f","at":"2026-07-24T18:20:14.034-04:00","mono_ms":563921674}
+{"kind":"change","stream":"stat","key":"move","from":null,"to":85,"seq":136,"session_id":"20260724T221941Z-e99aa04f","at":"2026-07-24T18:20:14.034-04:00","mono_ms":563921674}
+{"kind":"change","stream":"stat","key":"max_move","from":null,"to":85,"seq":137,"session_id":"20260724T221941Z-e99aa04f","at":"2026-07-24T18:20:14.034-04:00","mono_ms":563921674}
+{"kind":"change","stream":"stat","key":"armor_class","from":null,"to":"39/10","seq":138,"session_id":"20260724T221941Z-e99aa04f","at":"2026-07-24T18:20:14.034-04:00","mono_ms":563921674}
+{"kind":"change","stream":"stat","key":"alignment","from":null,"to":42,"seq":139,"session_id":"20260724T221941Z-e99aa04f","at":"2026-07-24T18:20:14.034-04:00","mono_ms":563921674}
+{"kind":"change","stream":"stat","key":"age_years","from":null,"to":17,"seq":140,"session_id":"20260724T221941Z-e99aa04f","at":"2026-07-24T18:20:14.034-04:00","mono_ms":563921674}
+{"kind":"change","stream":"stat","key":"title","from":null,"to":"Dummy the Swordpupil","seq":141,"session_id":"20260724T221941Z-e99aa04f","at":"2026-07-24T18:20:14.034-04:00","mono_ms":563921674}
+{"kind":"change","stream":"stat","key":"position","from":null,"to":"standing","seq":142,"session_id":"20260724T221941Z-e99aa04f","at":"2026-07-24T18:20:14.034-04:00","mono_ms":563921675}
+{"kind":"change","stream":"stat","key":"conditions","from":null,"to":"hungry,thirsty","seq":143,"session_id":"20260724T221941Z-e99aa04f","at":"2026-07-24T18:20:14.034-04:00","mono_ms":563921675}
+{"id":1,"kind":"event","stream":"room","op":"visit","seq":144,"session_id":"20260724T221941Z-e99aa04f","at":"2026-07-24T18:20:14.132-04:00","mono_ms":563921773}
+{"kind":"change","stream":"stat","key":"current_room_id","from":null,"to":1,"seq":145,"session_id":"20260724T221941Z-e99aa04f","at":"2026-07-24T18:20:14.132-04:00","mono_ms":563921773}
+{"kind":"change","stream":"stat","key":"move","from":85,"to":84,"seq":146,"session_id":"20260724T221941Z-e99aa04f","at":"2026-07-24T18:20:16.032-04:00","mono_ms":563923673}
+{"kind":"change","stream":"entity","key":"20:threat","from":null,"to":"You ARE mad!","seq":147,"session_id":"20260724T221941Z-e99aa04f","at":"2026-07-24T18:20:16.433-04:00","mono_ms":563924073}
+{"id":27,"name":"The Reading Room","confidence":"confirmed","surveyed":true,"kind":"event","stream":"room","op":"create","seq":148,"session_id":"20260724T221941Z-e99aa04f","at":"2026-07-24T18:20:16.440-04:00","mono_ms":563924081}
+{"kind":"change","stream":"exit","key":"27:east:target_name","from":null,"to":"The Temple Of Midgaard","seq":149,"session_id":"20260724T221941Z-e99aa04f","at":"2026-07-24T18:20:16.440-04:00","mono_ms":563924081}
+{"kind":"change","stream":"sighting","key":"20:27:count","from":null,"to":1,"seq":150,"session_id":"20260724T221941Z-e99aa04f","at":"2026-07-24T18:20:16.440-04:00","mono_ms":563924081}
+{"kind":"change","stream":"sighting","key":"21:27:count","from":null,"to":1,"seq":151,"session_id":"20260724T221941Z-e99aa04f","at":"2026-07-24T18:20:16.440-04:00","mono_ms":563924081}
+{"kind":"change","stream":"sighting","key":"22:27:count","from":null,"to":1,"seq":152,"session_id":"20260724T221941Z-e99aa04f","at":"2026-07-24T18:20:16.440-04:00","mono_ms":563924081}
+{"kind":"change","stream":"exit","key":"1:west:target_room_id","from":null,"to":27,"seq":153,"session_id":"20260724T221941Z-e99aa04f","at":"2026-07-24T18:20:16.441-04:00","mono_ms":563924081}
+{"kind":"change","stream":"stat","key":"current_room_id","from":1,"to":27,"seq":154,"session_id":"20260724T221941Z-e99aa04f","at":"2026-07-24T18:20:16.441-04:00","mono_ms":563924081}
+{"kind":"change","stream":"stat","key":"prev_room_id","from":null,"to":1,"seq":155,"session_id":"20260724T221941Z-e99aa04f","at":"2026-07-24T18:20:16.441-04:00","mono_ms":563924081}
+{"kind":"change","stream":"stat","key":"last_direction","from":null,"to":"west","seq":156,"session_id":"20260724T221941Z-e99aa04f","at":"2026-07-24T18:20:16.441-04:00","mono_ms":563924081}
+{"kind":"change","stream":"stat","key":"move","from":84,"to":83,"seq":157,"session_id":"20260724T221941Z-e99aa04f","at":"2026-07-24T18:20:17.632-04:00","mono_ms":563925273}
+{"id":1,"kind":"event","stream":"room","op":"visit","seq":158,"session_id":"20260724T221941Z-e99aa04f","at":"2026-07-24T18:20:17.632-04:00","mono_ms":563925273}
+{"kind":"change","stream":"exit","key":"27:east:target_room_id","from":null,"to":1,"seq":159,"session_id":"20260724T221941Z-e99aa04f","at":"2026-07-24T18:20:17.633-04:00","mono_ms":563925273}
+{"kind":"change","stream":"stat","key":"current_room_id","from":27,"to":1,"seq":160,"session_id":"20260724T221941Z-e99aa04f","at":"2026-07-24T18:20:17.633-04:00","mono_ms":563925273}
+{"kind":"change","stream":"stat","key":"prev_room_id","from":1,"to":27,"seq":161,"session_id":"20260724T221941Z-e99aa04f","at":"2026-07-24T18:20:17.633-04:00","mono_ms":563925273}
+{"kind":"change","stream":"stat","key":"last_direction","from":"west","to":"east","seq":162,"session_id":"20260724T221941Z-e99aa04f","at":"2026-07-24T18:20:17.633-04:00","mono_ms":563925273}
+{"kind":"change","stream":"stat","key":"move","from":83,"to":82,"seq":163,"session_id":"20260724T221941Z-e99aa04f","at":"2026-07-24T18:20:20.032-04:00","mono_ms":563927673}
+{"id":2,"kind":"event","stream":"room","op":"visit","seq":164,"session_id":"20260724T221941Z-e99aa04f","at":"2026-07-24T18:20:20.032-04:00","mono_ms":563927673}
+{"kind":"change","stream":"exit","key":"1:south:target_room_id","from":null,"to":2,"seq":165,"session_id":"20260724T221941Z-e99aa04f","at":"2026-07-24T18:20:20.032-04:00","mono_ms":563927673}
+{"kind":"change","stream":"stat","key":"current_room_id","from":1,"to":2,"seq":166,"session_id":"20260724T221941Z-e99aa04f","at":"2026-07-24T18:20:20.032-04:00","mono_ms":563927673}
+{"kind":"change","stream":"stat","key":"prev_room_id","from":27,"to":1,"seq":167,"session_id":"20260724T221941Z-e99aa04f","at":"2026-07-24T18:20:20.032-04:00","mono_ms":563927673}
+{"kind":"change","stream":"stat","key":"last_direction","from":"east","to":"south","seq":168,"session_id":"20260724T221941Z-e99aa04f","at":"2026-07-24T18:20:20.032-04:00","mono_ms":563927673}
+{"kind":"change","stream":"stat","key":"move","from":82,"to":81,"seq":169,"session_id":"20260724T221941Z-e99aa04f","at":"2026-07-24T18:20:22.032-04:00","mono_ms":563929673}
+{"id":3,"kind":"event","stream":"room","op":"visit","seq":170,"session_id":"20260724T221941Z-e99aa04f","at":"2026-07-24T18:20:22.033-04:00","mono_ms":563929673}
+{"kind":"change","stream":"exit","key":"2:south:target_room_id","from":null,"to":3,"seq":171,"session_id":"20260724T221941Z-e99aa04f","at":"2026-07-24T18:20:22.033-04:00","mono_ms":563929674}
+{"kind":"change","stream":"stat","key":"current_room_id","from":2,"to":3,"seq":172,"session_id":"20260724T221941Z-e99aa04f","at":"2026-07-24T18:20:22.033-04:00","mono_ms":563929674}
+{"kind":"change","stream":"stat","key":"prev_room_id","from":1,"to":2,"seq":173,"session_id":"20260724T221941Z-e99aa04f","at":"2026-07-24T18:20:22.033-04:00","mono_ms":563929674}
+{"kind":"change","stream":"stat","key":"move","from":81,"to":80,"seq":174,"session_id":"20260724T221941Z-e99aa04f","at":"2026-07-24T18:20:23.232-04:00","mono_ms":563930873}
+{"id":4,"kind":"event","stream":"room","op":"visit","seq":175,"session_id":"20260724T221941Z-e99aa04f","at":"2026-07-24T18:20:23.232-04:00","mono_ms":563930873}
+{"kind":"change","stream":"exit","key":"3:south:target_room_id","from":null,"to":4,"seq":176,"session_id":"20260724T221941Z-e99aa04f","at":"2026-07-24T18:20:23.233-04:00","mono_ms":563930873}
+{"kind":"change","stream":"stat","key":"current_room_id","from":3,"to":4,"seq":177,"session_id":"20260724T221941Z-e99aa04f","at":"2026-07-24T18:20:23.233-04:00","mono_ms":563930873}
+{"kind":"change","stream":"stat","key":"prev_room_id","from":2,"to":3,"seq":178,"session_id":"20260724T221941Z-e99aa04f","at":"2026-07-24T18:20:23.233-04:00","mono_ms":563930873}
+{"kind":"change","stream":"stat","key":"move","from":80,"to":85,"seq":179,"session_id":"20260724T221941Z-e99aa04f","at":"2026-07-24T18:20:25.528-04:00","mono_ms":563933169}
+{"kind":"change","stream":"stat","key":"move","from":85,"to":84,"seq":180,"session_id":"20260724T221941Z-e99aa04f","at":"2026-07-24T18:20:25.532-04:00","mono_ms":563933172}
+{"kind":"change","stream":"entity","key":"3:threat","from":null,"to":"Are you mad!?","seq":181,"session_id":"20260724T221941Z-e99aa04f","at":"2026-07-24T18:20:25.733-04:00","mono_ms":563933374}
+{"kind":"change","stream":"entity","key":"23:threat","from":null,"to":"Do you feel lucky, punk?","seq":182,"session_id":"20260724T221941Z-e99aa04f","at":"2026-07-24T18:20:25.933-04:00","mono_ms":563933574}
+{"id":28,"name":"The Dark Alley","confidence":"confirmed","surveyed":true,"kind":"event","stream":"room","op":"create","seq":183,"session_id":"20260724T221941Z-e99aa04f","at":"2026-07-24T18:20:25.938-04:00","mono_ms":563933578}
+{"kind":"change","stream":"exit","key":"28:east:target_name","from":null,"to":"The Dark Alley At The Levee","seq":184,"session_id":"20260724T221941Z-e99aa04f","at":"2026-07-24T18:20:25.938-04:00","mono_ms":563933578}
+{"kind":"change","stream":"exit","key":"28:south:target_name","from":null,"to":"The Entrance Hall To The Guild Of Thieves","seq":185,"session_id":"20260724T221941Z-e99aa04f","at":"2026-07-24T18:20:25.938-04:00","mono_ms":563933578}
+{"kind":"change","stream":"exit","key":"28:west:target_name","from":null,"to":"The Common Square","seq":186,"session_id":"20260724T221941Z-e99aa04f","at":"2026-07-24T18:20:25.938-04:00","mono_ms":563933578}
+{"kind":"change","stream":"sighting","key":"3:28:count","from":null,"to":2,"seq":187,"session_id":"20260724T221941Z-e99aa04f","at":"2026-07-24T18:20:25.938-04:00","mono_ms":563933579}
+{"kind":"change","stream":"sighting","key":"23:28:count","from":null,"to":5,"seq":188,"session_id":"20260724T221941Z-e99aa04f","at":"2026-07-24T18:20:25.938-04:00","mono_ms":563933579}
+{"kind":"change","stream":"exit","key":"4:east:target_room_id","from":null,"to":28,"seq":189,"session_id":"20260724T221941Z-e99aa04f","at":"2026-07-24T18:20:25.938-04:00","mono_ms":563933579}
+{"kind":"change","stream":"stat","key":"current_room_id","from":4,"to":28,"seq":190,"session_id":"20260724T221941Z-e99aa04f","at":"2026-07-24T18:20:25.938-04:00","mono_ms":563933579}
+{"kind":"change","stream":"stat","key":"prev_room_id","from":3,"to":4,"seq":191,"session_id":"20260724T221941Z-e99aa04f","at":"2026-07-24T18:20:25.938-04:00","mono_ms":563933579}
+{"kind":"change","stream":"stat","key":"last_direction","from":"south","to":"east","seq":192,"session_id":"20260724T221941Z-e99aa04f","at":"2026-07-24T18:20:25.938-04:00","mono_ms":563933579}
+{"kind":"change","stream":"stat","key":"move","from":84,"to":83,"seq":193,"session_id":"20260724T221941Z-e99aa04f","at":"2026-07-24T18:20:27.332-04:00","mono_ms":563934973}
+{"id":29,"name":"The Dark Alley At The Levee","confidence":"confirmed","surveyed":true,"kind":"event","stream":"room","op":"create","seq":194,"session_id":"20260724T221941Z-e99aa04f","at":"2026-07-24T18:20:27.542-04:00","mono_ms":563935182}
+{"kind":"change","stream":"exit","key":"29:east:target_name","from":null,"to":"The Eastern End Of The Alley","seq":195,"session_id":"20260724T221941Z-e99aa04f","at":"2026-07-24T18:20:27.542-04:00","mono_ms":563935183}
+{"kind":"change","stream":"exit","key":"29:south:target_name","from":null,"to":"The Levee","seq":196,"session_id":"20260724T221941Z-e99aa04f","at":"2026-07-24T18:20:27.542-04:00","mono_ms":563935183}
+{"kind":"change","stream":"exit","key":"29:west:target_name","from":null,"to":"The Dark Alley","seq":197,"session_id":"20260724T221941Z-e99aa04f","at":"2026-07-24T18:20:27.543-04:00","mono_ms":563935183}
+{"kind":"change","stream":"exit","key":"28:east:target_room_id","from":null,"to":29,"seq":198,"session_id":"20260724T221941Z-e99aa04f","at":"2026-07-24T18:20:27.543-04:00","mono_ms":563935183}
+{"kind":"change","stream":"stat","key":"current_room_id","from":28,"to":29,"seq":199,"session_id":"20260724T221941Z-e99aa04f","at":"2026-07-24T18:20:27.543-04:00","mono_ms":563935184}
+{"kind":"change","stream":"stat","key":"prev_room_id","from":4,"to":28,"seq":200,"session_id":"20260724T221941Z-e99aa04f","at":"2026-07-24T18:20:27.543-04:00","mono_ms":563935184}
+{"kind":"change","stream":"stat","key":"move","from":83,"to":82,"seq":201,"session_id":"20260724T221941Z-e99aa04f","at":"2026-07-24T18:20:28.832-04:00","mono_ms":563936473}
+{"kind":"change","stream":"entity","key":"10:threat","from":null,"to":"The perfect match!","seq":202,"session_id":"20260724T221941Z-e99aa04f","at":"2026-07-24T18:20:29.032-04:00","mono_ms":563936673}
+{"kind":"change","stream":"entity","key":"24:threat","from":null,"to":"You ARE mad!","seq":203,"session_id":"20260724T221941Z-e99aa04f","at":"2026-07-24T18:20:29.232-04:00","mono_ms":563936873}
+{"id":30,"name":"The Levee","confidence":"confirmed","surveyed":true,"kind":"event","stream":"room","op":"create","seq":204,"session_id":"20260724T221941Z-e99aa04f","at":"2026-07-24T18:20:29.242-04:00","mono_ms":563936882}
+{"kind":"change","stream":"exit","key":"30:north:target_name","from":null,"to":"The Dark Alley At The Levee","seq":205,"session_id":"20260724T221941Z-e99aa04f","at":"2026-07-24T18:20:29.242-04:00","mono_ms":563936883}
+{"kind":"change","stream":"exit","key":"30:south:target_name","from":null,"to":"Too dark to tell.","seq":206,"session_id":"20260724T221941Z-e99aa04f","at":"2026-07-24T18:20:29.242-04:00","mono_ms":563936883}
+{"kind":"change","stream":"sighting","key":"10:30:count","from":null,"to":1,"seq":207,"session_id":"20260724T221941Z-e99aa04f","at":"2026-07-24T18:20:29.242-04:00","mono_ms":563936883}
+{"kind":"change","stream":"sighting","key":"24:30:count","from":null,"to":1,"seq":208,"session_id":"20260724T221941Z-e99aa04f","at":"2026-07-24T18:20:29.243-04:00","mono_ms":563936883}
+{"kind":"change","stream":"exit","key":"29:south:target_room_id","from":null,"to":30,"seq":209,"session_id":"20260724T221941Z-e99aa04f","at":"2026-07-24T18:20:29.243-04:00","mono_ms":563936884}
+{"kind":"change","stream":"stat","key":"current_room_id","from":29,"to":30,"seq":210,"session_id":"20260724T221941Z-e99aa04f","at":"2026-07-24T18:20:29.243-04:00","mono_ms":563936884}
+{"kind":"change","stream":"stat","key":"prev_room_id","from":28,"to":29,"seq":211,"session_id":"20260724T221941Z-e99aa04f","at":"2026-07-24T18:20:29.243-04:00","mono_ms":563936884}
+{"kind":"change","stream":"stat","key":"last_direction","from":"east","to":"south","seq":212,"session_id":"20260724T221941Z-e99aa04f","at":"2026-07-24T18:20:29.243-04:00","mono_ms":563936884}
+{"kind":"change","stream":"stat","key":"move","from":82,"to":81,"seq":213,"session_id":"20260724T221941Z-e99aa04f","at":"2026-07-24T18:20:31.837-04:00","mono_ms":563939477}
+{"id":29,"kind":"event","stream":"room","op":"visit","seq":214,"session_id":"20260724T221941Z-e99aa04f","at":"2026-07-24T18:20:31.837-04:00","mono_ms":563939478}
+{"kind":"change","stream":"exit","key":"30:north:target_room_id","from":null,"to":29,"seq":215,"session_id":"20260724T221941Z-e99aa04f","at":"2026-07-24T18:20:31.837-04:00","mono_ms":563939478}
+{"kind":"change","stream":"stat","key":"current_room_id","from":30,"to":29,"seq":216,"session_id":"20260724T221941Z-e99aa04f","at":"2026-07-24T18:20:31.837-04:00","mono_ms":563939478}
+{"kind":"change","stream":"stat","key":"prev_room_id","from":29,"to":30,"seq":217,"session_id":"20260724T221941Z-e99aa04f","at":"2026-07-24T18:20:31.837-04:00","mono_ms":563939478}
+{"kind":"change","stream":"stat","key":"last_direction","from":"south","to":"north","seq":218,"session_id":"20260724T221941Z-e99aa04f","at":"2026-07-24T18:20:31.837-04:00","mono_ms":563939478}
+{"kind":"change","stream":"stat","key":"move","from":81,"to":80,"seq":219,"session_id":"20260724T221941Z-e99aa04f","at":"2026-07-24T18:20:33.033-04:00","mono_ms":563940674}
+{"kind":"change","stream":"entity","key":"9:threat","from":null,"to":"You ARE mad!","seq":220,"session_id":"20260724T221941Z-e99aa04f","at":"2026-07-24T18:20:33.236-04:00","mono_ms":563940877}
+{"id":31,"name":"The Eastern End Of The Alley","confidence":"confirmed","surveyed":true,"kind":"event","stream":"room","op":"create","seq":221,"session_id":"20260724T221941Z-e99aa04f","at":"2026-07-24T18:20:33.245-04:00","mono_ms":563940886}
+{"kind":"change","stream":"exit","key":"31:south:target_name","from":null,"to":"The Deserted Warehouse","seq":222,"session_id":"20260724T221941Z-e99aa04f","at":"2026-07-24T18:20:33.245-04:00","mono_ms":563940886}
+{"kind":"change","stream":"exit","key":"31:west:target_name","from":null,"to":"The Dark Alley At The Levee","seq":223,"session_id":"20260724T221941Z-e99aa04f","at":"2026-07-24T18:20:33.245-04:00","mono_ms":563940886}
+{"kind":"change","stream":"sighting","key":"9:31:count","from":null,"to":1,"seq":224,"session_id":"20260724T221941Z-e99aa04f","at":"2026-07-24T18:20:33.245-04:00","mono_ms":563940886}
+{"kind":"change","stream":"exit","key":"29:east:target_room_id","from":null,"to":31,"seq":225,"session_id":"20260724T221941Z-e99aa04f","at":"2026-07-24T18:20:33.246-04:00","mono_ms":563940886}
+{"kind":"change","stream":"stat","key":"current_room_id","from":29,"to":31,"seq":226,"session_id":"20260724T221941Z-e99aa04f","at":"2026-07-24T18:20:33.246-04:00","mono_ms":563940886}
+{"kind":"change","stream":"stat","key":"prev_room_id","from":30,"to":29,"seq":227,"session_id":"20260724T221941Z-e99aa04f","at":"2026-07-24T18:20:33.246-04:00","mono_ms":563940886}
+{"kind":"change","stream":"stat","key":"last_direction","from":"north","to":"east","seq":228,"session_id":"20260724T221941Z-e99aa04f","at":"2026-07-24T18:20:33.246-04:00","mono_ms":563940886}
+{"kind":"change","stream":"stat","key":"move","from":80,"to":79,"seq":229,"session_id":"20260724T221941Z-e99aa04f","at":"2026-07-24T18:20:34.733-04:00","mono_ms":563942374}
+{"kind":"change","stream":"entity","key":"25:threat","from":null,"to":"You ARE mad!","seq":230,"session_id":"20260724T221941Z-e99aa04f","at":"2026-07-24T18:20:35.133-04:00","mono_ms":563942773}
+{"id":32,"name":"The Deserted Warehouse","confidence":"confirmed","surveyed":true,"kind":"event","stream":"room","op":"create","seq":231,"session_id":"20260724T221941Z-e99aa04f","at":"2026-07-24T18:20:35.140-04:00","mono_ms":563942781}
+{"kind":"change","stream":"exit","key":"32:north:target_name","from":null,"to":"The Eastern End Of The Alley","seq":232,"session_id":"20260724T221941Z-e99aa04f","at":"2026-07-24T18:20:35.140-04:00","mono_ms":563942781}
+{"kind":"change","stream":"sighting","key":"10:32:count","from":null,"to":1,"seq":233,"session_id":"20260724T221941Z-e99aa04f","at":"2026-07-24T18:20:35.140-04:00","mono_ms":563942781}
+{"kind":"change","stream":"sighting","key":"9:32:count","from":null,"to":1,"seq":234,"session_id":"20260724T221941Z-e99aa04f","at":"2026-07-24T18:20:35.140-04:00","mono_ms":563942781}
+{"kind":"change","stream":"sighting","key":"25:32:count","from":null,"to":1,"seq":235,"session_id":"20260724T221941Z-e99aa04f","at":"2026-07-24T18:20:35.140-04:00","mono_ms":563942781}
+{"kind":"change","stream":"exit","key":"31:south:target_room_id","from":null,"to":32,"seq":236,"session_id":"20260724T221941Z-e99aa04f","at":"2026-07-24T18:20:35.141-04:00","mono_ms":563942781}
+{"kind":"change","stream":"stat","key":"current_room_id","from":31,"to":32,"seq":237,"session_id":"20260724T221941Z-e99aa04f","at":"2026-07-24T18:20:35.141-04:00","mono_ms":563942781}
+{"kind":"change","stream":"stat","key":"prev_room_id","from":29,"to":31,"seq":238,"session_id":"20260724T221941Z-e99aa04f","at":"2026-07-24T18:20:35.141-04:00","mono_ms":563942781}
+{"kind":"change","stream":"stat","key":"last_direction","from":"east","to":"south","seq":239,"session_id":"20260724T221941Z-e99aa04f","at":"2026-07-24T18:20:35.141-04:00","mono_ms":563942781}
+{"kind":"change","stream":"stat","key":"move","from":79,"to":78,"seq":240,"session_id":"20260724T221941Z-e99aa04f","at":"2026-07-24T18:20:37.132-04:00","mono_ms":563944773}
+{"id":31,"kind":"event","stream":"room","op":"visit","seq":241,"session_id":"20260724T221941Z-e99aa04f","at":"2026-07-24T18:20:37.132-04:00","mono_ms":563944773}
+{"kind":"change","stream":"exit","key":"32:north:target_room_id","from":null,"to":31,"seq":242,"session_id":"20260724T221941Z-e99aa04f","at":"2026-07-24T18:20:37.133-04:00","mono_ms":563944773}
+{"kind":"change","stream":"stat","key":"current_room_id","from":32,"to":31,"seq":243,"session_id":"20260724T221941Z-e99aa04f","at":"2026-07-24T18:20:37.133-04:00","mono_ms":563944773}
+{"kind":"change","stream":"stat","key":"prev_room_id","from":31,"to":32,"seq":244,"session_id":"20260724T221941Z-e99aa04f","at":"2026-07-24T18:20:37.133-04:00","mono_ms":563944773}
+{"kind":"change","stream":"stat","key":"last_direction","from":"south","to":"north","seq":245,"session_id":"20260724T221941Z-e99aa04f","at":"2026-07-24T18:20:37.133-04:00","mono_ms":563944773}
+{"kind":"change","stream":"stat","key":"move","from":78,"to":77,"seq":246,"session_id":"20260724T221941Z-e99aa04f","at":"2026-07-24T18:20:38.332-04:00","mono_ms":563945973}

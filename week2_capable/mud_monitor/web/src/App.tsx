@@ -6,6 +6,7 @@ import Journal from "./pages/Journal";
 import Entities from "./pages/knowledge/Entities";
 import Frontier from "./pages/knowledge/Frontier";
 import Knowledge from "./pages/knowledge/Knowledge";
+import KnowledgeMap from "./pages/knowledge/Map";
 import Overview from "./pages/knowledge/Overview";
 import Player from "./pages/knowledge/Player";
 import Progression from "./pages/knowledge/Progression";
@@ -33,6 +34,7 @@ export default function App() {
           <Route index element={<Overview />} />
           <Route path="rooms" element={<Rooms />} />
           <Route path="rooms/:id" element={<RoomDetail />} />
+          <Route path="map" element={<KnowledgeMap />} />
           <Route path="entities" element={<Entities />} />
           <Route path="frontier" element={<Frontier />} />
           <Route path="player" element={<Player />} />

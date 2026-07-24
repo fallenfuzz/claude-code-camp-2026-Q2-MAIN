@@ -1810,3 +1810,335 @@ table.knowledge-rooms a {
 table.knowledge-rooms a:hover {
   text-decoration: underline;
 }
+
+/* ---------- Knowledge → Map (docs/plans/week_2/knowledge_map.md) ----------
+   A grid of boxes looks like a surveyed floor plan and is nothing of the kind.
+   Every rule below that costs contrast — the dashed edges, the provisional
+   outline, the always-visible id — is paying for that difference. */
+
+/* Every other page in the monitor is a table or a transcript, and 980px is the
+   right column width for reading those. The map is the one page whose content
+   is genuinely two-dimensional — capping it wastes exactly the axis it needs —
+   so it opts the shell out of the cap for its route only. */
+main:has(.knowledge-map-page) {
+  max-width: none;
+}
+
+/* …but the prose does not become more readable at 2000px, so the reading
+   column survives inside the widened shell. */
+main:has(.knowledge-map-page) h1,
+main:has(.knowledge-map-page) .meta,
+main:has(.knowledge-map-page) .empty,
+main:has(.knowledge-map-page) .error {
+  max-width: 70rem;
+}
+
+.knowledge-map-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+  margin-bottom: 0.6rem;
+  font-size: 0.85rem;
+}
+
+.knowledge-map-toolbar button {
+  font: inherit;
+  padding: 0.25rem 0.7rem;
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  background: var(--panel);
+  color: var(--text);
+  cursor: pointer;
+}
+
+.knowledge-map-toolbar button:hover:not(:disabled) {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.knowledge-map-toolbar button:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.knowledge-map-toolbar label {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  color: var(--muted);
+  cursor: pointer;
+}
+
+.knowledge-map-stats {
+  margin-left: auto;
+  color: var(--muted);
+  font-family: ui-monospace, monospace;
+  font-size: 0.75rem;
+}
+
+/* Islands and displaced edges are the two ways the picture can be misleading,
+   so they are counted in the toolbar rather than left to be noticed. */
+.map-warn {
+  color: var(--tool-border);
+  border-bottom: 1px dashed currentColor;
+  cursor: help;
+}
+
+.knowledge-map-viewport {
+  position: relative;
+  overflow: hidden;
+  height: 70vh;
+  min-height: 420px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--bg);
+  background-image:
+    linear-gradient(color-mix(in srgb, var(--border) 45%, transparent) 1px, transparent 1px),
+    linear-gradient(90deg, color-mix(in srgb, var(--border) 45%, transparent) 1px, transparent 1px);
+  background-size: 46px 46px;
+  cursor: grab;
+  touch-action: none;
+}
+
+.knowledge-map-viewport:active {
+  cursor: grabbing;
+}
+
+.knowledge-map-world {
+  position: absolute;
+  top: 0;
+  left: 0;
+  transform-origin: 0 0;
+}
+
+/* Edges under the nodes, in one transformed wrapper with them, so the two
+   layers cannot drift apart at any zoom. */
+.knowledge-map-edges {
+  position: absolute;
+  top: 0;
+  left: 0;
+  overflow: visible;
+  pointer-events: none;
+}
+
+.map-edge {
+  fill: none;
+  stroke: var(--muted);
+  stroke-width: 2;
+  pointer-events: stroke;
+}
+
+.map-edge-walked {
+  stroke: color-mix(in srgb, var(--accent) 70%, var(--muted));
+  stroke-width: 2.5;
+}
+
+/* A one-way exit is a real navigation hazard, not a drawing detail. */
+.map-edge-oneway {
+  stroke: color-mix(in srgb, var(--accent) 70%, var(--muted));
+  stroke-width: 2.5;
+}
+
+.map-edge-unwalked {
+  stroke: color-mix(in srgb, var(--muted) 55%, transparent);
+  stroke-width: 1.5;
+}
+
+/* The one place the picture stops matching the data. Curved and dashed so it
+   can never be mistaken for a corridor that runs the way it looks. */
+.map-edge-displaced,
+.map-edge-nonplanar {
+  stroke: var(--tool-border);
+  stroke-width: 2;
+  stroke-dasharray: 5 4;
+}
+
+.map-arrow-head {
+  fill: color-mix(in srgb, var(--accent) 70%, var(--muted));
+}
+
+.map-frontier-head {
+  fill: color-mix(in srgb, var(--muted) 70%, transparent);
+}
+
+/* Unwalked exits are the majority of edges on a real world, so they are drawn
+   thin and muted: subordinate to walked ones, but never absent. */
+.map-stub line {
+  stroke: var(--muted);
+  stroke-width: 1.25;
+  stroke-dasharray: 3 3;
+  opacity: 0.75;
+}
+
+.map-stub text {
+  fill: var(--muted);
+  font-size: 11px;
+  font-family: ui-monospace, monospace;
+}
+
+.map-node {
+  position: absolute;
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+  overflow: hidden;
+  padding: 0.4rem 0.5rem;
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  /* visit_count as a background ramp — the well-trodden path reads at a glance
+     without hunting for the ×N on every box. */
+  background: color-mix(in srgb, var(--accent) calc(var(--heat, 0) * 14%), var(--panel));
+  color: var(--text);
+  text-decoration: none;
+  font-size: 0.75rem;
+  line-height: 1.25;
+}
+
+.map-node:hover {
+  border-color: var(--accent);
+  z-index: 3;
+}
+
+.map-node-provisional {
+  border-style: dashed;
+  border-color: var(--tool-border);
+}
+
+/* The one node you came here to find. */
+.map-node-current {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 35%, transparent);
+  z-index: 2;
+}
+
+.map-node-head {
+  display: flex;
+  align-items: baseline;
+  gap: 0.35rem;
+}
+
+/* Never hidden by the LOD threshold: this is the id you paste into chat. */
+.map-node-id {
+  color: var(--muted);
+  font-family: ui-monospace, monospace;
+  font-size: 0.7rem;
+  flex: none;
+}
+
+.map-node-name {
+  font-weight: 600;
+  font-size: 0.8rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.map-node-lod .map-node-name {
+  font-size: 0.95rem;
+}
+
+.map-node-badges,
+.map-node-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.15rem;
+  align-items: center;
+  overflow: hidden;
+  max-height: 1.3rem;
+}
+
+.map-node-visits {
+  font-family: ui-monospace, monospace;
+  font-size: 0.7rem;
+  color: var(--muted);
+  margin-right: 0.15rem;
+}
+
+.map-node .tag {
+  margin-right: 0;
+  max-width: 8rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.tag-mob {
+  background: color-mix(in srgb, var(--danger) 18%, var(--panel));
+  color: var(--text);
+}
+
+.tag-object {
+  background: color-mix(in srgb, var(--accent) 16%, var(--panel));
+  color: var(--text);
+}
+
+.map-node-foot {
+  margin-top: auto;
+  color: var(--muted);
+  font-size: 0.68rem;
+  font-family: ui-monospace, monospace;
+}
+
+.knowledge-map-legend {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  flex-wrap: wrap;
+  margin: 0.6rem 0 0;
+  font-size: 0.75rem;
+  color: var(--muted);
+}
+
+.map-key {
+  display: inline-block;
+  width: 1.6rem;
+  height: 0;
+  margin-left: 0.9rem;
+  border-top-width: 2px;
+  border-top-style: solid;
+}
+
+.map-key:first-child {
+  margin-left: 0;
+}
+
+.map-key-walked {
+  border-top-color: color-mix(in srgb, var(--accent) 70%, var(--muted));
+  border-top-width: 2.5px;
+}
+
+.map-key-oneway {
+  border-top-color: color-mix(in srgb, var(--accent) 70%, var(--muted));
+  border-top-width: 2.5px;
+  position: relative;
+  margin-right: 0.45rem;
+}
+
+.map-key-oneway::after {
+  content: "▸";
+  position: absolute;
+  right: -0.5rem;
+  top: -0.72rem;
+  color: color-mix(in srgb, var(--accent) 70%, var(--muted));
+}
+
+.map-key-unwalked {
+  border-top-color: color-mix(in srgb, var(--muted) 55%, transparent);
+  border-top-width: 1.5px;
+}
+
+.map-key-lie {
+  border-top-color: var(--tool-border);
+  border-top-style: dashed;
+}
+
+.map-key-frontier {
+  border-top-color: var(--muted);
+  border-top-style: dashed;
+  border-top-width: 1.25px;
+}
+
+.map-note {
+  margin-left: 0.9rem;
+  font-style: italic;
+}

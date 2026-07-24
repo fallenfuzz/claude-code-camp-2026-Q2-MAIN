@@ -18,6 +18,7 @@ export function useReportEnvelope(envelope: KnowledgeEnvelope | null | undefined
 const TABS = [
   { to: "/knowledge", end: true, label: "Overview" },
   { to: "/knowledge/rooms", end: false, label: "Rooms" },
+  { to: "/knowledge/map", end: true, label: "Map" },
   { to: "/knowledge/entities", end: true, label: "Entities" },
   { to: "/knowledge/frontier", end: true, label: "Frontier" },
   { to: "/knowledge/player", end: true, label: "Player" },
