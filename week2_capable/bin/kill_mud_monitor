@@ -1,0 +1,60 @@
+#!/usr/bin/env bash
+# Forcefully kill the Mud Monitor dev processes (foreman, Rails/puma api,
+# Vite web) and clear the stale puma pidfile.
+#
+# Usage:
+#   week2_capable/bin/kill_mud_monitor            # ports 3000 + 5173
+#   week2_capable/bin/kill_mud_monitor 5174 5175  # also free extra ports
+
+set -uo pipefail
+
+cd "$(dirname "$0")/.."
+
+MONITOR_DIR="$PWD/mud_monitor"
+PIDFILE="$MONITOR_DIR/api/tmp/pids/server.pid"
+PORTS=(3000 5173 "$@")
+SELF=$$
+
+# Kill every pid in "$@" that is not this script or its parents.
+kill9() {
+  local pid killed=()
+  for pid in "$@"; do
+    [ -n "$pid" ] || continue
+    [ "$pid" = "$SELF" ] && continue
+    kill -0 "$pid" 2>/dev/null || continue
+    killed+=("$pid")
+  done
+  [ ${#killed[@]} -gt 0 ] || return 1
+  echo "    killing: ${killed[*]}"
+  kill -9 "${killed[@]}" 2>/dev/null
+  return 0
+}
+
+# Foreman first: it tears down its own children when it dies, so the port
+# sweep below only has to catch strays.
+echo "==> foreman"
+foreman_pids=$(pgrep -f "foreman start -f Procfile.dev" 2>/dev/null)
+# shellcheck disable=SC2086
+kill9 $foreman_pids || echo "    none running"
+
+echo "==> pidfile"
+if [ -f "$PIDFILE" ]; then
+  # shellcheck disable=SC2046
+  kill9 $(cat "$PIDFILE") >/dev/null 2>&1
+  rm -f "$PIDFILE"
+  echo "    removed $PIDFILE"
+else
+  echo "    no pidfile"
+fi
+
+# Give foreman's own SIGTERM sweep a moment before checking the ports.
+sleep 0.5
+
+for port in "${PORTS[@]}"; do
+  echo "==> port $port"
+  port_pids=$(lsof -t -i ":$port" -sTCP:LISTEN 2>/dev/null)
+  # shellcheck disable=SC2086
+  kill9 $port_pids || echo "    nothing listening"
+done
+
+echo "Mud Monitor stopped."

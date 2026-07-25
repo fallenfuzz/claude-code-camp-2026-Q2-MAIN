@@ -15,7 +15,10 @@ class JournalRecordSerializer
       from: record.from,
       to: record.to,
       op: record.op,
-      values: record.values
+      values: record.values,
+      # Which unit of work produced this line. Null on every file written before
+      # operation spans existed.
+      operation_id: record.operation_id
     }.compact
     base.merge(record.fields || {})
   end

@@ -408,6 +408,21 @@ Okay so the main conclusion:
 
 docs/plans/week_2/observ_improvements.
 
+## Spans and Traces with Observsation
+
+We have still not moved onto plan_route because I can't see things like:
+- the BERT medium call, the actualy details of room survey
+So explained to Claude I ned that level of visibility and we need to group related workloads tha I can expand and I need to be able to see db writes in my sessions and it argued we need spans and traces via an Obseveration class.
+
+ docs/plans/week_2/work_attribution.md
+
+It implemented and we do see grouping of work but room surevy I dont see at all, maybe they just didn't implement it mud monitor.
+
+It seems we would greatly benefit from instruementation and will require signfant upheavel
+I cannot tell what the UX will look like aftwards but Im going to give it a rip.
+
+
+
 ## Technical Conclusions
 Reflecting back your education guesses from the technical uncertainty section what was the technical outcomes. Is there any new technical uncertainty that has been put aside for future exploration. Are there any next steps or technical considerations worth noting?
 

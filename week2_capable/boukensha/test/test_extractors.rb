@@ -220,6 +220,17 @@ class TestExtractors < Minitest::Test
   # so these pass it explicitly rather than reconstructing that layout.
   FakeConfig = Struct.new(:dir, :settings) do
     def dig(*keys) = keys == %i[tools room_survey look_candidates] ? settings : nil
+    def root_dir = dir
+  end
+
+  # Collects `local_inference` events without a session file. The extractor
+  # talks to this through exactly one method, which is the whole surface the
+  # logger exposes to it.
+  class FakeLogger
+    attr_reader :inferences
+
+    def initialize = @inferences = []
+    def local_inference(**fields) = @inferences << fields
   end
 
   def test_extractor_none_returns_a_lambda_that_never_speaks
@@ -249,6 +260,98 @@ class TestExtractors < Minitest::Test
     refute_includes out, "market"
     refute_includes out, "square"
     refute_includes out, "peacekeeper"
+  end
+
+  # --- cost reporting (work_attribution.md §2) -------------------------------
+
+  # The one that matters most. A missing artifact degrades to Model::Null, which
+  # warns ONCE to stderr and then returns [] forever — so from the second room
+  # onward the session log said nothing at all, and an empty `look_candidates`
+  # field read identically whether the model was absent or the room simply had
+  # nothing worth looking at. Those are opposite conclusions.
+  def test_an_absent_model_still_reports_a_row_saying_it_is_unavailable
+    Dir.mktmpdir do |dir|
+      Boukensha::Extractors::Model.reset_cache!
+      logger  = FakeLogger.new
+      extract = Boukensha::Extractors.look_candidates(
+        config: FakeConfig.new(dir, { "model_dir" => dir }), logger: logger
+      )
+      capture_io do
+        extract.call(name: "Temple", description: "A large statue stands here.",
+                     exit_targets: {}, exclude: Set.new)
+      end
+
+      event = logger.inferences.first
+      refute_nil event, "an absent model must still be visible in the session"
+      refute event[:available]
+      assert_equal 0, event[:kept]
+      assert_match(/no manifest/, event[:reason])
+      # No weights, so no calibration to quote. Reporting the Null's `top_k` of
+      # 0 would look like a configured cap rather than an absence.
+      assert_nil event[:threshold]
+      assert_nil event[:top_k]
+    end
+  end
+
+  # `extractor: none` is the documented A/B switch. Nothing ran, so nothing is
+  # reported — logging it as a degraded model would misread a deliberate
+  # comparison as a broken install.
+  def test_the_disabled_extractor_reports_nothing_at_all
+    logger  = FakeLogger.new
+    extract = Boukensha::Extractors.look_candidates(
+      config: FakeConfig.new(MODEL_DIR, { "extractor" => "none", "model_dir" => MODEL_DIR }),
+      logger: logger
+    )
+    extract.call(name: "Temple", description: "A statue stands here.", exit_targets: {}, exclude: Set.new)
+
+    assert_empty logger.inferences
+  end
+
+  # The yield, and the $0. `look_candidates` exists to be A/B-ed, and "23
+  # scored, 3 kept" is the number that argues for or against it; the price is
+  # zero dollars and ~10ms, and both belong in the record.
+  def test_a_real_inference_reports_its_yield_latency_and_calibration
+    skip_without_model
+    Boukensha::Extractors::Model.reset_cache!
+    logger  = FakeLogger.new
+    extract = Boukensha::Extractors.look_candidates(
+      config: FakeConfig.new(MODEL_DIR, { "model_dir" => MODEL_DIR }), logger: logger
+    )
+    kept = extract.call(
+      name: "The Temple Of Midgaard",
+      description: "A large statue stands beside the altar. The market square lies north.",
+      exit_targets: { "north" => "Market Square" }, exclude: Set.new
+    )
+
+    event = logger.inferences.first
+    assert event[:available]
+    assert_equal "onnx", event[:backend]
+    assert_equal kept.size, event[:kept]
+    assert_operator event[:pool], :>=, event[:kept], "the pool is what was scored, kept is what survived"
+    assert_kind_of Integer, event[:duration_ms]
+    # Straight off the artifact's manifest, never from settings, so the number
+    # travels with the weights it was measured against.
+    assert_in_delta Boukensha::Extractors::Model.load(MODEL_DIR).threshold, event[:threshold], 1e-9
+    assert_match(/model\.onnx\z/, event[:artifact])
+  end
+
+  # Telemetry never breaks a survey. `look_candidates` is advisory; a logger
+  # that raised must not be the reason a room went unrecorded.
+  def test_a_logger_that_raises_does_not_break_the_extractor
+    Dir.mktmpdir do |dir|
+      Boukensha::Extractors::Model.reset_cache!
+      exploding = Object.new
+      def exploding.local_inference(**) = raise("logger on fire")
+      extract = Boukensha::Extractors.look_candidates(
+        config: FakeConfig.new(dir, { "model_dir" => dir }), logger: exploding
+      )
+      out = nil
+      capture_io do
+        out = extract.call(name: "Temple", description: "A statue stands here.",
+                           exit_targets: {}, exclude: Set.new)
+      end
+      assert_empty out
+    end
   end
 
   # --- structural subtraction (free, no model) -------------------------------

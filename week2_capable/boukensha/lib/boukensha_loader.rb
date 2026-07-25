@@ -192,11 +192,19 @@ module BoukenshaLoader
       # how a 1.9s blocking MUD read came to look like model latency.
       name       = Boukensha::Mud::RoomSurvey::NAME
       call_tool  = Boukensha.tool_dispatcher(name, logger: parent, initiator: "hook")
-      candidates = Boukensha::Extractors.look_candidates
+      # The logger is what turns the classifier from an unmeasured ~10ms into a
+      # line in the session that says what it scored, what it kept, and whether
+      # the weights were installed at all.
+      candidates = Boukensha::Extractors.look_candidates(logger: parent)
 
       begin
         store = Boukensha::Mud::Memory::Store.for_dir(cfg.profile_dir)
         at_exit { store.close rescue nil }
+        # Registered as a counter source, so every operation span reports the
+        # rows it read and wrote. The writes themselves were always logged — as
+        # CDC, in the journal — but nothing connected "the survey wrote 3
+        # entities and 4 exits" to the survey in the session transcript.
+        parent&.add_meter(store)
 
         # The store's time-series sibling: an append-only jsonl progression log
         # in `.boukensha/journal/`, sharing the session file's id so telnet /
@@ -207,6 +215,10 @@ module BoukenshaLoader
           at_exit { j.close rescue nil }
           # Generic CDC: every Store mutation emits a delta through this journal.
           store.journal = j
+          # …and the count of those deltas is reported per span, so the gap
+          # between rows written and lines appended is visible rather than
+          # implied.
+          parent&.add_meter(j)
           j
         rescue StandardError => e
           warn "[boukensha] #{e.message} — continuing without progression journal"

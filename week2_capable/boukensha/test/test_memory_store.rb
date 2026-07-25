@@ -374,4 +374,50 @@ class TestMemoryStore < Minitest::Test
     @store.record_encounter!(outcome: "won")
     assert_equal 2, @store.level   # no raise, writes landed
   end
+
+  # --- counters (work_attribution.md §3) -------------------------------------
+  #
+  # "How much did we write" and "what changed" are different questions. The
+  # journal has always answered the second; it CANNOT answer the first, because
+  # `jupsert` is change-detecting by design and a write of an unchanged value
+  # appends nothing. A survey re-reading a room it already knows performs real
+  # database work and produces zero journal lines.
+
+  def test_reads_and_writes_are_counted_apart
+    before = @store.counters
+    new_room
+    @store.player
+
+    delta = @store.counters.each_with_object({}) { |(k, v), h| h[k] = v - before[k] }
+    assert_operator delta[:db_writes], :>=, 1, "create_room INSERTs"
+    assert_operator delta[:db_reads], :>=, 1, "player SELECTs"
+    assert_kind_of Integer, delta[:db_ms]
+  end
+
+  # A wholesale replace is one `transaction` and N statements. The transaction
+  # forwards to the real handle; the statements inside it must still land on the
+  # counter, or the most write-heavy call in the store reports nothing.
+  def test_statements_inside_a_transaction_are_counted
+    before = @store.counters[:db_writes]
+    @store.replace_items!(location: "inventory",
+                          items: [ { descr: "a torch" }, { descr: "a sword" } ])
+
+    # one DELETE + two INSERTs, plus the update_player! that stamps the age
+    assert_operator @store.counters[:db_writes] - before, :>=, 3
+  end
+
+  # `Store#db` is public and this file reaches through it. The proxy has to be
+  # transparent for every handle method it does not itself implement, or
+  # instrumenting the store breaks its own tests.
+  def test_the_counting_proxy_forwards_everything_it_does_not_count
+    assert_equal M::Schema::LATEST_VERSION, @store.db.get_first_value("PRAGMA user_version")
+    assert_respond_to @store.db, :transaction
+    assert_respond_to @store.db, :last_insert_row_id
+  end
+
+  # Boot is not work: the PRAGMAs and the migration run against the raw handle
+  # before the wrap, so a freshly-opened store has not "read" anything yet.
+  def test_schema_setup_is_not_counted_as_work
+    assert_equal({ db_reads: 0, db_writes: 0, db_ms: 0 }, M::Store.open(":memory:").counters)
+  end
 end

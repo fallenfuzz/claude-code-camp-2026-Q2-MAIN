@@ -86,12 +86,14 @@ module Boukensha
         @prefix    = prefix
         @warn_to   = warn_to
         @turn_policy_enabled = turn_policy
-        # The survey's calls carry ONE operation between them, so `look`,
-        # `check(exits)`, `consider` and `examine` group in the monitor as a
-        # single `room_survey` rather than as four unexplained player actions.
+        # The survey opens its OWN `room_survey` span, from inside `#survey` —
+        # so the span is the survey's property and a second caller could not
+        # mislabel it. `look`, `check(exits)`, `consider` and `examine` are then
+        # one unit of automatic work by construction rather than by four call
+        # sites agreeing on a string.
         @survey = RoomSurvey.new(call_tool: call_tool, look_candidates: look_candidates,
                                  entities: store, prefix: prefix, warn_to: warn_to,
-                                 call_meta: { operation: "room_survey", trigger: "before_model" })
+                                 logger: logger)
 
         # Per-iteration scratch, reset as it is consumed.
         @pending_events = []
@@ -205,8 +207,13 @@ module Boukensha
             resolve_position(look) if look
           end
 
-          context.state_block = render_state
-          context.turn_policy = compute_turn_policy(context)
+          # Spans nothing but store reads — no MUD I/O at all — and is bracketed
+          # anyway so the reads behind the `[here]` block are attributed to
+          # rendering it rather than pooling into whatever ran last.
+          during("state_render", "before_model") do
+            context.state_block = render_state
+            context.turn_policy = compute_turn_policy(context)
+          end
         end
         nil
       end
@@ -629,24 +636,26 @@ module Boukensha
       # =========================== plumbing =================================
 
       def call(tool, **args)
-        @call_tool.call("#{@prefix}#{tool}", args, @call_meta || {})
+        @call_tool.call("#{@prefix}#{tool}", args)
       end
 
-      # An operation span. Every MUD call made inside it is logged with the same
-      # `operation`/`trigger`, which is what lets the monitor group a hook's work
-      # under one honest heading — `bootstrap player`, `establish position`,
-      # `room survey` — instead of scattering four unexplained commands through
-      # the model's narrative.
+      # An operation span: a bracketed unit of work that OWNS everything done
+      # inside it — the MUD calls, the store writes, the journal lines, the
+      # local inference. That containment is what lets the monitor render
+      # `room survey` nested inside `establish position` instead of scattering
+      # four unexplained commands through the model's narrative as siblings.
       #
       # Reentrant, and restoring rather than clearing on the way out, because
       # `disambiguate` opens a span inside `before_model`'s and the calls after
       # it must not come back out unlabelled.
-      def during(operation, trigger)
-        previous   = @call_meta
-        @call_meta = { operation: operation, trigger: trigger }
-        yield
-      ensure
-        @call_meta = previous
+      #
+      # Falls back to a logger-less span so the ambient stack (and therefore the
+      # journal's `operation_id`) behaves identically whether or not anything is
+      # writing the brackets down.
+      def during(operation, trigger, &block)
+        return @logger.operation(operation, trigger: trigger, &block) if @logger
+
+        Boukensha::Operation.open(operation, trigger: trigger, &block)
       end
 
       def unprefix(name)

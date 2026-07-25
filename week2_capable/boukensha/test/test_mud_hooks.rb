@@ -30,12 +30,16 @@ class TestMudHooks < Minitest::Test
     end
 
     def to_proc
-      # The third argument is the provenance the real dispatcher stamps on the
-      # log (`operation:`/`trigger:`). Recorded rather than ignored so a test
-      # can assert the hook labelled its own work.
-      lambda do |name, args = {}, meta = {}|
+      # Provenance is no longer an argument the dispatcher is handed — the
+      # logger reads it off the ambient `Boukensha::Operation` stack. So the
+      # thing a test must observe is which span was OPEN at the moment the call
+      # was made, sampled here for exactly that reason.
+      lambda do |name, args = {}|
         @calls << [name.sub("tbamud__", ""), args]
-        @metas << [name.sub("tbamud__", ""), meta]
+        frame  = Boukensha::Operation.current
+        @metas << [name.sub("tbamud__", ""),
+                   frame ? { operation: frame.name, trigger: frame.trigger,
+                             operation_id: frame.id, parent_operation_id: frame.parent_id } : {}]
         key = name.sub("tbamud__", "")
         key = "#{key}:#{args[:target] || args[:kind]}" if args[:target] || args[:kind]
         @responses.fetch(key) { @responses.fetch(name.sub("tbamud__", ""), "") }
@@ -53,6 +57,9 @@ class TestMudHooks < Minitest::Test
 
   def teardown
     @store&.close
+    # A span left open by a raise that escaped an `ensure` would silently
+    # mislabel every call the NEXT test makes.
+    Boukensha::Operation.reset!
   end
 
   COMMON_SQUARE = {
@@ -548,6 +555,31 @@ class TestMudHooks < Minitest::Test
     surveyed = fake.metas.select { |name, _| %w[check consider examine].include?(name) }
     refute_empty surveyed
     assert_equal [ "room_survey" ], surveyed.map { |_, meta| meta[:operation] }.uniq
+  end
+
+  # The shape the whole plan exists for: `room_survey` is not a SIBLING of
+  # `position_refresh`, it runs INSIDE it (before_model → resolve_position →
+  # discover → survey). Adjacency cannot express that and got it wrong; a
+  # parent id can only ever be right.
+  def test_the_survey_span_is_nested_inside_the_position_refresh_that_ran_it
+    h, fake = hooks_for(MARKET_SQUARE)
+    h.before_model(context: ctx)
+
+    outer = meta_for(fake, "look")           # the cold look, under position_refresh
+    inner = meta_for(fake, "examine")        # deep inside the survey
+
+    assert_equal "position_refresh", outer[:operation]
+    assert_equal "room_survey", inner[:operation]
+    assert_equal outer[:operation_id], inner[:parent_operation_id]
+  end
+
+  # The survey names no lifecycle seam of its own — it cannot know one — so it
+  # inherits the seam of the span it opened inside.
+  def test_a_nested_span_inherits_its_parents_trigger
+    h, fake = hooks_for(MARKET_SQUARE)
+    h.before_model(context: ctx)
+
+    assert_equal "before_model", meta_for(fake, "examine")[:trigger]
   end
 
   # A span must RESTORE its predecessor, not clear it. The survey opens an

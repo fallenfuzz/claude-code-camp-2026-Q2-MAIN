@@ -270,6 +270,109 @@ module SessionLog
       assert_empty parser.automatic_operations
     end
 
+    # ---- operation spans (work_attribution.md §1) --------------------------
+
+    test "a span records what it contained and what it spent" do
+      parser = Parser.load(FIXTURES.join("operations.jsonl"))
+
+      survey = parser.operation_ends.find { |e| e.operation == "room_survey" }
+      assert_equal 310, survey.duration_ms
+      assert survey.ok
+      # The rollup is an open set — a new counter on the writing side reaches
+      # the UI without a parser change.
+      assert_equal 11, survey.rollup["db_writes"]
+      assert_equal 6, survey.rollup["db_reads"]
+      assert_equal 7, survey.rollup["journal_lines"]
+      assert_equal 11, survey.rollup["inference_ms"]
+      # The span's identity and timing are not counters and must not leak in.
+      refute survey.rollup.key?("operation_id")
+      refute survey.rollup.key?("duration_ms")
+    end
+
+    # The fact adjacency could not express, and the reason the whole plan
+    # exists: `room_survey` ran INSIDE `position_refresh`.
+    test "a nested span names its parent" do
+      parser = Parser.load(FIXTURES.join("operations.jsonl"))
+
+      survey = parser.operation_starts.find { |e| e.operation == "room_survey" }
+      position = parser.operation_starts.find { |e| e.operation == "position_refresh" }
+
+      assert_equal position.operation_id, survey.parent_operation_id
+      assert_nil position.parent_operation_id
+    end
+
+    test "every automatic tool call carries the span it ran inside" do
+      parser = Parser.load(FIXTURES.join("operations.jsonl"))
+
+      exits = parser.tool_entries.find { |e| e.tool_args&.dig("kind") == "exits" }
+      assert_equal "op_survey", exits.operation_id
+      # The readable string stays alongside the id: it survives a log whose
+      # spans were truncated mid-write.
+      assert_equal "room_survey", exits.operation
+    end
+
+    # Nested counters are already inside their parent's delta. Summing every
+    # span would report the survey's 11 writes twice.
+    test "session totals sum root spans only, so nesting does not double-count" do
+      parser = Parser.load(FIXTURES.join("operations.jsonl"))
+
+      # op_boot wrote 2, op_pos wrote 13 (11 of them inside op_survey).
+      assert_equal 15, parser.span_totals[:db_writes]
+      assert_equal 10, parser.span_totals[:db_reads]
+      assert_equal 11, parser.span_totals[:inference_ms]
+    end
+
+    # The process died mid-operation. Reporting it as finished would invent a
+    # completion that never happened.
+    test "a span with no end is reported as unclosed" do
+      parser = Parser.load(FIXTURES.join("operations.jsonl"))
+
+      assert parser.has_operations?
+      assert_equal 4, parser.operations_count
+      assert_equal 1, parser.unclosed_operations
+    end
+
+    test "local inference is an entry with its yield, its latency and a price of zero" do
+      parser = Parser.load(FIXTURES.join("operations.jsonl"))
+
+      row = parser.local_inferences.sole
+      assert_equal "look_candidates", row.model
+      assert_equal [ 23, 3 ], [ row.pool, row.kept ]
+      assert_equal 11, row.duration_ms
+      assert_equal 0.0, row.cost_usd
+      assert row.available
+      assert_equal "op_survey", row.operation_id
+    end
+
+    # A free model with no row reads as "no cost information"; the truth is
+    # "free, and here is the latency it cost instead".
+    test "the cost breakdown gains a local row priced at zero" do
+      parser = Parser.load(FIXTURES.join("operations.jsonl"))
+
+      row = parser.local_cost_rows.sole
+      assert_equal [ "local", "look_candidates" ], [ row[:provider], row[:model] ]
+      assert_equal 1, row[:calls]
+      assert_equal 0.0, row[:cost]
+      assert row[:cost_known]
+      assert_equal 11, row[:duration_ms]
+      assert_equal 0, row[:unavailable]
+    end
+
+    # Every file already on disk lacks operation_start. It must parse exactly as
+    # it did, and say plainly that it has no spans rather than reporting zero
+    # work.
+    test "a log written before spans reports none and keeps its old shape" do
+      parser = Parser.load(FIXTURES.join("provenance.jsonl"))
+
+      refute parser.has_operations?
+      assert_equal 0, parser.operations_count
+      assert_equal 0, parser.unclosed_operations
+      assert_empty parser.local_inferences
+      assert_empty parser.local_cost_rows
+      assert_equal 0, parser.span_totals[:db_writes]
+      refute parser.entries.any? { |e| e.type == :unknown }
+    end
+
     # Sessions written before Amendment A carry no task/depth at all. They are
     # one unlabelled root task, which is exactly what they were.
     test "a pre-amendment log parses with no task labels and depth 0 throughout" do

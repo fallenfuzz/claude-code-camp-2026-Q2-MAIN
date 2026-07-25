@@ -22,6 +22,16 @@ module SessionLog
                        # written before the contract existed — which is exactly
                        # how the legacy display path is selected.
                        :call_id, :initiator, :operation, :trigger, :parent_call_id,
+                       # Operation spans (work_attribution.md §1). `operation_id`
+                       # is on every event a span contains; `parent_operation_id`
+                       # is on the span's own start and is what makes nesting a
+                       # FACT rather than an inference from adjacency. Nil on
+                       # every log written before spans existed, which is how the
+                       # adjacency fallback is selected.
+                       :operation_id, :parent_operation_id, :ok, :rollup,
+                       # The local ONNX classifier's per-call record (§2).
+                       :backend, :artifact, :pool, :kept, :threshold, :top_k,
+                       :available, :unit,
                        # What the model actually received when a hook replaced
                        # the result (`tool` entries), and the source/changed
                        # flags of an injected_context entry.
@@ -66,6 +76,7 @@ module SessionLog
       seq               = 0
       turn_started      = nil # {at:, mono_ms:} of the current "turn" event
       open_tasks        = [] # task_start events awaiting their task_end
+      open_operations   = [] # operation_start events awaiting their operation_end
       request_ordinal   = 0   # 1-based index among request events → sidebar checkpoint seq
       # call_id → the emitted :tool entry, so a later context_transform can be
       # folded into the card it belongs to rather than becoming a second one.
@@ -162,11 +173,46 @@ module SessionLog
           # "prompt"), so it is exactly dt_ms.
           entry.duration_ms = entry.dt_ms
           @entries << entry
+        when "operation_start"
+          # A unit of work opening. Everything until the matching
+          # `operation_end` belongs to it — by id, not by proximity.
+          open_operations << { at: event["at"], mono_ms: event["mono_ms"] }
+          @unclosed_operations = open_operations.size
+          @entries << seq_entry(seq += 1, event, type: :operation_start,
+                                 operation: event["operation"], trigger: event["trigger"],
+                                 operation_id: event["operation_id"],
+                                 parent_operation_id: event["parent_operation_id"],
+                                 turn: current_turn, iteration: current_iteration)
+        when "operation_end"
+          opened = open_operations.pop || {}
+          @entries << seq_entry(seq += 1, event, type: :operation_end,
+                                 operation: event["operation"],
+                                 operation_id: event["operation_id"],
+                                 ok: event.fetch("ok", true),
+                                 duration_ms: event["duration_ms"] ||
+                                              elapsed_ms(opened[:mono_ms], opened[:at],
+                                                         event["mono_ms"], event["at"]),
+                                 rollup: event.reject { |k, _| SPAN_ENVELOPE.include?(k) },
+                                 turn: current_turn, iteration: current_iteration)
+        when "local_inference"
+          @entries << seq_entry(seq += 1, event, type: :local_inference,
+                                 model: event["model"], backend: event["backend"],
+                                 artifact: event["artifact"], operation_id: event["operation_id"],
+                                 duration_ms: event["duration_ms"],
+                                 pool: event["pool"], kept: event["kept"],
+                                 threshold: event["threshold"], top_k: event["top_k"],
+                                 # Explicitly $0 rather than absent: "free, and
+                                 # here is the latency it cost instead".
+                                 cost_usd: numeric(event["cost_usd"]), unit: event["unit"],
+                                 available: event.fetch("available", true),
+                                 reason: event["reason"],
+                                 turn: current_turn, iteration: current_iteration)
         when "tool_call"
           pending_calls << { name: event["name"], args: event["args"], at: event["at"],
                              mono_ms: event["mono_ms"], depth: event["depth"].to_i,
                              call_id: event["call_id"], initiator: event["initiator"],
                              operation: event["operation"], trigger: event["trigger"],
+                             operation_id: event["operation_id"],
                              parent_call_id: event["parent_call_id"] }
         when "tool_result"
           call = take_pending_call(pending_calls, event) || {}
@@ -185,6 +231,7 @@ module SessionLog
                             initiator: call[:initiator] || event["initiator"],
                             operation: call[:operation] || event["operation"],
                             trigger: call[:trigger] || event["trigger"],
+                            operation_id: call[:operation_id] || event["operation_id"],
                             parent_call_id: call[:parent_call_id],
                             turn: current_turn, iteration: current_iteration)
           @entries << entry
@@ -240,8 +287,16 @@ module SessionLog
         end
       end
 
-      @unclosed_tasks = open_tasks.size
+      @unclosed_tasks      = open_tasks.size
+      @unclosed_operations = open_operations.size
     end
+
+    # Everything on an `operation_end` that is NOT the span's own identity or
+    # timing is a counter it accumulated. Subtracted generically rather than
+    # enumerated, so a new meter on the writing side needs no change here — the
+    # same reason Journal::Parser keeps its open set of `fields`.
+    SPAN_ENVELOPE = %w[phase operation operation_id parent_operation_id trigger
+                       duration_ms ok session_id task depth at mono_ms].freeze
 
     # "monotonic" once every logged event carries `mono_ms` (§4.1); "wallclock"
     # for ms-resolution `at` from before that upgrade landed but after logger
@@ -410,7 +465,58 @@ module SessionLog
       end.sort_by { |row| -row[:duration_ms].to_i }
     end
 
+    # ---- spans (work_attribution.md §1, §4) ------------------------------
+
+    def operation_starts = entries.select { |e| e.type == :operation_start }
+    def operation_ends   = entries.select { |e| e.type == :operation_end }
+    def operations_count = operation_starts.size
+
+    # A file predating spans has none, and the transcript falls back to folding
+    # runs of adjacent hook calls exactly as it does today.
+    def has_operations? = operation_starts.any?
+
+    # An operation whose `operation_end` never arrived — the process died
+    # mid-flight. Rendered as incomplete rather than as a clean finish, the same
+    # treatment `task_end` already gets.
+    def unclosed_operations = @unclosed_operations.to_i
+
+    # Session totals in the two currencies that are not dollars. Summed over
+    # ROOT spans only: a nested span's counters are already inside its parent's
+    # delta, so adding every span would multiply the same work by its depth.
+    def span_totals
+      roots = operation_ends.select { |e| root_operation?(e.operation_id) }
+      %i[db_reads db_writes db_ms journal_lines inference_ms mud_ms].to_h do |key|
+        [ key, roots.sum { |e| (e.rollup || {})[key.to_s].to_i } ]
+      end
+    end
+
+    def local_inferences = entries.select { |e| e.type == :local_inference }
+
+    # The cost table's row for a model that is free. Priced at $0 explicitly,
+    # with the call count and total latency that replaced three LLM calls —
+    # "no cost information" and "no cost" are different claims.
+    def local_cost_rows
+      local_inferences.group_by(&:model).map do |name, rows|
+        { task: "local", provider: "local", model: name,
+          calls: rows.size, input: 0, output: 0, cost: 0.0, cost_known: true,
+          duration_ms: rows.filter_map(&:duration_ms).sum,
+          unavailable: rows.count { |e| e.available == false } }
+      end
+    end
+
     private
+
+    # Every span's opening, by id.
+    def starts_by_id
+      @starts_by_id ||= operation_starts.each_with_object({}) { |e, h| h[e.operation_id] = e }
+    end
+
+    # A span with no parent, or whose parent is missing from this file (a log
+    # truncated above its own opening). Both are roots for summing purposes.
+    def root_operation?(operation_id)
+      parent = starts_by_id[operation_id]&.parent_operation_id
+      parent.nil? || !starts_by_id.key?(parent)
+    end
 
     # Pair a tool_result with the tool_call that opened it.
     #

@@ -16,10 +16,16 @@ module Journal
   # `fields`, because events carry an open set of keys (descr, keyword, qty,
   # level, tool, …) this reader deliberately does not enumerate.
   class Parser
-    COMMON = %w[seq at mono_ms session_id kind stream key from to op values].freeze
+    COMMON = %w[seq at mono_ms session_id kind stream key from to op values operation_id].freeze
 
+    # `operation_id` is the join key onto the session transcript's operation
+    # spans (work_attribution.md §3). It is promoted out of `fields` and given a
+    # column because it is queried, not merely displayed — and it is nil for
+    # every journal file written before spans existed, which is what the
+    # `operation_id=` filter treats as "no match" rather than as an error.
     Record = Struct.new(:seq, :at, :mono_ms, :session_id, :kind, :stream,
-                        :key, :from, :to, :op, :values, :fields, keyword_init: true)
+                        :key, :from, :to, :op, :values, :operation_id, :fields,
+                        keyword_init: true)
 
     attr_reader :records
 
@@ -48,6 +54,7 @@ module Journal
           session_id: event["session_id"], kind: event["kind"], stream: event["stream"],
           key: event["key"], from: event["from"], to: event["to"],
           op: event["op"], values: event["values"],
+          operation_id: event["operation_id"],
           fields: event.reject { |k, _| COMMON.include?(k) }
         )
       end

@@ -27,6 +27,19 @@ export interface SessionSummary {
   automatic_operations: AutomaticOperation[];
   /** False on logs written before the provenance contract: the split is unknowable, not zero. */
   has_provenance: boolean;
+  /** False on logs written before spans: the transcript falls back to folding adjacent hook calls. */
+  has_operations: boolean;
+  /** Spans opened in this session. */
+  operations: number;
+  /** Spans whose operation_end never arrived — the process died mid-flight. */
+  unclosed_operations: number;
+  /** Session totals, summed over ROOT spans so nesting does not multiply the same work. */
+  db_reads: number;
+  db_writes: number;
+  db_ms: number;
+  journal_lines: number;
+  inference_ms: number;
+  mud_ms: number;
   input_tokens: number;
   output_tokens: number;
   peak_input_tokens: number;
@@ -108,6 +121,10 @@ export interface CostBreakdownRow {
   output: number;
   cost: number;
   cost_known: boolean;
+  /** Local models only: the latency that stands in for a price of zero. */
+  duration_ms?: number;
+  /** Local models only: calls where the artifact was not installed. */
+  unavailable?: number;
 }
 
 export type EntryType =
@@ -122,6 +139,9 @@ export type EntryType =
   | "turn_end"
   | "task_start"
   | "task_end"
+  | "operation_start"
+  | "operation_end"
+  | "local_inference"
   | "injected_context"
   | "context_transform"
   | "unknown";
@@ -177,6 +197,11 @@ export interface Entry {
   operation?: string | null;
   /** The lifecycle seam it fired from: before_turn, before_model, before_tools, after_tool. */
   trigger?: string | null;
+  /**
+   * The span this call ran inside. The `operation` string above is readable and
+   * survives a truncated log; this is what the transcript tree is built from.
+   */
+  operation_id?: string | null;
   parent_call_id?: string | null;
 
   // tool — what the model actually received, when a hook replaced the result.
@@ -207,6 +232,32 @@ export interface Entry {
   // task_start | task_end
   task_name?: string;
   max_iterations?: number | null;
+
+  // operation_start — the span below it on the stack. This is the field that
+  // makes nesting a recorded fact instead of a guess about adjacency.
+  parent_operation_id?: string | null;
+
+  // operation_end
+  ok?: boolean;
+  /**
+   * What the span spent, as deltas over its own interval. An open set — a new
+   * counter on the writing side reaches here without a type change — so read
+   * keys defensively. Known today: mud_calls, mud_ms, db_reads, db_writes,
+   * db_ms, inference_ms, inference_calls, journal_lines.
+   */
+  rollup?: Record<string, number> | null;
+
+  // local_inference — the local ONNX classifier, per call
+  backend?: string | null;
+  artifact?: string | null;
+  /** Words scored, and words kept. The yield argument for the extractor. */
+  pool?: number | null;
+  kept?: number | null;
+  threshold?: number | null;
+  top_k?: number | null;
+  unit?: string | null;
+  /** False means the weights are absent — an empty field for that reason, not because the room was bare. */
+  available?: boolean;
 
   // unknown
   raw?: Record<string, unknown>;
@@ -665,10 +716,32 @@ export interface JournalSeries {
   items: JournalItemEvent[];
 }
 
+/**
+ * One line of the change log. The common columns are named; the open set of
+ * event-specific fields (descr, keyword, qty, level, tool, …) is spread in
+ * alongside them, so a new op carries a new key with no type change.
+ */
+export interface JournalRecord {
+  seq: number;
+  at?: string;
+  mono_ms?: number;
+  session_id?: string;
+  kind?: "change" | "event" | "snapshot";
+  stream?: string;
+  key?: string;
+  from?: unknown;
+  to?: unknown;
+  op?: string;
+  values?: Record<string, unknown>;
+  /** Which unit of work produced this line. Absent on files written before spans. */
+  operation_id?: string | null;
+  [field: string]: unknown;
+}
+
 export interface JournalPage {
   date: string;
   series: JournalSeries;
-  entries: Array<Record<string, unknown>>;
+  entries: JournalRecord[];
   next_seq: number;
   live: boolean;
 }

@@ -124,6 +124,48 @@ class TestJournal < Minitest::Test
     assert_match(/\[journal\]/, warnings.string)
   end
 
+  # --- operation attribution (work_attribution.md §3) ------------------------
+
+  # The join. Without it, "the survey wrote 3 entities and 4 exits" could only
+  # be tied back to the survey by a mono_ms window — which has a midnight
+  # rotation edge case and, worse, attributes a write to the wrong operation
+  # whenever two spans are milliseconds apart.
+  def test_every_line_carries_the_operation_it_was_written_inside
+    events = capture do |j|
+      Boukensha::Operation.open("room_survey") do |frame|
+        j.event(stream: "room", op: "create", id: 1)
+        j.upsert(stream: "stat", key: "level", value: 3)
+        @op_id = frame.id
+      end
+    end
+
+    assert_equal [ @op_id, @op_id ], events.map { |e| e["operation_id"] }
+  end
+
+  # Additive: a write outside any span is a legitimate one (the hook journals
+  # milestones off text it did not go looking for), and the field is simply
+  # absent rather than null-and-meaningless.
+  def test_a_line_written_outside_any_span_carries_no_operation
+    events = capture { |j| j.event(stream: "milestone", op: "level_up", level: 2) }
+
+    refute events.first.key?("operation_id")
+  end
+
+  # `journal_lines` on a span is a CROSS-CHECK against `db_writes`, not a
+  # duplicate of it: `upsert` is change-detecting, so a re-write of an unchanged
+  # value is real database work that appends nothing here, and the gap between
+  # the two numbers is how you find a survey rewriting values that never change.
+  def test_the_line_counter_ignores_writes_the_journal_swallowed
+    Dir.mktmpdir do |dir|
+      j = Boukensha::Journal.new(session_id: "test", dir: dir)
+      j.upsert(stream: "stat", key: "level", value: 3)
+      j.upsert(stream: "stat", key: "level", value: 3)   # unchanged: no line
+      j.close
+
+      assert_equal({ journal_lines: 1 }, j.counters)
+    end
+  end
+
   private
 
   class BrokenIO

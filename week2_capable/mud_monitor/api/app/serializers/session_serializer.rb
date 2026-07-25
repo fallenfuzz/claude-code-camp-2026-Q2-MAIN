@@ -34,6 +34,14 @@ class SessionSerializer
       automatic_tool_ms: p.automatic_tool_ms,
       automatic_operations: p.automatic_operations,
       has_provenance: p.has_provenance?,
+      # Spans. `has_operations` is how the UI knows the transcript can be nested
+      # from recorded containment instead of guessed from adjacency — a file
+      # written before spans existed reports false and renders exactly as it
+      # does today.
+      has_operations: p.has_operations?,
+      operations: p.operations_count,
+      unclosed_operations: p.unclosed_operations,
+      **p.span_totals,
       input_tokens: p.total_input_tokens,
       output_tokens: p.total_output_tokens,
       peak_input_tokens: p.peak_input_tokens,
@@ -60,7 +68,10 @@ class SessionSerializer
       },
       turns: p.turns,
       usage_series: p.usage_series.map { |pt| usage_point(pt) },
-      cost_breakdown: p.cost_breakdown,
+      # The local model gets a row priced at $0 rather than no row at all, so
+      # "what did this session spend" answers in dollars AND in the latency that
+      # replaced three LLM calls.
+      cost_breakdown: p.cost_breakdown + p.local_cost_rows,
       entries: p.entries.map { |e| EntrySerializer.call(e) }
     }
   end

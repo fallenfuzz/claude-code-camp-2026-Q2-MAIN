@@ -3,6 +3,7 @@ require "fileutils"
 require "securerandom"
 require "time"
 require "digest"
+require_relative "operation"
 
 module Boukensha
   class Logger
@@ -16,10 +17,99 @@ module Boukensha
       @session_id = session_id || generate_session_id
       @path       = log || File.join(dir || default_dir, "#{@session_id}.jsonl")
       @task_stack = [ task.to_s ]
+      # Cumulative session-lifetime tallies. A span reports the DELTA across its
+      # own interval, which is strictly cheaper than a callback per event and
+      # cannot double-count a nested span — a delta over an interval is exactly
+      # what nesting means.
+      @counters   = Hash.new(0)
+      @meters     = []
 
       FileUtils.mkdir_p(File.dirname(@path))
       @log_io = File.open(@path, "a")
       write_log({ phase: "session_start" }.merge(snapshot))
+    end
+
+    # Register a counter source outside the logger — the store's CountingDb, the
+    # journal's line tally. Anything answering `#counters` with a
+    # { Symbol => Integer } of monotonically-increasing totals.
+    #
+    # A key present in the snapshot is a key SOME meter is reporting, so a span
+    # in a session with no store attached omits `db_reads` entirely rather than
+    # claiming zero — "we did not read" and "we cannot say" are different
+    # answers and the log should not conflate them.
+    def add_meter(meter)
+      @meters << meter if meter.respond_to?(:counters)
+      meter
+    end
+
+    # An operation span: a unit of work that started, contained other things,
+    # and finished, having spent this much of what.
+    #
+    #   logger.operation("room_survey") { ... }
+    #
+    # Writes `operation_start` / `operation_end` around the block, and the id it
+    # mints is what every event inside correlates on — `tool_call`,
+    # `local_inference` and the journal's CDC lines all stamp
+    # `operation_id` from the ambient stack, so no call site has to be handed
+    # one. `parent_operation_id` is the span below it on that stack, which is
+    # what makes the monitor's nesting a fact rather than a guess about
+    # adjacency.
+    #
+    # `trigger` is inherited from the enclosing span when omitted (see
+    # Operation::Frame). Returns the block's value; a raise still closes the
+    # span, flagged `ok: false`, rather than leaving it open to mislabel
+    # everything that follows.
+    def operation(name, trigger: nil)
+      Operation.open(name, trigger: trigger) do |frame|
+        write_log({ phase: "operation_start", operation_id: frame.id,
+                    parent_operation_id: frame.parent_id, operation: frame.name,
+                    trigger: frame.trigger }.compact)
+        started = monotonic_ms
+        opened  = counter_snapshot
+        ok      = true
+        begin
+          yield frame
+        rescue StandardError
+          ok = false
+          raise
+        ensure
+          write_log({ phase: "operation_end", operation_id: frame.id, operation: frame.name,
+                      duration_ms: (monotonic_ms - started).round, ok: ok }
+                      .merge(counter_delta(opened)))
+        end
+      end
+    end
+
+    # The local ONNX token classifier that picks look candidates, priced in the
+    # two currencies that are not dollars.
+    #
+    # `available: false` is the field that matters most: a missing artifact
+    # degrades to Model::Null, which warns ONCE to stderr and then returns []
+    # forever. Without this the session cannot say whether `look_candidates` is
+    # empty because the model is absent or because the room had nothing worth
+    # looking at — and those are opposite conclusions when you are deciding
+    # whether the extractor earns its probes.
+    #
+    # `cost_usd: 0.0` is stated rather than omitted. The cost table has no row
+    # for this model at all today, which reads as "no cost information" when the
+    # truth is "free, and here is the latency it cost instead". Three LLM calls
+    # used to do this job; saying $0 out loud is the measurement that replaced
+    # them.
+    def local_inference(model:, duration_ms:, available: true, backend: nil, artifact: nil,
+                        pool: nil, kept: nil, threshold: nil, top_k: nil, reason: nil)
+      @counters[:inference_ms]    += duration_ms.to_i
+      @counters[:inference_calls] += 1
+      write_log({
+        phase: "local_inference", operation_id: Operation.current_id,
+        model: model, backend: backend, artifact: artifact,
+        duration_ms: duration_ms, pool: pool, kept: kept,
+        threshold: threshold, top_k: top_k,
+        cost_usd: 0.0, unit: "local",
+        # `reason` is why it is unavailable ("no manifest at …", "model file not
+        # downloaded"), which is the difference between an operator fixing the
+        # install and an operator concluding the extractor does not work.
+        reason: reason
+      }.compact.merge(available: available))
     end
 
     # Bracket a delegated sub-run so its events land in THIS file, labelled with
@@ -127,29 +217,47 @@ module Boukensha
     # model latency. `operation` says WHY (player_bootstrap, position_refresh,
     # room_survey, async_poll) and `trigger` says from WHICH lifecycle seam.
     #
+    # `operation`/`trigger`/`operation_id` are NOT parameters: they are read
+    # from the span this call is happening inside, for the same reason `task` is
+    # not a parameter. They used to be threaded from Hooks through the
+    # dispatcher's third `meta` argument — one call site per hop that could
+    # forget them, which is how the survey's own calls could come out
+    # unattributed. The ambient version cannot go dead.
+    #
+    # The `operation` STRING is written alongside the id even though the id is
+    # what the tree is built from: it is human-readable, and it survives a log
+    # whose spans were truncated mid-write.
+    #
     # Returns the generated `call_id`. The matching `tool_result` carries the
     # same id, so a reader pairs the two exactly instead of guessing by
     # name+depth — which is ambiguous the moment two identical calls are in
-    # flight. Every field is optional and additive: a caller that passes none
+    # flight. Every field is optional and additive: a caller outside any span
     # writes the pre-provenance event shape, and the monitor keeps its legacy
     # pairing path for files already on disk.
-    def tool_call(name:, args:, initiator: nil, operation: nil, trigger: nil, parent_call_id: nil)
+    def tool_call(name:, args:, initiator: nil, parent_call_id: nil)
       call_id = "call_#{SecureRandom.hex(6)}"
       write_log({
         phase: "tool_call", call_id: call_id, name: name, args: args,
-        initiator: initiator, operation: operation, trigger: trigger,
-        parent_call_id: parent_call_id
-      }.compact)
+        initiator: initiator, parent_call_id: parent_call_id
+      }.merge(operation_stamp).compact)
       call_id
     end
 
     def tool_result(name:, result:, ok: true, error: nil, call_id: nil,
-                    initiator: nil, operation: nil, trigger: nil, duration_ms: nil)
+                    initiator: nil, duration_ms: nil)
+      # The MUD round trips a span paid for. Counted here rather than at the
+      # dispatcher because this is the one place every tool result passes
+      # through, hook-initiated or not. Gated on `duration_ms` so the callers
+      # that use this event as a carrier for a non-tool fact (Hooks#log_conflict
+      # and its `memory_conflict` records) do not inflate the round-trip count.
+      if duration_ms
+        @counters[:mud_calls] += 1
+        @counters[:mud_ms]    += duration_ms.to_i
+      end
       write_log({
         phase: "tool_result", call_id: call_id, name: name, result: result.to_s,
-        ok: ok, error: error, initiator: initiator, operation: operation,
-        trigger: trigger, duration_ms: duration_ms
-      }.reject { |k, v| v.nil? && k != :error })
+        ok: ok, error: error, initiator: initiator, duration_ms: duration_ms
+      }.merge(operation_stamp).reject { |k, v| v.nil? && k != :error })
     end
 
     # What the model actually received, when it is NOT what the tool returned.
@@ -221,6 +329,35 @@ module Boukensha
     def default_dir
       File.join(Boukensha.config.profile_dir, DEFAULT_SESSION_DIR)
     end
+
+    # The three fields every event inside a span inherits. Empty at top level,
+    # which is the honest record for a call the model itself chose.
+    def operation_stamp
+      frame = Operation.current
+      return {} unless frame
+
+      { operation: frame.name, operation_id: frame.id, trigger: frame.trigger }
+    end
+
+    # The logger's own tallies plus every registered meter's, summed. Meters
+    # report session-lifetime totals; only the difference across a span is ever
+    # published.
+    def counter_snapshot
+      @meters.each_with_object(@counters.dup) do |meter, out|
+        (meter.counters || {}).each { |key, value| out[key] = out[key].to_i + value.to_i }
+      rescue StandardError
+        # A meter that raises costs its numbers, never the span reporting them.
+        next
+      end
+    end
+
+    def counter_delta(opened)
+      counter_snapshot.each_with_object({}) do |(key, value), out|
+        out[key] = value - opened[key].to_i
+      end
+    end
+
+    def monotonic_ms = Process.clock_gettime(Process::CLOCK_MONOTONIC) * 1000
 
     def write_log(event)
       now = Time.now

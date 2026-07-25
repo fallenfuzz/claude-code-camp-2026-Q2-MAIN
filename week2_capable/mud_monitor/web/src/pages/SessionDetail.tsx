@@ -1,9 +1,10 @@
 import { Fragment, useCallback, useEffect, useRef, useState } from "react";
 import { Link, useParams } from "react-router";
-import { ApiRequestError, fetchSession } from "../api/client";
+import { ApiRequestError, fetchJournalForOperation, fetchSession } from "../api/client";
 import type {
   AutomaticOperation,
   Entry,
+  JournalRecord,
   SessionDetail as SessionDetailData,
   SessionSummary,
   TimingSummary,
@@ -210,6 +211,27 @@ export default function SessionDetail() {
             </>
           )}
         </div>
+
+        {/* Dollars are not the only currency a session spends. Rows written,
+            rows read and inference time were all invisible until spans reported
+            them, and a session that wrote nothing looks identical to one that
+            wrote constantly if the only number on the page is tokens. */}
+        {session.has_operations && (
+          <div className="statstrip-total">
+            Work: {session.operations} operation{session.operations === 1 ? "" : "s"}
+            {" · "}
+            <span title="rows written and read by the store, summed over root spans">
+              ⛁ {session.db_writes} written · {session.db_reads} read
+            </span>
+            {session.journal_lines > 0 && <> · {session.journal_lines} journal lines</>}
+            {session.inference_ms > 0 && <> · ◆ {fmtDuration(session.inference_ms)} local inference</>}
+            {session.unclosed_operations > 0 && (
+              <span className="task-group-incomplete" title="the process ended mid-operation">
+                {session.unclosed_operations} incomplete
+              </span>
+            )}
+          </div>
+        )}
       </div>
 
       {session.has_provenance && session.automatic_operations.length > 0 && (
@@ -246,32 +268,57 @@ export default function SessionDetail() {
 // it produced, and the task_end that closed it (absent when the process died
 // mid-delegation — see `open` below).
 type GroupNode = { kind: "group"; start: Entry; end: Entry | null; children: TranscriptNode[] };
-// A run of consecutive hook-initiated tool calls — the work framework code did
-// on the model's behalf. It is not part of the model's narrative and does not
-// belong inline with it.
-type AutoNode = { kind: "auto"; entries: Entry[] };
-type TranscriptNode = { kind: "entry"; entry: Entry } | GroupNode | AutoNode;
+// One unit of work: the operation_start that opened it, everything it
+// CONTAINED, and the operation_end that closed it (null when the process died
+// mid-span). Nested from `parent_operation_id`, which is a recorded fact — the
+// adjacency fold below is a guess, and was wrong in both directions.
+type OpNode = { kind: "op"; start: Entry; end: Entry | null; children: TranscriptNode[] };
+// The work framework code did on the model's behalf. It is not part of the
+// model's narrative and does not belong inline with it. Its children are spans
+// when the log has them, and a flat run of hook calls when it does not.
+type AutoNode = { kind: "auto"; children: TranscriptNode[] };
+type TranscriptNode = { kind: "entry"; entry: Entry } | GroupNode | AutoNode | OpNode;
+// Anything that can hold children and be pushed onto the open stack.
+type OpenNode = GroupNode | OpNode;
 
 function isAutomatic(entry: Entry): boolean {
-  return entry.type === "tool" && entry.initiator === "hook";
+  return (entry.type === "tool" && entry.initiator === "hook") || entry.type === "local_inference";
 }
 
 // Entries arrive flat and ordered — cursors, SSE replay and dropped-strip
 // interleaving all depend on that (§A.4). Nesting is a rendering concern, so
-// the tree is built here, at render time, from task_start/task_end.
+// the tree is built here, at render time.
+//
+// Two mechanisms, and the difference matters. `task_start`/`task_end` and
+// `operation_start`/`operation_end` are RECORDED containment: a span says what
+// it contains and names its parent, so `room survey` lands inside `establish
+// position` because that is where it ran. The adjacency fold underneath is the
+// legacy path for files written before spans existed; it approximates
+// containment with proximity, which splits one operation in two the moment a
+// model call lands in the middle of it. New logs never reach it.
 export function buildTranscriptTree(entries: Entry[]): TranscriptNode[] {
   const root: TranscriptNode[] = [];
-  const open: GroupNode[] = [];
+  const open: OpenNode[] = [];
   const target = () => (open.length ? open[open.length - 1].children : root);
+  const insideOperation = () => open.some((n) => n.kind === "op");
 
-  // Fold a run of automatic calls into the group that is already collecting
-  // one, so `score` + `look`, or a whole four-command room survey, arrive as a
-  // single muted row instead of four cards competing with the model's actions.
-  const absorb = (entry: Entry) => {
+  // Automatic work sits under one muted heading rather than competing with the
+  // model's actions. With spans, the things folded together are whole
+  // operations; without them, a run of individual hook calls.
+  const absorb = (node: TranscriptNode) => {
     const siblings = target();
     const last = siblings[siblings.length - 1];
-    if (last?.kind === "auto") last.entries.push(entry);
-    else siblings.push({ kind: "auto", entries: [ entry ] });
+    if (last?.kind === "auto") last.children.push(node);
+    else siblings.push({ kind: "auto", children: [ node ] });
+  };
+
+  // A span inside another span nests there. A span that is not — whether at the
+  // top level or at the top level OF A DELEGATION — joins the automatic-work
+  // heading alongside its neighbours, because it is the outermost unit of
+  // automatic work in its own context.
+  const place = (node: TranscriptNode) => {
+    if (insideOperation()) target().push(node);
+    else absorb(node);
   };
 
   for (const entry of entries) {
@@ -280,21 +327,55 @@ export function buildTranscriptTree(entries: Entry[]): TranscriptNode[] {
       target().push(group);
       open.push(group);
     } else if (entry.type === "task_end") {
-      const group = open.pop();
+      const group = closeOpen(open, "group");
       // A task_end with nothing open is a malformed log, not a reason to drop
       // the record on the floor — render it where it sits.
       if (group) group.end = entry;
       else target().push({ kind: "entry", entry });
+    } else if (entry.type === "operation_start") {
+      const node: OpNode = { kind: "op", start: entry, end: null, children: [] };
+      place(node);
+      open.push(node);
+    } else if (entry.type === "operation_end") {
+      // Matched by ID, not by position. A span whose `operation_end` was lost
+      // to a truncated write would otherwise close the WRONG span and reparent
+      // everything after it; unwinding to the matching id leaves the orphans
+      // rendered as incomplete, which is what they are.
+      const node = closeOpen(open, "op", entry.operation_id);
+      if (node) node.end = entry;
+      else target().push({ kind: "entry", entry });
+    } else if (insideOperation()) {
+      // Inside a span, the span IS the grouping. Its calls are its children.
+      target().push({ kind: "entry", entry });
     } else if (isAutomatic(entry)) {
-      absorb(entry);
+      absorb({ kind: "entry", entry });
     } else {
       target().push({ kind: "entry", entry });
     }
   }
 
-  // Groups still open at EOF close here; the missing task_end is what the
-  // header reports as "incomplete" rather than implying a clean finish.
+  // Anything still open at EOF closes here with a null `end`; the missing
+  // bracket is what the header reports as "incomplete" rather than implying a
+  // clean finish.
   return root;
+}
+
+// Unwind the open stack to the node this closing event belongs to, abandoning
+// anything above it (those spans never got their own close and stay incomplete).
+// Returns null when there is no match at all.
+function closeOpen<K extends OpenNode["kind"]>(
+  open: OpenNode[],
+  kind: K,
+  operationId?: string | null,
+): Extract<OpenNode, { kind: K }> | null {
+  for (let i = open.length - 1; i >= 0; i--) {
+    const node = open[i];
+    if (node.kind !== kind) continue;
+    if (kind === "op" && operationId && node.kind === "op" && node.start.operation_id !== operationId) continue;
+    open.length = i;
+    return node as Extract<OpenNode, { kind: K }>;
+  }
+  return null;
 }
 
 // Iteration counters restart inside a sub-run, so the marker is decided on the
@@ -309,8 +390,9 @@ function iterationMarkerSeqs(entries: Entry[]): Set<number> {
     if (entry.type === "turn_end") continue;
     // Automatic calls are rendered inside their group, which never draws a
     // marker — anchoring one to them would simply lose it. The marker belongs
-    // on the first entry of the iteration the reader can actually see.
-    if (isAutomatic(entry)) continue;
+    // on the first entry of the iteration the reader can actually see. Span
+    // brackets are the same case: they are a collapsible heading, not a line.
+    if (isAutomatic(entry) || entry.type === "operation_start" || entry.type === "operation_end") continue;
     if (entry.iteration !== lastIteration || entry.depth !== lastDepth) {
       if (entry.type !== "task_start" && entry.type !== "task_end") seqs.add(entry.seq);
       lastIteration = entry.iteration;
@@ -364,14 +446,26 @@ interface NodeProps {
   onOpenRequest: (requestSeq: number) => void;
 }
 
+// The first event under an automatic heading, whichever kind of child holds it.
+function autoKey(node: AutoNode): number {
+  const first = node.children[0];
+  if (!first) return 0;
+  return first.kind === "entry" ? first.entry.seq : flatten(first)[0]?.seq ?? 0;
+}
+
 function TranscriptNodes({ nodes, ...props }: NodeProps & { nodes: TranscriptNode[] }) {
   return (
     <>
       {nodes.map((node) =>
         node.kind === "auto" ? (
-          <AutomaticGroup key={`auto-${node.entries[0].seq}`} node={node} {...props} />
+          <AutomaticGroup key={`auto-${autoKey(node)}`} node={node} {...props} />
+        ) : node.kind === "op" ? (
+          <OperationGroup key={`op-${node.start.seq}`} node={node} {...props} />
         ) : node.kind === "group" ? (
           <TaskGroup key={`group-${node.start.seq}`} node={node} {...props} />
+        ) : node.entry.type === "local_inference" ? (
+          // A summary of the span, not a step in its narrative.
+          <LocalInferenceRow key={node.entry.seq} entry={node.entry} coarse={props.coarse} />
         ) : (
           <Fragment key={node.entry.seq}>
             {props.markers.has(node.entry.seq) && (
@@ -481,25 +575,24 @@ function isEmptyResult(entry: Entry) {
 // Collapsed by default and summarised by operation. Two things are never
 // hidden: a call that failed, and a poll that actually returned something —
 // those are the ones worth reading, and the group opens itself for them.
+// A call that failed, or a poll that actually returned something. Being nested
+// must never make something harder to notice than being flat did, so these
+// force every ancestor open.
+function isNotable(entry: Entry): boolean {
+  return entry.tool_ok === false || (entry.operation === "async_poll" && !isEmptyResult(entry));
+}
+
 function AutomaticGroup({ node, ...props }: NodeProps & { node: AutoNode }) {
-  const entries = node.entries;
-  const notable = entries.filter((e) => e.tool_ok === false || (e.operation === "async_poll" && !isEmptyResult(e)));
+  const entries = flatten(node);
+  const calls = toolsIn(node);
+  const notable = entries.filter(isNotable);
   const [open, setOpen] = useState(false);
   const containsNewest = props.newestSeq != null && entries.some((e) => e.seq === props.newestSeq);
   const expanded = open || containsNewest || notable.length > 0;
 
-  const totalMs = entries.reduce((sum, e) => sum + (e.duration_ms ?? 0), 0);
-  const failed = entries.filter((e) => e.tool_ok === false).length;
-
-  // One row per operation, so four survey commands read as "room survey", and
-  // eight empty polls read as one line rather than eight.
-  const byOperation: { key: string; entries: Entry[] }[] = [];
-  for (const entry of entries) {
-    const key = entry.operation ?? "unattributed";
-    const last = byOperation[byOperation.length - 1];
-    if (last?.key === key) last.entries.push(entry);
-    else byOperation.push({ key, entries: [ entry ] });
-  }
+  const totalMs = calls.reduce((sum, e) => sum + (e.duration_ms ?? 0), 0);
+  const failed = calls.filter((e) => e.tool_ok === false).length;
+  const spans = node.children.filter((c) => c.kind === "op").length;
 
   return (
     <div className={failed ? "auto-group auto-group-failed" : "auto-group"}>
@@ -507,51 +600,272 @@ function AutomaticGroup({ node, ...props }: NodeProps & { node: AutoNode }) {
         <span className="task-group-caret">{expanded ? "▾" : "▸"}</span>
         <span className="auto-group-title">Automatic context work</span>
         <span className="auto-group-count">
-          {entries.length} call{entries.length === 1 ? "" : "s"}
+          {spans > 0
+            ? `${spans} operation${spans === 1 ? "" : "s"}`
+            : `${calls.length} call${calls.length === 1 ? "" : "s"}`}
         </span>
         <span className="task-group-spacer" />
         {failed > 0 && <span className="tool-badge">{failed} failed</span>}
         {totalMs > 0 && <span className="task-group-meta">{fmtDelta(totalMs, props.coarse)}</span>}
       </button>
 
-      {!expanded && (
-        <ol className="auto-summary">
-          {byOperation.map(({ key, entries: rows }, i) => {
-            const ms = rows.reduce((sum, e) => sum + (e.duration_ms ?? 0), 0);
-            const empty = rows.filter(isEmptyResult).length;
-            return (
-              <li key={`${key}-${i}`}>
-                <span className="auto-summary-op">{operationLabel(key)}</span>
-                <span className="auto-summary-tools">
-                  {tallyTools(rows)}
-                  {/* An empty poll is the expected case, not a fault — say how
-                      many rather than giving each one a row. */}
-                  {empty === rows.length && rows.length > 1 && ", all empty"}
-                  {empty === rows.length && rows.length === 1 && ", empty"}
-                </span>
-                {ms > 0 && <span className="auto-summary-ms">{fmtDelta(ms, props.coarse)}</span>}
-              </li>
-            );
-          })}
-        </ol>
-      )}
+      {!expanded && <AutomaticSummary node={node} coarse={props.coarse} />}
 
       {expanded && (
         <div className="task-group-body">
-          {entries.map((entry) => (
-            <Fragment key={entry.seq}>
-              <div className="auto-entry-op">
-                {operationLabel(entry.operation)}
-                {entry.trigger && <span className="task-group-meta"> · {entry.trigger}</span>}
-                {entry.duration_ms != null && (
-                  <span className="task-group-meta"> · {fmtDelta(entry.duration_ms, props.coarse)}</span>
-                )}
-              </div>
-              <ToolCard entry={entry} />
-            </Fragment>
-          ))}
+          <TranscriptNodes nodes={node.children} {...props} />
         </div>
       )}
+    </div>
+  );
+}
+
+// The collapsed one-line-per-operation view. With spans, each child span is
+// already one operation and contributes one row. Without them (a pre-span log),
+// runs of adjacent calls sharing an `operation` string are folded — which is
+// the approximation spans exist to replace, kept only for those files.
+function AutomaticSummary({ node, coarse }: { node: AutoNode; coarse: boolean }) {
+  const rows: { key: string; label: string; entries: Entry[]; incomplete: boolean }[] = [];
+
+  for (const child of node.children) {
+    if (child.kind === "op") {
+      rows.push({
+        key: child.start.operation_id ?? String(child.start.seq),
+        label: operationLabel(child.start.operation),
+        entries: toolsIn(child),
+        incomplete: child.end == null,
+      });
+    } else if (child.kind === "entry") {
+      const key = child.entry.operation ?? "unattributed";
+      const last = rows[rows.length - 1];
+      if (last?.key === key) last.entries.push(child.entry);
+      else rows.push({ key, label: operationLabel(key), entries: [ child.entry ], incomplete: false });
+    }
+  }
+
+  return (
+    <ol className="auto-summary">
+      {rows.map((row, i) => {
+        const ms = row.entries.reduce((sum, e) => sum + (e.duration_ms ?? 0), 0);
+        const empty = row.entries.filter(isEmptyResult).length;
+        return (
+          <li key={`${row.key}-${i}`}>
+            <span className="auto-summary-op">{row.label}</span>
+            <span className="auto-summary-tools">
+              {tallyTools(row.entries)}
+              {/* An empty poll is the expected case, not a fault — say how
+                  many rather than giving each one a row. */}
+              {empty === row.entries.length && row.entries.length > 1 && ", all empty"}
+              {empty === row.entries.length && row.entries.length === 1 && ", empty"}
+            </span>
+            {row.incomplete && <span className="task-group-incomplete">incomplete</span>}
+            {ms > 0 && <span className="auto-summary-ms">{fmtDelta(ms, coarse)}</span>}
+          </li>
+        );
+      })}
+    </ol>
+  );
+}
+
+// One operation span: what it was for, what it contained, and what it spent.
+//
+// The nesting here is read, not inferred — `room survey` renders inside
+// `establish position` because `parent_operation_id` says it ran there. The
+// previous build folded runs of ADJACENT hook calls, which put the survey's
+// calls next to the position refresh's as siblings and split one operation in
+// two whenever a model call landed in the middle.
+function OperationGroup({ node, ...props }: NodeProps & { node: OpNode }) {
+  const [open, setOpen] = useState(false);
+  const entries = flatten(node);
+  const calls = toolsIn(node);
+  const notable = entries.filter(isNotable);
+  const containsNewest = props.newestSeq != null && entries.some((e) => e.seq === props.newestSeq);
+  const expanded = open || containsNewest || notable.length > 0;
+
+  const incomplete = node.end == null;
+  const failed = node.end?.ok === false || calls.some((e) => e.tool_ok === false);
+  const rollup = node.end?.rollup ?? null;
+  // The span's own measured duration, which includes time it spent on things
+  // that are not tool calls (store reads, inference, its own arithmetic).
+  const durationMs = node.end?.duration_ms ?? null;
+
+  return (
+    <div className={failed ? "op-group op-group-failed" : "op-group"}>
+      <button type="button" className="op-group-head" aria-expanded={expanded} onClick={() => setOpen(!expanded)}>
+        <span className="task-group-caret">{expanded ? "▾" : "▸"}</span>
+        <span className="op-group-title">{operationLabel(node.start.operation)}</span>
+        {calls.length > 0 && <span className="auto-summary-tools">{tallyTools(calls)}</span>}
+        <span className="task-group-spacer" />
+        {incomplete && (
+          <span className="task-group-incomplete" title="no operation_end — the run ended mid-operation">
+            incomplete
+          </span>
+        )}
+        {durationMs != null && <span className="task-group-meta">{fmtDelta(durationMs, props.coarse)}</span>}
+      </button>
+
+      {expanded && (
+        <div className="task-group-body">
+          {node.children.map((child) =>
+            child.kind === "op" ? (
+              <OperationGroup key={`op-${child.start.seq}`} node={child} {...props} />
+            ) : child.kind === "entry" && child.entry.type === "local_inference" ? (
+              <LocalInferenceRow key={child.entry.seq} entry={child.entry} coarse={props.coarse} />
+            ) : child.kind === "entry" && child.entry.type === "tool" ? (
+              <AutomaticCall key={child.entry.seq} entry={child.entry} coarse={props.coarse} />
+            ) : (
+              // Anything else that landed inside the span — a model action the
+              // log interleaved here. It keeps its normal presentation; being
+              // nested must not make it harder to read.
+              <TranscriptNodes key={nodeKey(child)} nodes={[ child ]} {...props} />
+            ),
+          )}
+          {/* Summaries OF the span, not entries in its narrative — so they
+              collapse with it and sit below what they describe. */}
+          <StoreRollup rollup={rollup} operationId={node.start.operation_id} coarse={props.coarse} />
+        </div>
+      )}
+    </div>
+  );
+}
+
+// One MUD round trip inside a span. Deliberately just the command and what it
+// cost: the span header already says WHY, and repeating that label on each of
+// four sibling calls is the redundancy spans were built to remove.
+function AutomaticCall({ entry, coarse }: { entry: Entry; coarse: boolean }) {
+  return (
+    <>
+      <div className="auto-entry-op">
+        <span className="op-rollup-icon">⚙</span> {shortToolName(entry)}
+        {entry.duration_ms != null && (
+          <span className="task-group-meta"> · {fmtDelta(entry.duration_ms, coarse)}</span>
+        )}
+      </div>
+      <ToolCard entry={entry} />
+    </>
+  );
+}
+
+function nodeKey(node: TranscriptNode): string {
+  if (node.kind === "entry") return `entry-${node.entry.seq}`;
+  if (node.kind === "auto") return `auto-${autoKey(node)}`;
+  return `${node.kind}-${node.start.seq}`;
+}
+
+// `⛁ wrote 11 · read 6 · 3ms (7 journal lines)`.
+//
+// The two numbers count different things and the gap between them is the
+// interesting part, in either direction. Fewer lines than writes means the
+// journal swallowed no-ops — `jupsert` is change-detecting, so re-writing an
+// unchanged value appends nothing, and that is how you find a survey rewriting
+// values that never change. MORE lines than writes is the ordinary case for
+// `update_player!`, where one UPDATE of six columns is six keyed series.
+function StoreRollup({
+  rollup,
+  operationId,
+  coarse,
+}: {
+  rollup: Record<string, number> | null;
+  operationId?: string | null;
+  coarse: boolean;
+}) {
+  const [showJournal, setShowJournal] = useState(false);
+  if (!rollup) return null;
+
+  const writes = rollup.db_writes ?? 0;
+  const reads = rollup.db_reads ?? 0;
+  const lines = rollup.journal_lines ?? 0;
+  // A span in a session with no store attached reports no db keys at all —
+  // "we did not read" and "we cannot say" are different answers.
+  if (rollup.db_writes == null && rollup.db_reads == null) return null;
+
+  return (
+    <div className="op-rollup">
+      <span className="op-rollup-icon">⛁</span>
+      <span>wrote {writes}</span>
+      <span>· read {reads}</span>
+      {rollup.db_ms != null && <span>· {fmtDelta(rollup.db_ms, coarse)}</span>}
+      {lines > 0 && operationId && (
+        <button type="button" className="op-rollup-journal" onClick={() => setShowJournal(!showJournal)}>
+          ({lines} journal line{lines === 1 ? "" : "s"})
+        </button>
+      )}
+      {lines > 0 && !operationId && (
+        <span className="op-rollup-journal-flat">
+          ({lines} journal line{lines === 1 ? "" : "s"})
+        </span>
+      )}
+      {showJournal && operationId && <JournalDetail operationId={operationId} />}
+    </div>
+  );
+}
+
+// Fetched on expand, never bundled into the session payload: the session view
+// should not grow a second full log inside it. The rows are the same ones the
+// Progression tab shows for this operation — one writer per fact, and the
+// journal keeps the detail.
+function JournalDetail({ operationId }: { operationId: string }) {
+  const [rows, setRows] = useState<JournalRecord[] | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    let live = true;
+    fetchJournalForOperation(operationId)
+      .then((page) => live && setRows(page.entries))
+      .catch((e: Error) => live && setError(e.message));
+    return () => {
+      live = false;
+    };
+  }, [operationId]);
+
+  if (error) return <div className="op-journal op-journal-error">journal unavailable — {error}</div>;
+  if (rows == null) return <div className="op-journal">loading…</div>;
+  if (rows.length === 0) return <div className="op-journal">no change lines for this operation today</div>;
+
+  return (
+    <ol className="op-journal">
+      {rows.map((r) => (
+        <li key={r.seq}>
+          <span className="op-journal-stream">{r.stream}</span>
+          {r.kind === "change" ? (
+            <span>
+              {r.key}: {String(r.from ?? "—")} → {String(r.to)}
+            </span>
+          ) : (
+            <span>{r.op}</span>
+          )}
+        </li>
+      ))}
+    </ol>
+  );
+}
+
+// `◆ look_candidates · 23 scored → 3 kept · 11ms · local, $0`, or the same row
+// reading `unavailable` when the weights are not installed.
+//
+// That second case is the one that matters: a missing artifact degrades to a
+// null model that warns once and then returns [] forever, so the session used to
+// say nothing at all — and an empty `look_candidates` field read identically
+// whether the model was absent or the room simply had nothing worth looking at.
+function LocalInferenceRow({ entry, coarse }: { entry: Entry; coarse: boolean }) {
+  const unavailable = entry.available === false;
+  return (
+    <div className={unavailable ? "op-inference op-inference-off" : "op-inference"}>
+      <span className="op-rollup-icon">◆</span>
+      <span className="op-inference-model">{entry.model}</span>
+      {unavailable ? (
+        <span className="op-inference-off-label" title={entry.reason ?? undefined}>
+          unavailable{entry.reason ? ` — ${entry.reason}` : ""}
+        </span>
+      ) : (
+        <span>
+          {entry.pool ?? 0} scored → {entry.kept ?? 0} kept
+        </span>
+      )}
+      {entry.duration_ms != null && <span>· {fmtDelta(entry.duration_ms, coarse)}</span>}
+      {/* Stated, not omitted: the cost table had no row for this model at all,
+          which reads as "no cost information" when the truth is "free". */}
+      <span className="op-inference-cost">· {entry.unit ?? "local"}, {fmtCost(entry.cost_usd ?? 0)}</span>
     </div>
   );
 }
@@ -575,15 +889,24 @@ export function tallyTools(entries: Entry[]): string {
   return [ ...counts ].map(([ label, n ]) => (n > 1 ? `${label} × ${n}` : label)).join(", ");
 }
 
-// Every Entry inside a sub-run, automatic work included — the group header's
-// cost and iteration figures must count the hook's calls too, or a delegation
-// that spent most of its time surveying rooms reports as having done nothing.
-function flatten(node: GroupNode): Entry[] {
-  return node.children.flatMap((child) => {
-    if (child.kind === "group") return [ child.start, ...flatten(child) ];
-    if (child.kind === "auto") return child.entries;
-    return [ child.entry ];
-  });
+// Every Entry inside a node, automatic work and nested spans included — a group
+// header's cost and iteration figures must count the hook's calls too, or a
+// delegation that spent most of its time surveying rooms reports as having done
+// nothing.
+function flatten(node: GroupNode | AutoNode | OpNode): Entry[] {
+  // The `auto` heading is a rendering device with no event of its own; a group
+  // and a span each open with a real one.
+  const own = node.kind === "auto" ? [] : [ node.start ];
+  return [
+    ...own,
+    ...node.children.flatMap((child) => (child.kind === "entry" ? [ child.entry ] : flatten(child))),
+  ];
+}
+
+// The tool calls a node contains, excluding the span brackets themselves —
+// what "4 calls, 2.4s" is counted over.
+function toolsIn(node: GroupNode | AutoNode | OpNode): Entry[] {
+  return flatten(node).filter((e) => e.type === "tool");
 }
 
 function TranscriptEntry({

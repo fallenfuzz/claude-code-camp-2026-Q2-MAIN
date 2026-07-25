@@ -1,5 +1,5 @@
 import type { CostBreakdownRow } from "../api/types";
-import { fmtCostCell, fmtTokens } from "../format";
+import { fmtCostCell, fmtDuration, fmtTokens } from "../format";
 
 // Port of log_viz session.erb's cost-by-task-and-model table.
 export default function CostTable({ rows }: { rows: CostBreakdownRow[] }) {
@@ -27,7 +27,23 @@ export default function CostTable({ rows }: { rows: CostBreakdownRow[] }) {
               <td>{row.model}</td>
               <td className="nowrap">{row.calls}</td>
               <td className="nowrap">
-                {fmtTokens(row.input)} / {fmtTokens(row.output)}
+                {/* A local model has no tokens to report — its price is paid in
+                    latency, so that is what stands in this column rather than a
+                    misleading "0 / 0". */}
+                {row.duration_ms != null ? (
+                  <span title="local inference — latency, not tokens">{fmtDuration(row.duration_ms)}</span>
+                ) : (
+                  <>
+                    {fmtTokens(row.input)} / {fmtTokens(row.output)}
+                  </>
+                )}
+                {/* Calls where the artifact was not installed. The row is still
+                    here — silence would read as "the model found nothing". */}
+                {row.unavailable != null && row.unavailable > 0 && (
+                  <span className="tool-badge" title="the model artifact was not installed">
+                    {row.unavailable} unavailable
+                  </span>
+                )}
               </td>
               <td className="nowrap">{fmtCostCell(row.cost, row.cost_known)}</td>
             </tr>

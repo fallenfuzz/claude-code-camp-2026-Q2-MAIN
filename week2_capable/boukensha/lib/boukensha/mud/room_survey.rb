@@ -1,4 +1,5 @@
 require_relative "room_parser"
+require_relative "../operation"
 
 module Boukensha
   module Mud
@@ -37,18 +38,19 @@ module Boukensha
       # #remember_keyword(desc, keyword, threat:). Mud::Memory::Store is the
       # real one; nil means "no memory", and the survey degrades to appraising
       # every mob every time, which is exactly today's behaviour.
-      # `call_meta:` — the provenance stamped on every call this survey makes
-      # (`operation:`/`trigger:`). It is constant for the whole survey by
-      # design: the four commands below are one unit of automatic work, and a
-      # reader that sees them as four separate player actions is being lied to.
+      # `logger:` — used for ONE thing: opening the `room_survey` span that owns
+      # everything below. The four commands are one unit of automatic work, and
+      # a reader that sees them as four separate player actions is being lied
+      # to. The span is opened HERE rather than by the hook that calls us so it
+      # is the survey's own property and a second caller could not mislabel it.
       def initialize(call_tool:, look_candidates: nil, entities: nil, prefix: "tbamud__",
-                     warn_to: $stderr, call_meta: {})
+                     warn_to: $stderr, logger: nil)
         @call_tool = call_tool
         @extract   = look_candidates
         @entities  = entities
         @prefix    = prefix
         @warn_to   = warn_to
-        @call_meta = call_meta || {}
+        @logger    = logger
       end
 
       # The survey. `look` and `check(exits)` are unconditional; the
@@ -64,6 +66,22 @@ module Boukensha
       # line saying so was destroyed. That distinction is the whole of §5.5, and
       # this parameter is the one place it can be got wrong.
       def survey(look: nil)
+        span { survey!(look: look) }
+      end
+
+      private
+
+      # The span the whole survey runs inside. `trigger` is deliberately not
+      # named: the seam is the enclosing span's property (today `before_model`),
+      # and a survey that named one itself would be asserting something it
+      # cannot know.
+      def span(&block)
+        return @logger.operation(NAME, &block) if @logger
+
+        Boukensha::Operation.open(NAME, &block)
+      end
+
+      def survey!(look: nil)
         room  = look || RoomParser.parse_look(call(:look))
         exits = RoomParser.parse_exits(call(:check, kind: "exits"))
 
@@ -92,10 +110,8 @@ module Boukensha
         }
       end
 
-      private
-
       def call(tool, **args)
-        @call_tool.call("#{@prefix}#{tool}", args, @call_meta)
+        @call_tool.call("#{@prefix}#{tool}", args)
       end
 
       # consider + examine per DISTINCT mob, priced by what memory already knows

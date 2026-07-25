@@ -27,6 +27,53 @@ module Boukensha
 
         class Unavailable < StandardError; end
 
+        # Wraps the SQLite3 handle, counts `execute` by statement kind, and
+        # forwards everything else — get_first_value, execute_batch, transaction,
+        # last_insert_row_id, close — untouched. `Store#db` is public and the
+        # tests reach through it, so transparency is a requirement and not a
+        # nicety.
+        #
+        # Read vs write is the leading SQL keyword, which is exact for every
+        # statement this store issues and is the only classification available
+        # without parsing SQL. `transaction` forwards to the real handle while
+        # the statements INSIDE it still arrive here, so a wholesale
+        # `replace_items!` is counted as the N writes it performs.
+        class CountingDb
+          def initialize(db)
+            @db      = db
+            @reads   = 0
+            @writes  = 0
+            @ms      = 0.0
+          end
+
+          def execute(sql, *rest, &blk)
+            started = Process.clock_gettime(Process::CLOCK_MONOTONIC)
+            @db.execute(sql, *rest, &blk)
+          ensure
+            @ms += (Process.clock_gettime(Process::CLOCK_MONOTONIC) - started) * 1000
+            write?(sql) ? @writes += 1 : @reads += 1
+          end
+
+          # Session-lifetime totals. A span publishes only the delta across its
+          # own interval, which cannot double-count a nested span — a delta over
+          # an interval is exactly what nesting means.
+          def counters = { db_reads: @reads, db_writes: @writes, db_ms: @ms.round }
+
+          def method_missing(name, *args, &blk)
+            @db.respond_to?(name) ? @db.send(name, *args, &blk) : super
+          end
+
+          def respond_to_missing?(name, include_private = false)
+            @db.respond_to?(name, include_private) || super
+          end
+
+          private
+
+          WRITE = /\A\s*(?:INSERT|UPDATE|DELETE|REPLACE)\b/i.freeze
+
+          def write?(sql) = WRITE.match?(sql.to_s)
+        end
+
         attr_reader :db, :path
 
         # Optional progression journal. When wired, every mutation below also
@@ -69,9 +116,21 @@ module Boukensha
         end
 
         def initialize(db, path = nil)
-          @db   = db
+          # Every query in this class funnels through @db, so ONE proxy at
+          # construction instruments all 26 `execute` call sites without
+          # touching a single one of them. The PRAGMAs and Schema.migrate! in
+          # `.open` run against the raw handle, BEFORE the wrap — correctly, as
+          # those are boot, not work.
+          @db   = db.is_a?(CountingDb) ? db : CountingDb.new(db)
           @path = path
         end
+
+        # The meter Logger#operation reads at span open and close. Counters, not
+        # statements: every SQL statement as its own transcript entry would bury
+        # the narrative under ~20 rows per survey to answer a question nobody
+        # asks per-statement. What is wanted is the shape of the work — this
+        # operation read 6 rows and wrote 11, in 3ms.
+        def counters = @db.counters
 
         def close = @db.close
 

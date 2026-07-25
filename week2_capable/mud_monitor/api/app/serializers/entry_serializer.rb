@@ -53,6 +53,10 @@ class EntrySerializer
         # and falls back to the undifferentiated presentation.
         call_id: entry.call_id, initiator: entry.initiator,
         operation: entry.operation, trigger: entry.trigger,
+        # The span this call ran inside. The `operation` string above stays
+        # because it is readable and survives a truncated log; this is what the
+        # transcript tree is actually built from.
+        operation_id: entry.operation_id,
         parent_call_id: entry.parent_call_id,
         # What the model actually received, when a hook replaced the result. The
         # raw MUD text above stays exactly as logged; the card shows this by
@@ -76,6 +80,28 @@ class EntrySerializer
       }
     when :task_end
       { task_name: entry.task_name }
+    when :operation_start
+      {
+        operation: entry.operation, trigger: entry.trigger,
+        operation_id: entry.operation_id,
+        parent_operation_id: entry.parent_operation_id
+      }
+    when :operation_end
+      # `rollup` is an open set on purpose — a new counter on the writing side
+      # reaches the UI without a serializer change.
+      { operation: entry.operation, operation_id: entry.operation_id,
+        ok: entry.ok, rollup: entry.rollup }
+    when :local_inference
+      {
+        model: entry.model, backend: entry.backend, artifact: entry.artifact,
+        operation_id: entry.operation_id,
+        pool: entry.pool, kept: entry.kept,
+        threshold: entry.threshold, top_k: entry.top_k,
+        cost_usd: entry.cost_usd, unit: entry.unit,
+        # False means the weights are not installed and the field is empty for
+        # that reason — not because the room had nothing worth looking at.
+        available: entry.available, reason: entry.reason
+      }
     when :unknown
       { raw: entry.raw }
     else

@@ -1055,6 +1055,116 @@ table.sessions a:hover {
   padding-top: 0.2rem;
 }
 
+/* ── Operation spans (work_attribution.md §4) ──────────────────────────────
+   One unit of work, nested from `parent_operation_id` rather than guessed from
+   adjacency. A span reads as a heading with a body, so `room survey` can sit
+   visibly INSIDE `establish position` — which is where it ran. */
+.op-group {
+  border-left: 2px solid var(--border);
+  padding-left: 0.6rem;
+  margin: 0.15rem 0 0.15rem 0.15rem;
+}
+
+.op-group-failed {
+  border-left-color: var(--danger);
+}
+
+.op-group-head {
+  display: flex;
+  align-items: baseline;
+  gap: 0.55rem;
+  width: 100%;
+  background: none;
+  border: none;
+  padding: 0.15rem 0;
+  cursor: pointer;
+  color: var(--muted);
+  font: inherit;
+  font-size: 0.75rem;
+  font-family: ui-monospace, monospace;
+  text-align: left;
+}
+
+.op-group-title {
+  color: var(--text);
+  opacity: 0.8;
+  min-width: 10rem;
+}
+
+/* The two summary rows. Both describe the span rather than narrating a step in
+   it, so they sit at the foot of its body and collapse with it. */
+.op-rollup,
+.op-inference {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0.4rem;
+  font-family: ui-monospace, monospace;
+  font-size: 0.72rem;
+  color: var(--muted);
+  padding: 0.15rem 0;
+}
+
+.op-rollup-icon {
+  opacity: 0.6;
+}
+
+.op-inference-model {
+  color: var(--text);
+  opacity: 0.75;
+}
+
+/* $0 is stated, not omitted: "free" and "no cost information" are different
+   claims, and this model replaced three LLM calls. */
+.op-inference-cost {
+  opacity: 0.7;
+}
+
+/* The weights are not installed — the field is empty for that reason, not
+   because the room had nothing worth looking at. */
+.op-inference-off .op-inference-off-label {
+  color: var(--warn, var(--danger));
+}
+
+/* Journal detail is fetched on expand, never bundled into the session payload:
+   the session view must not grow a second full log inside it. */
+.op-rollup-journal {
+  background: none;
+  border: none;
+  padding: 0;
+  cursor: pointer;
+  color: var(--muted);
+  font: inherit;
+  text-decoration: underline dotted;
+}
+
+.op-rollup-journal-flat {
+  opacity: 0.7;
+}
+
+.op-journal {
+  flex-basis: 100%;
+  list-style: none;
+  margin: 0.2rem 0 0.2rem 1.1rem;
+  padding: 0;
+  font-size: 0.71rem;
+}
+
+.op-journal li {
+  display: flex;
+  gap: 0.5rem;
+  padding: 0.05rem 0;
+}
+
+.op-journal-stream {
+  min-width: 5rem;
+  opacity: 0.7;
+}
+
+.op-journal-error {
+  color: var(--danger);
+}
+
 /* Session-level rollup: where the automatic time actually went. */
 .auto-table {
   width: 100%;

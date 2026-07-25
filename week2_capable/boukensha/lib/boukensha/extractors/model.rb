@@ -109,6 +109,7 @@ module Boukensha
       end
 
       def available? = true
+      def reason = nil
 
       # The runtime entry point. `exclude` is Structural's output — exit
       # destination names and entity keywords, subtracted BEFORE we return
@@ -203,10 +204,15 @@ module Boukensha
       # Stands in for a model that isn't installed. `look_candidates` is
       # advisory, so its absence degrades one field and never a survey.
       class Null
+        attr_reader :reason
+
         def initialize(reason) = @reason = reason
         def available? = false
         def threshold = nil
         def top_k = 0
+        # No artifact, so no path to name. Answered rather than omitted so a
+        # caller can log a degraded install without asking which class it holds.
+        def onnx_path = nil
         def candidates(_description) = []
         def score(**) = []
 

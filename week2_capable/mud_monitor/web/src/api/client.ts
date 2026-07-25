@@ -173,4 +173,13 @@ export function fetchJournal(date?: string): Promise<JournalPage> {
   return get(`/journal${qs}`);
 }
 
+// The change log, narrowed to one unit of work. Called when a span's journal
+// summary is expanded — the detail is deliberately NOT bundled into the session
+// payload, because the session view should not grow a second full log inside it.
+export function fetchJournalForOperation(operationId: string, date?: string): Promise<JournalPage> {
+  const qs = new URLSearchParams({ operation_id: operationId });
+  if (date) qs.set("date", date);
+  return get(`/journal?${qs.toString()}`);
+}
+
 export { ApiRequestError };

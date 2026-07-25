@@ -2,6 +2,7 @@ require "json"
 require "fileutils"
 require "securerandom"
 require "time"
+require_relative "operation"
 
 module Boukensha
   # An append-only change log — the time-series sibling of the snapshot that
@@ -37,9 +38,21 @@ module Boukensha
       @last       = {}   # [stream, key] => last value appended for that pair
       @seq        = nil
       @date       = nil
+      # Lines this PROCESS appended, unlike `seq` which resumes at the day's
+      # existing line count. A span reports the delta.
+      @lines      = 0
 
       FileUtils.mkdir_p(@dir)
     end
+
+    # The meter Logger#operation reads at span open and close, making
+    # `journal_lines` on `operation_end` a CROSS-CHECK rather than a duplicate
+    # of `db_writes`. The two count different things and the gap runs both ways:
+    # FEWER lines than writes means `upsert` swallowed no-ops, which is how you
+    # find a survey re-writing values that never change; MORE lines than writes
+    # is ordinary for `update_player!`, where one UPDATE of six columns is six
+    # keyed series.
+    def counters = { journal_lines: @lines }
 
     # The upsert. Compares `value` to the last value seen for [stream, key] this
     # process; appends a change line ONLY if it differs. Returns whether it
@@ -112,20 +125,30 @@ module Boukensha
       File.join(Boukensha.config.profile_dir, DEFAULT_JOURNAL_DIR)
     end
 
-    # Stamp seq/session_id/at/mono_ms and append one jsonl line under the mutex.
-    # The reserved keys win over anything a caller passed, so no call site can
-    # clobber the cursor or the timestamps.
+    # Stamp seq/session_id/at/mono_ms/operation_id and append one jsonl line
+    # under the mutex. The reserved keys win over anything a caller passed, so no
+    # call site can clobber the cursor or the timestamps.
+    #
+    # `operation_id` comes off the ambient stack rather than from an argument,
+    # which is the whole reason that stack exists (work_attribution.md §1):
+    # every CDC line now knows which unit of work produced it, and the monitor
+    # joins journal detail into a span BY ID. The alternative — matching on a
+    # mono_ms window — has a midnight-rotation edge case and, worse, attributes
+    # a write to the wrong operation whenever two spans are milliseconds apart.
     def write(event)
       @mu.synchronize do
         now = @clock.now
         rotate_if_needed(now)
         @seq += 1
+        @lines += 1
         record = event.merge(
           seq:        @seq,
           session_id: @session_id,
           at:         now.iso8601(3),
           mono_ms:    (Process.clock_gettime(Process::CLOCK_MONOTONIC) * 1000).round
         )
+        op = Operation.current_id
+        record[:operation_id] = op if op
         @io.puts JSON.generate(record)
         @io.flush
       end

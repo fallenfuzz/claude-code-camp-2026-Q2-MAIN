@@ -21,13 +21,14 @@ module Api
         path    = store.path_for(date_param)
         records = path ? ::Journal::Parser.load(path).records : []
         after   = params[:after].to_i
-        pending = records.select { |r| r.seq > after }
+        scoped  = scope(records)
+        pending = scoped.select { |r| r.seq > after }
 
         render json: {
           date:     date_param,
-          series:   ::Journal::Series.fold(records),
+          series:   ::Journal::Series.fold(scoped),
           entries:  pending.map { |r| JournalRecordSerializer.call(r) },
-          next_seq: records.last&.seq || after,
+          next_seq: scoped.last&.seq || after,
           live:     path ? store.live?(path) : false
         }
       end
@@ -44,6 +45,23 @@ module Api
       end
 
       private
+
+      # Narrow the day to one unit of work, or to one session.
+      #
+      # This is the JOIN the session view needs (work_attribution.md §3): the
+      # change log has always held the detail of what a room survey wrote, but
+      # nothing addressed it BY the survey. Nothing new is written and nothing is
+      # duplicated into the session payload — the existing log simply becomes
+      # addressable, and the transcript fetches a span's detail on expand.
+      #
+      # An id that matches nothing returns an empty day rather than an error: a
+      # journal file written before spans existed carries no `operation_id` at
+      # all, and "this operation wrote nothing here" is the honest answer.
+      def scope(records)
+        records = records.select { |r| r.operation_id == params[:operation_id] } if params[:operation_id].present?
+        records = records.select { |r| r.session_id == params[:session] } if params[:session].present?
+        records
+      end
 
       def serve_stream(path)
         response.headers["Content-Type"]  = "text/event-stream"
