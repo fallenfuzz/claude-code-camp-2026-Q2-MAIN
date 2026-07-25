@@ -20,17 +20,22 @@ class TestMudHooks < Minitest::Test
   # The MUD, scripted. `calls` is the assertion surface for every cost claim in
   # the plan's §10 table.
   class FakeMud
-    attr_reader :calls
+    attr_reader :calls, :metas
     attr_accessor :responses
 
     def initialize(responses = {})
       @responses = responses
       @calls = []
+      @metas = []
     end
 
     def to_proc
-      lambda do |name, args = {}|
+      # The third argument is the provenance the real dispatcher stamps on the
+      # log (`operation:`/`trigger:`). Recorded rather than ignored so a test
+      # can assert the hook labelled its own work.
+      lambda do |name, args = {}, meta = {}|
         @calls << [name.sub("tbamud__", ""), args]
+        @metas << [name.sub("tbamud__", ""), meta]
         key = name.sub("tbamud__", "")
         key = "#{key}:#{args[:target] || args[:kind]}" if args[:target] || args[:kind]
         @responses.fetch(key) { @responses.fetch(name.sub("tbamud__", ""), "") }
@@ -82,6 +87,11 @@ class TestMudHooks < Minitest::Test
   end
 
   def ctx = Boukensha::Context.new(system: "t")
+
+  # The provenance the hook stamped on its FIRST call to `tool`.
+  def meta_for(fake, tool)
+    fake.metas.find { |name, _| name == tool }&.last || {}
+  end
 
   # Walk one room. The MUD is re-scripted by swapping the FAKE's responses, not
   # by swapping the hook's call_tool: the survey holds its own reference to that
@@ -313,8 +323,8 @@ class TestMudHooks < Minitest::Test
     c = ctx
     h.before_model(context: c)
 
-    assert_includes c.state_block, "n→The Temple Square ?"
-    assert_includes c.state_block, "s→The Common Square ?"
+    assert_includes c.state_block, "north→The Temple Square ?"
+    assert_includes c.state_block, "south→The Common Square ?"
   end
 
   def test_walking_an_exit_turns_a_frontier_into_a_link
@@ -434,6 +444,130 @@ class TestMudHooks < Minitest::Test
     # …and a win is not something the state block nags about.
     h.before_model(context: c)
     refute_includes c.state_block.to_s, "you won against"
+  end
+
+  # --- the score refresh policy (observ_improvements.md §5) -------------------
+  #
+  # The player's allowlist no longer offers `check(kind: score)` — the hook
+  # maintains the sheet. That is only safe with an invalidation policy: gold,
+  # experience and level do NOT appear on the prompt line, so anything that
+  # moves them without printing the new totals has to mark the sheet dirty or
+  # the state block serves a stale figure for the rest of the session.
+
+  def test_score_is_read_once_and_not_again_while_it_is_believed_current
+    h, fake = hooks_for(MARKET_SQUARE)
+    c = ctx
+    3.times { h.before_turn(context: c) }
+
+    assert_equal 1, fake.tools_called.count("check")
+  end
+
+  # A kill pays experience and usually gold, and the death message prints
+  # neither.
+  def test_a_won_fight_marks_the_sheet_stale
+    h, fake = hooks_for(MARKET_SQUARE)
+    c = ctx
+    h.before_turn(context: c)
+    h.after_tool(name: "tbamud__attack", args: { "target" => "cityguard" },
+                 result: "You hit the cityguard.\r\n20H 100M 81V > ", context: c)
+    h.after_tool(name: "tbamud__attack", args: { "target" => "cityguard" },
+                 result: "The cityguard is dead! R.I.P.\r\n18H 100M 81V > ", context: c)
+    fake.calls.clear
+    h.before_turn(context: c)
+
+    assert_equal 1, fake.tools_called.count("check"), "the next turn re-reads the sheet"
+  end
+
+  def test_shopping_marks_the_sheet_stale
+    h, fake = hooks_for(MARKET_SQUARE)
+    c = ctx
+    h.before_turn(context: c)
+    h.after_tool(name: "tbamud__shop", args: { "action" => "buy" },
+                 result: "You buy a loaf of bread for 5 coins.\r\n20H 100M 81V > ", context: c)
+    fake.calls.clear
+    h.before_turn(context: c)
+
+    assert_equal 1, fake.tools_called.count("check")
+  end
+
+  # Dying costs experience and moves the character to the Void.
+  def test_death_marks_the_sheet_stale
+    h, fake = hooks_for(MARKET_SQUARE)
+    c = ctx
+    h.before_turn(context: c)
+    h.after_tool(name: "tbamud__attack", args: {},
+                 result: "You are mortally wounded, and will die soon, if not aided.\r\n-6H 100M 81V > ",
+                 context: c)
+    fake.calls.clear
+    h.before_turn(context: c)
+
+    assert_equal 1, fake.tools_called.count("check")
+  end
+
+  # …but an ordinary move must NOT. A refresh on every action is exactly the
+  # per-iteration cost this design exists to avoid.
+  def test_ordinary_actions_leave_the_sheet_alone
+    h, fake = hooks_for(MARKET_SQUARE)
+    c = ctx
+    h.before_turn(context: c)
+    h.after_tool(name: "tbamud__move", args: { "direction" => "north" },
+                 result: MARKET_SQUARE_MOVE, context: c)
+    h.after_tool(name: "tbamud__say", args: {}, result: "You say, 'hi'\r\n20H 100M 81V > ", context: c)
+    fake.calls.clear
+    h.before_turn(context: c)
+
+    assert_equal 0, fake.tools_called.count("check")
+  end
+
+  # --- provenance (observ_improvements.md §1) ---------------------------------
+  #
+  # None of these calls were chosen by the model, and the session log used to
+  # have no way to say so. `operation` is the semantic reason, `trigger` the
+  # lifecycle seam it fired from; the monitor groups on the pair.
+
+  def test_every_hook_call_is_labelled_with_its_operation_and_trigger
+    h, fake = hooks_for(MARKET_SQUARE)
+    c = ctx
+
+    h.before_turn(context: c)                  # score
+    h.before_tools(calls: [], context: c)      # poll
+    h.before_model(context: c)                 # cold look, then the survey
+
+    assert_equal ["player_bootstrap", "before_turn"], meta_for(fake, "check").values_at(:operation, :trigger)
+    assert_equal ["async_poll", "before_tools"],      meta_for(fake, "poll").values_at(:operation, :trigger)
+    assert_equal ["position_refresh", "before_model"], meta_for(fake, "look").values_at(:operation, :trigger)
+  end
+
+  # `look`, `check(exits)`, `consider` and `examine` are ONE unit of automatic
+  # work. Four separately-labelled commands scattered through the model's
+  # narrative is the presentation bug this grouping exists to prevent.
+  def test_the_survey_labels_its_whole_group_as_one_operation
+    h, fake = hooks_for(MARKET_SQUARE)
+    h.before_model(context: ctx)               # first visit ⇒ a full survey
+
+    surveyed = fake.metas.select { |name, _| %w[check consider examine].include?(name) }
+    refute_empty surveyed
+    assert_equal [ "room_survey" ], surveyed.map { |_, meta| meta[:operation] }.uniq
+  end
+
+  # A span must RESTORE its predecessor, not clear it. The survey opens an
+  # inner span inside before_model's; if the exit path wiped the label instead
+  # of putting the outer one back, the next automatic call would come out
+  # unattributed and land in the model's narrative as a player action.
+  def test_a_span_survives_an_inner_one_opening_and_closing_inside_it
+    h, fake = hooks_for(MARKET_SQUARE)
+    c = ctx
+    h.before_model(context: c)                 # first visit: cold look, then the survey
+    # Death drops position — the Void must never be recorded as a room — so the
+    # next before_model is cold again and spends a `look` under the OUTER span.
+    h.after_tool(name: "tbamud__attack", args: {},
+                 result: "You are mortally wounded, and will die soon, if not aided.\r\n-6H 100M 84V > ",
+                 context: c)
+    fake.metas.clear
+    h.before_model(context: c)
+
+    assert_equal ["position_refresh", "before_model"],
+                 meta_for(fake, "look").values_at(:operation, :trigger)
   end
 
   # --- resilience ------------------------------------------------------------

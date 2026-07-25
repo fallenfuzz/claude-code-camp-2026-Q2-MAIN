@@ -185,8 +185,13 @@ module BoukenshaLoader
       # keeps the hook's own poll/look from re-entering after_tool and
       # recursing — and what keeps `look` off the player's tool surface while
       # remaining reachable here.
+      #
+      # `initiator: "hook"` labels everything that goes through here as work
+      # the framework did on the model's behalf. Without it the session log
+      # shows the cold-start `score` and `look` as player tool calls, which is
+      # how a 1.9s blocking MUD read came to look like model latency.
       name       = Boukensha::Mud::RoomSurvey::NAME
-      call_tool  = Boukensha.tool_dispatcher(name, logger: parent)
+      call_tool  = Boukensha.tool_dispatcher(name, logger: parent, initiator: "hook")
       candidates = Boukensha::Extractors.look_candidates
 
       begin

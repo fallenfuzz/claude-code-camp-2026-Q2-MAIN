@@ -50,6 +50,17 @@ module Boukensha
       }.freeze
 
 
+      # Operations that move gold or experience without printing the new totals.
+      # `score` is maintained by the hook now — the player's allowlist no longer
+      # offers `check(kind: score)` — so anything that can invalidate the sheet
+      # has to say so here or the state block quietly serves a stale figure
+      # forever. Buying and selling is the one the model does on purpose;
+      # winning a fight is the one that happens to it. Both mark the sheet dirty
+      # and the NEXT turn re-reads it. Nothing here spends a round trip: a
+      # refresh before every model call is exactly the per-iteration cost this
+      # design exists to avoid.
+      SCORE_STALE_TOOLS = %w[shop].freeze
+
       # tbaMUD's own words when the world moves without us asking it to.
       DEPARTURE = /^(?:the |a |an )?(.+?)\s+(?:leaves|has left|flees)\b/i.freeze
       ARRIVAL   = /\bhas arrived\b/i.freeze
@@ -75,29 +86,46 @@ module Boukensha
         @prefix    = prefix
         @warn_to   = warn_to
         @turn_policy_enabled = turn_policy
+        # The survey's calls carry ONE operation between them, so `look`,
+        # `check(exits)`, `consider` and `examine` group in the monitor as a
+        # single `room_survey` rather than as four unexplained player actions.
         @survey = RoomSurvey.new(call_tool: call_tool, look_candidates: look_candidates,
-                                 entities: store, prefix: prefix, warn_to: warn_to)
+                                 entities: store, prefix: prefix, warn_to: warn_to,
+                                 call_meta: { operation: "room_survey", trigger: "before_model" })
 
         # Per-iteration scratch, reset as it is consumed.
         @pending_events = []
         @arrival        = nil     # { look:, direction:, from_room_id: } after a movement
         @current_room_id = nil    # nil ⇒ cold: nothing has told us where we are
         @live            = []     # the entity lines last actually observed here
-        @scored          = false  # have we ever read `score` this process?
+        # Is the character sheet believed current? False at process start (a
+        # fresh login, or a reconnect after one) and again whenever something
+        # has moved gold, experience or level without printing the new totals.
+        # `before_turn` clears it with one `check(score)` — at TURN boundaries
+        # only, never per iteration. See SCORE_STALE_TOOLS.
+        @scored          = false
         @fight           = nil    # an open encounter, spanning several tool calls
       end
 
       # ---------- before_turn ---------------------------------------------
 
-      # Once per turn. The level reading, and only when we don't have one or the
-      # MUD just told us it changed — because `threat_level` is what keeps a
-      # `consider` verdict from being reused twenty levels after it was true.
+      # Once per turn, and only when the sheet is not believed current: at
+      # process start, after a level-up, after a kill, after a death, after
+      # shopping. `threat_level` is what keeps a `consider` verdict from being
+      # reused twenty levels after it was true, and gold/exp are read here
+      # because the prompt line carries only HP/mana/movement.
+      #
+      # This is also the reason the player's allowlist no longer offers
+      # `check(kind: score)`: with a refresh policy in place, a manual score
+      # check can only ever duplicate a reading the hook already has.
       def before_turn(context:)
         return if @scored
 
         guard do
-          @store.update_player!(session_id: @logger&.session_id,
-                                **RoomParser.parse_score(call(:check, kind: "score")))
+          during("player_bootstrap", "before_turn") do
+            @store.update_player!(session_id: @logger&.session_id,
+                                  **RoomParser.parse_score(call(:check, kind: "score")))
+          end
           @scored = true
         end
       end
@@ -119,7 +147,7 @@ module Boukensha
       # this costs one MCP pipe round trip and no MUD wait.
       def before_tools(calls:, context:)
         guard do
-          text = call(:poll).to_s
+          text = during("async_poll", "before_tools") { call(:poll).to_s }
           absorb_mud_text(text)
           @pending_events.concat(event_lines(text))
         end
@@ -154,6 +182,9 @@ module Boukensha
           # the model already called, so no round trip is spent.
           capture_item_op(local, args) if ITEM_OPS.key?(local)
 
+          # Gold left or entered the purse and the sheet cannot know it.
+          @scored = false if SCORE_STALE_TOOLS.include?(local)
+
           settle_fight(local, text)
 
           next movement_outcome(local, args, text) if MOVEMENT_TOOLS.include?(local)
@@ -169,8 +200,10 @@ module Boukensha
       # and for a room we have stood in before, it spends none.
       def before_model(context:)
         guard do
-          look = arrival_look || cold_look
-          resolve_position(look) if look
+          during("position_refresh", "before_model") do
+            look = arrival_look || cold_look
+            resolve_position(look) if look
+          end
 
           context.state_block = render_state
           context.turn_policy = compute_turn_policy(context)
@@ -263,7 +296,9 @@ module Boukensha
         # By strong fingerprint. One `check(exits)`, and it settles almost every
         # real case — the destination NAMES of the neighbours are exactly what
         # differs between two rooms that look identical.
-        targets = RoomParser.parse_exits(call(:check, kind: "exits"))
+        targets = during("room_disambiguation", "before_model") do
+          RoomParser.parse_exits(call(:check, kind: "exits"))
+        end
         strong  = Memory::Fingerprint.strong(weak, targets)
         @resolved_targets = targets
         matches = candidates.select { |c| c[:strong_fingerprint] == strong }
@@ -459,6 +494,9 @@ module Boukensha
       end
 
       def note_death(text)
+        # Dying costs experience and moves the character. Everything on the
+        # sheet below the vitals is now a guess.
+        @scored = false
         close_fight("died", RoomParser.parse_prompt(text)&.[](:hp))
         journal_event(stream: "milestone", op: "death", level: @store.level)
         # The Void fingerprints like any other room and must never be recorded as
@@ -491,6 +529,10 @@ module Boukensha
         return unless @fight
 
         if text =~ VICTORY
+          # A kill pays experience and usually gold, and neither total appears
+          # in the death message. Mark the sheet dirty rather than guessing at
+          # the arithmetic.
+          @scored = false
           close_fight("won", RoomParser.parse_prompt(text)&.[](:hp))
         elsif local == "flee" && text =~ FLED
           close_fight("fled", RoomParser.parse_prompt(text)&.[](:hp))
@@ -587,7 +629,24 @@ module Boukensha
       # =========================== plumbing =================================
 
       def call(tool, **args)
-        @call_tool.call("#{@prefix}#{tool}", args)
+        @call_tool.call("#{@prefix}#{tool}", args, @call_meta || {})
+      end
+
+      # An operation span. Every MUD call made inside it is logged with the same
+      # `operation`/`trigger`, which is what lets the monitor group a hook's work
+      # under one honest heading — `bootstrap player`, `establish position`,
+      # `room survey` — instead of scattering four unexplained commands through
+      # the model's narrative.
+      #
+      # Reentrant, and restoring rather than clearing on the way out, because
+      # `disambiguate` opens a span inside `before_model`'s and the calls after
+      # it must not come back out unlabelled.
+      def during(operation, trigger)
+        previous   = @call_meta
+        @call_meta = { operation: operation, trigger: trigger }
+        yield
+      ensure
+        @call_meta = previous
       end
 
       def unprefix(name)

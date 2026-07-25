@@ -80,6 +80,10 @@ class TestHooksSeam < Minitest::Test
     [agent, ctx, pipe, logger]
   end
 
+  def read_events(logger)
+    File.readlines(logger.path).map { |l| JSON.parse(l) }
+  end
+
   # --- the null object -------------------------------------------------------
 
   # Every existing caller, test and entrypoint that never passes `hooks:` must
@@ -185,6 +189,92 @@ class TestHooksSeam < Minitest::Test
 
     refute_includes hooks.events, [:after_tool, "probe"]
     assert(ctx.messages.any? { |m| m.content.to_s.include?("boom") })
+  end
+
+  # --- what the log says the model did and saw (observ_improvements.md §1-2) --
+
+  # The counterpart to the hook dispatcher's `initiator: "hook"`. Without the
+  # pair, a session cannot report model and automatic tool counts separately,
+  # and a hook's bootstrap `score` makes the model look tool-hungry.
+  def test_model_selected_calls_are_logged_as_such_and_correlated_by_call_id
+    agent, _ctx, _pipe, logger = build(responses: [tool_use_response("probe"), text_response("done")])
+    agent.run
+    logger.close
+    events = read_events(logger)
+
+    call   = events.find { |e| e["phase"] == "tool_call" }
+    result = events.find { |e| e["phase"] == "tool_result" }
+
+    assert_equal "model", call["initiator"]
+    assert_equal "model", result["initiator"]
+    assert_equal call["call_id"], result["call_id"]
+    assert_kind_of Integer, result["duration_ms"]
+  end
+
+  # The raw result AND the replacement, on one record, joined by call_id. The
+  # monitor could previously only show the two by making the reader diff the
+  # transcript against the request drawer.
+  def test_a_replacement_is_recorded_against_the_call_it_replaced
+    hooks = RecordingHooks.new(replacement: "moved north → Market Square")
+    agent, _ctx, _pipe, logger = build(hooks: hooks,
+                                       responses: [tool_use_response("probe"), text_response("done")])
+    agent.run
+    logger.close
+    events = read_events(logger)
+
+    call      = events.find { |e| e["phase"] == "tool_call" }
+    transform = events.find { |e| e["phase"] == "context_transform" }
+
+    refute_nil transform
+    assert_equal call["call_id"], transform["call_id"]
+    assert_equal "tool_result_replacement", transform["kind"]
+    assert_equal "moved north → Market Square", transform["content"]
+    assert_equal "RAW MUD TEXT".length, transform["raw_chars"]
+  end
+
+  def test_no_transform_is_logged_when_the_hook_leaves_the_result_alone
+    agent, _ctx, _pipe, logger = build(hooks: RecordingHooks.new(replacement: nil),
+                                       responses: [tool_use_response("probe"), text_response("done")])
+    agent.run
+    logger.close
+
+    assert_empty read_events(logger).select { |e| e["phase"] == "context_transform" }
+  end
+
+  # "Thank you for the context" — which context? The transcript could not say;
+  # only the request payload carried the block. Now every model call is preceded
+  # by the state it was handed.
+  def test_the_injected_state_block_is_logged_before_the_request_that_carried_it
+    hooks = Class.new(Boukensha::Hooks) do
+      def before_model(context:) = context.state_block = "[here] The Temple Of Midgaard"
+    end.new
+    agent, _ctx, _pipe, logger = build(hooks: hooks, responses: [text_response("done")])
+    agent.run
+    logger.close
+    events = read_events(logger)
+
+    injected = events.find { |e| e["phase"] == "injected_context" }
+    refute_nil injected
+    assert_equal "state_block", injected["kind"]
+    assert_equal "[here] The Temple Of Midgaard", injected["content"]
+    assert_equal true, injected["changed"]
+    assert_operator events.index(injected), :<, events.index { |e| e["phase"] == "request" }
+  end
+
+  # The block is re-rendered every iteration and is usually identical to the
+  # last one. Saying so is what lets the monitor collapse the repeats instead of
+  # printing the same four lines between every pair of tool calls.
+  def test_an_unchanged_block_is_still_logged_but_marked_unchanged
+    hooks = Class.new(Boukensha::Hooks) do
+      def before_model(context:) = context.state_block = "[here] Market Square"
+    end.new
+    agent, _ctx, _pipe, logger = build(hooks: hooks,
+                                       responses: [tool_use_response("probe"), text_response("done")])
+    agent.run
+    logger.close
+
+    injected = read_events(logger).select { |e| e["phase"] == "injected_context" }
+    assert_equal [true, false], injected.map { |e| e["changed"] }
   end
 
   # --- the state block -------------------------------------------------------

@@ -18,6 +18,15 @@ export interface SessionSummary {
   turns: number;
   iterations: number;
   tool_calls: number;
+  /** Calls the model chose. On a log with no provenance this is every call. */
+  model_tool_calls: number;
+  /** Calls framework/hook code made on the model's behalf. */
+  automatic_tool_calls: number;
+  /** Wall time inside automatic work — null when the log carries no durations. */
+  automatic_tool_ms: number | null;
+  automatic_operations: AutomaticOperation[];
+  /** False on logs written before the provenance contract: the split is unknowable, not zero. */
+  has_provenance: boolean;
   input_tokens: number;
   output_tokens: number;
   peak_input_tokens: number;
@@ -31,11 +40,28 @@ export interface SessionSummary {
   bytes: number;
 }
 
+/** One semantic reason a hook spent MUD round trips, rolled up across the session. */
+export interface AutomaticOperation {
+  operation: string;
+  trigger: string | null;
+  calls: number;
+  duration_ms: number;
+  /** Calls that returned nothing — mostly `poll`, which is expected and not a fault. */
+  empty: number;
+  failed: number;
+}
+
 export interface TimingSummary {
   p50_tool_ms: number | null;
   p95_tool_ms: number | null;
   p50_model_ms: number | null;
   p95_model_ms: number | null;
+  /** Tool time the model spent. Null when the log carries no provenance. */
+  model_tool_ms: number | null;
+  /** Tool time the hooks spent on its behalf. Null when unknowable, never 0 to mean "unknown". */
+  automatic_tool_ms: number | null;
+  /** Inference time — the sum of per-response latencies. */
+  model_ms: number;
   total_idle_ms: number;
   wall_ms: number | null;
   busy_ms: number | null;
@@ -96,7 +122,16 @@ export type EntryType =
   | "turn_end"
   | "task_start"
   | "task_end"
+  | "injected_context"
+  | "context_transform"
   | "unknown";
+
+/**
+ * Who asked for a tool call. "model" is a call the model chose; "hook" is work
+ * framework code did on its behalf (position refresh, room survey, poll).
+ * Null on logs written before the provenance contract.
+ */
+export type Initiator = "model" | "hook" | "delegated_task";
 
 export interface Entry {
   seq: number;
@@ -134,6 +169,27 @@ export interface Entry {
   tool_ok?: boolean;
   tool_error?: string | null;
   result_html?: string;
+
+  // tool — provenance
+  call_id?: string | null;
+  initiator?: Initiator | null;
+  /** Why the hook spent this call: player_bootstrap, position_refresh, room_survey, async_poll. */
+  operation?: string | null;
+  /** The lifecycle seam it fired from: before_turn, before_model, before_tools, after_tool. */
+  trigger?: string | null;
+  parent_call_id?: string | null;
+
+  // tool — what the model actually received, when a hook replaced the result.
+  // `tool_result` above stays exactly as the MUD said it.
+  model_result?: string | null;
+  model_result_chars?: number | null;
+  raw_chars?: number | null;
+
+  // injected_context | context_transform
+  kind?: string | null;
+  content?: string | null;
+  source?: string | null;
+  changed?: boolean | null;
 
   // compaction | clear
   before?: number;

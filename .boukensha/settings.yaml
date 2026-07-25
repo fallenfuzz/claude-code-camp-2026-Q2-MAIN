@@ -75,10 +75,20 @@ tasks:
       system: true
     # Pure allowlist (default-deny): the player may call ONLY these. `look` is
     # absent — the agent is TOLD where it is before every model call and never
-    # has to ask — and `check` is pinned to every kind EXCEPT exits. Each rule
-    # is validated against the tool's own enum at startup. Rule names are
-    # explicitly prefixed (`tbamud__...`) to match the mud server's `prefix:`
-    # below exactly, rather than relying on bare-name matching across servers.
+    # has to ask — and `check` is pinned to every kind EXCEPT exits and score.
+    # Each rule is validated against the tool's own enum at startup. Rule names
+    # are explicitly prefixed (`tbamud__...`) to match the mud server's
+    # `prefix:` below exactly, rather than relying on bare-name matching across
+    # servers.
+    #
+    # `score` is denied here and allowed in the survey slice above, because the
+    # hook maintains the sheet: it reads score at process start and re-reads it
+    # whenever a level-up, a kill, a death or a shop visit has invalidated it
+    # (Mud::Hooks::SCORE_STALE_TOOLS). A manual check could therefore only ever
+    # duplicate a reading the agent has already been given in its `you:` line —
+    # which is exactly what the sampled session spent its first 1.9 seconds on.
+    # The other `check` kinds stay: inventory, equipment, weather and the rest
+    # are real gameplay queries with no hook maintaining them.
     #
     # There are no native tools here any more. `inspect_room` used to be one;
     # the state block replaced it, and the tool surface shrank by one.
@@ -91,7 +101,7 @@ tasks:
       - tbamud__skill_strike
       - tbamud__consider
       - tbamud__examine
-      - "tbamud__check(kind: score|inventory|equipment|gold|time|weather|levels|wimpy|toggle|where)"
+      - "tbamud__check(kind: inventory|equipment|gold|time|weather|levels|wimpy|toggle|where)"
       - tbamud__say
       - tbamud__tell
       # - tbamud__channel_say

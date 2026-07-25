@@ -17,6 +17,31 @@ module SessionLog
       assert_equal 2465, summary[:busy_ms] # wall_ms - total_idle_ms, and idle is 0 here
     end
 
+    # §6: the 1.9s that read as model latency was a blocking MUD `score` the
+    # model never asked for. Attribute it, and the two stop being confusable.
+    test "tool time splits into what the model spent and what the hooks spent" do
+      parser  = Parser.load(FIXTURES.join("provenance.jsonl"))
+      summary = Timing.new(parser).summary
+
+      assert_equal 210, summary[:model_tool_ms]          # one move
+      assert_equal 2035, summary[:automatic_tool_ms]     # score + look + poll
+      # The whole point of the split: nearly all of the automatic time is one
+      # blocking `score`, and it is now attributable to `player_bootstrap`
+      # rather than sitting adjacent to Iteration 0 looking like inference.
+      bootstrap = parser.automatic_operations.find { |r| r[:operation] == "player_bootstrap" }
+      assert_equal 1930, bootstrap[:duration_ms]
+      assert_operator bootstrap[:duration_ms], :>, summary[:model_tool_ms]
+    end
+
+    # A log with no provenance cannot make the split. Reporting 0 automatic ms
+    # would claim it did.
+    test "a pre-provenance log reports the split as unknown, not as zero" do
+      summary = Timing.new(Parser.load(FIXTURES.join("monotonic.jsonl"))).summary
+
+      assert_nil summary[:model_tool_ms]
+      assert_nil summary[:automatic_tool_ms]
+    end
+
     test "an empty session reports nil rollups instead of crashing" do
       parser  = Parser.load(FIXTURES.join("empty.jsonl"))
       summary = Timing.new(parser).summary

@@ -13,6 +13,8 @@ Read the exits line. A `✓` means you have already stood in that destination; a
 means you have not, and that is your exploration frontier. Prefer the `?` when you
 are exploring and the `✓` when you are travelling somewhere you know.
 
+The direction on each exit is a valid `move` direction — copy it exactly as written.
+
 The room description is given to you once, the first time you arrive. Later visits
 show only the name, because nothing about a room's prose changes between visits.
 

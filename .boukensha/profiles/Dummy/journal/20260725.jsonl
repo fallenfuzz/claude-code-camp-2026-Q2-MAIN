@@ -1,0 +1,139 @@
+{"kind":"change","stream":"stat","key":"session_id","from":null,"to":"20260725T123529Z-bff0561f","seq":1,"session_id":"20260725T123529Z-bff0561f","at":"2026-07-25T08:35:51.595-04:00","mono_ms":592232144}
+{"kind":"change","stream":"stat","key":"level","from":null,"to":1,"seq":2,"session_id":"20260725T123529Z-bff0561f","at":"2026-07-25T08:35:52.872-04:00","mono_ms":592232568}
+{"kind":"change","stream":"stat","key":"exp","from":null,"to":181,"seq":3,"session_id":"20260725T123529Z-bff0561f","at":"2026-07-25T08:35:53.249-04:00","mono_ms":592232945}
+{"kind":"change","stream":"stat","key":"exp_to_next","from":null,"to":1819,"seq":4,"session_id":"20260725T123529Z-bff0561f","at":"2026-07-25T08:35:53.724-04:00","mono_ms":592233420}
+{"kind":"change","stream":"stat","key":"gold","from":null,"to":0,"seq":5,"session_id":"20260725T123529Z-bff0561f","at":"2026-07-25T08:35:54.148-04:00","mono_ms":592233844}
+{"kind":"change","stream":"stat","key":"hp","from":null,"to":20,"seq":6,"session_id":"20260725T123529Z-bff0561f","at":"2026-07-25T08:35:54.520-04:00","mono_ms":592234216}
+{"kind":"change","stream":"stat","key":"max_hp","from":null,"to":20,"seq":7,"session_id":"20260725T123529Z-bff0561f","at":"2026-07-25T08:35:54.943-04:00","mono_ms":592234639}
+{"kind":"change","stream":"stat","key":"mana","from":null,"to":100,"seq":8,"session_id":"20260725T123529Z-bff0561f","at":"2026-07-25T08:35:55.369-04:00","mono_ms":592235064}
+{"kind":"change","stream":"stat","key":"max_mana","from":null,"to":100,"seq":9,"session_id":"20260725T123529Z-bff0561f","at":"2026-07-25T08:35:55.791-04:00","mono_ms":592235487}
+{"kind":"change","stream":"stat","key":"move","from":null,"to":85,"seq":10,"session_id":"20260725T123529Z-bff0561f","at":"2026-07-25T08:35:56.218-04:00","mono_ms":592235914}
+{"kind":"change","stream":"stat","key":"max_move","from":null,"to":85,"seq":11,"session_id":"20260725T123529Z-bff0561f","at":"2026-07-25T08:35:56.640-04:00","mono_ms":592236336}
+{"kind":"change","stream":"stat","key":"armor_class","from":null,"to":"39/10","seq":12,"session_id":"20260725T123529Z-bff0561f","at":"2026-07-25T08:35:57.064-04:00","mono_ms":592236759}
+{"kind":"change","stream":"stat","key":"alignment","from":null,"to":42,"seq":13,"session_id":"20260725T123529Z-bff0561f","at":"2026-07-25T08:35:57.486-04:00","mono_ms":592237182}
+{"kind":"change","stream":"stat","key":"age_years","from":null,"to":17,"seq":14,"session_id":"20260725T123529Z-bff0561f","at":"2026-07-25T08:35:57.909-04:00","mono_ms":592237605}
+{"kind":"change","stream":"stat","key":"title","from":null,"to":"Dummy the Swordpupil","seq":15,"session_id":"20260725T123529Z-bff0561f","at":"2026-07-25T08:35:58.384-04:00","mono_ms":592238080}
+{"kind":"change","stream":"stat","key":"position","from":null,"to":"standing","seq":16,"session_id":"20260725T123529Z-bff0561f","at":"2026-07-25T08:35:58.807-04:00","mono_ms":592238502}
+{"kind":"change","stream":"stat","key":"conditions","from":null,"to":"hungry,thirsty","seq":17,"session_id":"20260725T123529Z-bff0561f","at":"2026-07-25T08:35:59.282-04:00","mono_ms":592238978}
+{"id":1,"kind":"event","stream":"room","op":"visit","seq":18,"session_id":"20260725T123529Z-bff0561f","at":"2026-07-25T08:36:01.773-04:00","mono_ms":592241469}
+{"kind":"change","stream":"stat","key":"current_room_id","from":null,"to":1,"seq":19,"session_id":"20260725T123529Z-bff0561f","at":"2026-07-25T08:36:02.206-04:00","mono_ms":592241901}
+{"kind":"change","stream":"stat","key":"move","from":85,"to":84,"seq":20,"session_id":"20260725T123529Z-bff0561f","at":"2026-07-25T08:36:14.881-04:00","mono_ms":592254576}
+{"kind":"change","stream":"stat","key":"session_id","from":null,"to":"20260725T123629Z-db4a75d7","seq":21,"session_id":"20260725T123629Z-db4a75d7","at":"2026-07-25T08:36:49.398-04:00","mono_ms":592289095}
+{"kind":"change","stream":"stat","key":"level","from":null,"to":1,"seq":22,"session_id":"20260725T123629Z-db4a75d7","at":"2026-07-25T08:36:49.399-04:00","mono_ms":592289095}
+{"kind":"change","stream":"stat","key":"exp","from":null,"to":181,"seq":23,"session_id":"20260725T123629Z-db4a75d7","at":"2026-07-25T08:36:49.399-04:00","mono_ms":592289095}
+{"kind":"change","stream":"stat","key":"exp_to_next","from":null,"to":1819,"seq":24,"session_id":"20260725T123629Z-db4a75d7","at":"2026-07-25T08:36:49.399-04:00","mono_ms":592289095}
+{"kind":"change","stream":"stat","key":"gold","from":null,"to":0,"seq":25,"session_id":"20260725T123629Z-db4a75d7","at":"2026-07-25T08:36:49.399-04:00","mono_ms":592289095}
+{"kind":"change","stream":"stat","key":"hp","from":null,"to":20,"seq":26,"session_id":"20260725T123629Z-db4a75d7","at":"2026-07-25T08:36:49.399-04:00","mono_ms":592289095}
+{"kind":"change","stream":"stat","key":"max_hp","from":null,"to":20,"seq":27,"session_id":"20260725T123629Z-db4a75d7","at":"2026-07-25T08:36:49.399-04:00","mono_ms":592289095}
+{"kind":"change","stream":"stat","key":"mana","from":null,"to":100,"seq":28,"session_id":"20260725T123629Z-db4a75d7","at":"2026-07-25T08:36:49.399-04:00","mono_ms":592289095}
+{"kind":"change","stream":"stat","key":"max_mana","from":null,"to":100,"seq":29,"session_id":"20260725T123629Z-db4a75d7","at":"2026-07-25T08:36:49.399-04:00","mono_ms":592289095}
+{"kind":"change","stream":"stat","key":"move","from":null,"to":84,"seq":30,"session_id":"20260725T123629Z-db4a75d7","at":"2026-07-25T08:36:49.399-04:00","mono_ms":592289095}
+{"kind":"change","stream":"stat","key":"max_move","from":null,"to":85,"seq":31,"session_id":"20260725T123629Z-db4a75d7","at":"2026-07-25T08:36:49.399-04:00","mono_ms":592289095}
+{"kind":"change","stream":"stat","key":"armor_class","from":null,"to":"39/10","seq":32,"session_id":"20260725T123629Z-db4a75d7","at":"2026-07-25T08:36:49.399-04:00","mono_ms":592289095}
+{"kind":"change","stream":"stat","key":"alignment","from":null,"to":42,"seq":33,"session_id":"20260725T123629Z-db4a75d7","at":"2026-07-25T08:36:49.399-04:00","mono_ms":592289095}
+{"kind":"change","stream":"stat","key":"age_years","from":null,"to":17,"seq":34,"session_id":"20260725T123629Z-db4a75d7","at":"2026-07-25T08:36:49.399-04:00","mono_ms":592289095}
+{"kind":"change","stream":"stat","key":"title","from":null,"to":"Dummy the Swordpupil","seq":35,"session_id":"20260725T123629Z-db4a75d7","at":"2026-07-25T08:36:49.399-04:00","mono_ms":592289095}
+{"kind":"change","stream":"stat","key":"position","from":null,"to":"standing","seq":36,"session_id":"20260725T123629Z-db4a75d7","at":"2026-07-25T08:36:49.399-04:00","mono_ms":592289095}
+{"kind":"change","stream":"stat","key":"conditions","from":null,"to":"hungry,thirsty","seq":37,"session_id":"20260725T123629Z-db4a75d7","at":"2026-07-25T08:36:49.399-04:00","mono_ms":592289095}
+{"id":1,"kind":"event","stream":"room","op":"visit","seq":38,"session_id":"20260725T123629Z-db4a75d7","at":"2026-07-25T08:36:49.486-04:00","mono_ms":592289182}
+{"kind":"change","stream":"stat","key":"current_room_id","from":null,"to":1,"seq":39,"session_id":"20260725T123629Z-db4a75d7","at":"2026-07-25T08:36:49.486-04:00","mono_ms":592289182}
+{"kind":"change","stream":"stat","key":"move","from":84,"to":83,"seq":40,"session_id":"20260725T123629Z-db4a75d7","at":"2026-07-25T08:36:51.087-04:00","mono_ms":592290783}
+{"id":2,"kind":"event","stream":"room","op":"visit","seq":41,"session_id":"20260725T123629Z-db4a75d7","at":"2026-07-25T08:36:51.087-04:00","mono_ms":592290783}
+{"kind":"change","stream":"exit","key":"1:down:target_room_id","from":null,"to":2,"seq":42,"session_id":"20260725T123629Z-db4a75d7","at":"2026-07-25T08:36:51.088-04:00","mono_ms":592290784}
+{"kind":"change","stream":"stat","key":"current_room_id","from":1,"to":2,"seq":43,"session_id":"20260725T123629Z-db4a75d7","at":"2026-07-25T08:36:51.088-04:00","mono_ms":592290784}
+{"kind":"change","stream":"stat","key":"prev_room_id","from":null,"to":1,"seq":44,"session_id":"20260725T123629Z-db4a75d7","at":"2026-07-25T08:36:51.088-04:00","mono_ms":592290784}
+{"kind":"change","stream":"stat","key":"last_direction","from":null,"to":"down","seq":45,"session_id":"20260725T123629Z-db4a75d7","at":"2026-07-25T08:36:51.088-04:00","mono_ms":592290784}
+{"kind":"change","stream":"stat","key":"move","from":83,"to":82,"seq":46,"session_id":"20260725T123629Z-db4a75d7","at":"2026-07-25T08:36:52.186-04:00","mono_ms":592291882}
+{"id":33,"name":"The Entrance Hall Of The Grunting Boar Inn","confidence":"confirmed","surveyed":true,"kind":"event","stream":"room","op":"create","seq":47,"session_id":"20260725T123629Z-db4a75d7","at":"2026-07-25T08:36:52.398-04:00","mono_ms":592292093}
+{"kind":"change","stream":"exit","key":"33:north:target_name","from":null,"to":"The Post Office","seq":48,"session_id":"20260725T123629Z-db4a75d7","at":"2026-07-25T08:36:52.398-04:00","mono_ms":592292094}
+{"kind":"change","stream":"exit","key":"33:east:target_name","from":null,"to":"The Grunting Boar","seq":49,"session_id":"20260725T123629Z-db4a75d7","at":"2026-07-25T08:36:52.398-04:00","mono_ms":592292094}
+{"kind":"change","stream":"exit","key":"33:west:target_name","from":null,"to":"The Temple Square","seq":50,"session_id":"20260725T123629Z-db4a75d7","at":"2026-07-25T08:36:52.398-04:00","mono_ms":592292094}
+{"kind":"change","stream":"exit","key":"33:up:target_name","from":null,"to":"The Reception","seq":51,"session_id":"20260725T123629Z-db4a75d7","at":"2026-07-25T08:36:52.398-04:00","mono_ms":592292094}
+{"kind":"change","stream":"exit","key":"2:east:target_room_id","from":null,"to":33,"seq":52,"session_id":"20260725T123629Z-db4a75d7","at":"2026-07-25T08:36:52.398-04:00","mono_ms":592292094}
+{"kind":"change","stream":"stat","key":"current_room_id","from":2,"to":33,"seq":53,"session_id":"20260725T123629Z-db4a75d7","at":"2026-07-25T08:36:52.398-04:00","mono_ms":592292094}
+{"kind":"change","stream":"stat","key":"prev_room_id","from":1,"to":2,"seq":54,"session_id":"20260725T123629Z-db4a75d7","at":"2026-07-25T08:36:52.398-04:00","mono_ms":592292094}
+{"kind":"change","stream":"stat","key":"last_direction","from":"down","to":"east","seq":55,"session_id":"20260725T123629Z-db4a75d7","at":"2026-07-25T08:36:52.398-04:00","mono_ms":592292094}
+{"kind":"change","stream":"stat","key":"move","from":82,"to":81,"seq":56,"session_id":"20260725T123629Z-db4a75d7","at":"2026-07-25T08:36:53.486-04:00","mono_ms":592293182}
+{"kind":"change","stream":"entity","key":"7:threat","from":null,"to":"The perfect match!","seq":57,"session_id":"20260725T123629Z-db4a75d7","at":"2026-07-25T08:36:53.687-04:00","mono_ms":592293383}
+{"kind":"change","stream":"entity","key":"26:threat","from":null,"to":"You ARE mad!","seq":58,"session_id":"20260725T123629Z-db4a75d7","at":"2026-07-25T08:36:53.887-04:00","mono_ms":592293583}
+{"id":34,"name":"The Post Office","confidence":"confirmed","surveyed":true,"kind":"event","stream":"room","op":"create","seq":59,"session_id":"20260725T123629Z-db4a75d7","at":"2026-07-25T08:36:53.900-04:00","mono_ms":592293596}
+{"kind":"change","stream":"exit","key":"34:south:target_name","from":null,"to":"The Entrance Hall Of The Grunting Boar Inn","seq":60,"session_id":"20260725T123629Z-db4a75d7","at":"2026-07-25T08:36:53.900-04:00","mono_ms":592293596}
+{"kind":"change","stream":"sighting","key":"7:34:count","from":null,"to":1,"seq":61,"session_id":"20260725T123629Z-db4a75d7","at":"2026-07-25T08:36:53.900-04:00","mono_ms":592293596}
+{"kind":"change","stream":"sighting","key":"26:34:count","from":null,"to":1,"seq":62,"session_id":"20260725T123629Z-db4a75d7","at":"2026-07-25T08:36:53.900-04:00","mono_ms":592293596}
+{"kind":"change","stream":"exit","key":"33:north:target_room_id","from":null,"to":34,"seq":63,"session_id":"20260725T123629Z-db4a75d7","at":"2026-07-25T08:36:53.901-04:00","mono_ms":592293597}
+{"kind":"change","stream":"stat","key":"current_room_id","from":33,"to":34,"seq":64,"session_id":"20260725T123629Z-db4a75d7","at":"2026-07-25T08:36:53.901-04:00","mono_ms":592293597}
+{"kind":"change","stream":"stat","key":"prev_room_id","from":2,"to":33,"seq":65,"session_id":"20260725T123629Z-db4a75d7","at":"2026-07-25T08:36:53.901-04:00","mono_ms":592293597}
+{"kind":"change","stream":"stat","key":"last_direction","from":"east","to":"north","seq":66,"session_id":"20260725T123629Z-db4a75d7","at":"2026-07-25T08:36:53.901-04:00","mono_ms":592293597}
+{"kind":"change","stream":"stat","key":"move","from":81,"to":80,"seq":67,"session_id":"20260725T123629Z-db4a75d7","at":"2026-07-25T08:36:55.186-04:00","mono_ms":592294882}
+{"id":33,"kind":"event","stream":"room","op":"visit","seq":68,"session_id":"20260725T123629Z-db4a75d7","at":"2026-07-25T08:36:55.187-04:00","mono_ms":592294883}
+{"kind":"change","stream":"exit","key":"34:south:target_room_id","from":null,"to":33,"seq":69,"session_id":"20260725T123629Z-db4a75d7","at":"2026-07-25T08:36:55.187-04:00","mono_ms":592294883}
+{"kind":"change","stream":"stat","key":"current_room_id","from":34,"to":33,"seq":70,"session_id":"20260725T123629Z-db4a75d7","at":"2026-07-25T08:36:55.187-04:00","mono_ms":592294883}
+{"kind":"change","stream":"stat","key":"prev_room_id","from":33,"to":34,"seq":71,"session_id":"20260725T123629Z-db4a75d7","at":"2026-07-25T08:36:55.187-04:00","mono_ms":592294883}
+{"kind":"change","stream":"stat","key":"last_direction","from":"north","to":"south","seq":72,"session_id":"20260725T123629Z-db4a75d7","at":"2026-07-25T08:36:55.187-04:00","mono_ms":592294883}
+{"kind":"change","stream":"stat","key":"move","from":80,"to":79,"seq":73,"session_id":"20260725T123629Z-db4a75d7","at":"2026-07-25T08:36:56.987-04:00","mono_ms":592296682}
+{"kind":"change","stream":"entity","key":"27:threat","from":null,"to":"You would need some luck!","seq":74,"session_id":"20260725T123629Z-db4a75d7","at":"2026-07-25T08:36:57.386-04:00","mono_ms":592297082}
+{"kind":"change","stream":"entity","key":"28:threat","from":null,"to":"Consider killing who?","seq":75,"session_id":"20260725T123629Z-db4a75d7","at":"2026-07-25T08:36:57.586-04:00","mono_ms":592297282}
+{"id":35,"name":"The Grunting Boar","confidence":"confirmed","surveyed":true,"kind":"event","stream":"room","op":"create","seq":76,"session_id":"20260725T123629Z-db4a75d7","at":"2026-07-25T08:36:57.598-04:00","mono_ms":592297293}
+{"kind":"change","stream":"exit","key":"35:west:target_name","from":null,"to":"The Entrance Hall Of The Grunting Boar Inn","seq":77,"session_id":"20260725T123629Z-db4a75d7","at":"2026-07-25T08:36:57.598-04:00","mono_ms":592297294}
+{"kind":"change","stream":"sighting","key":"27:35:count","from":null,"to":3,"seq":78,"session_id":"20260725T123629Z-db4a75d7","at":"2026-07-25T08:36:57.598-04:00","mono_ms":592297294}
+{"kind":"change","stream":"sighting","key":"28:35:count","from":null,"to":1,"seq":79,"session_id":"20260725T123629Z-db4a75d7","at":"2026-07-25T08:36:57.598-04:00","mono_ms":592297294}
+{"kind":"change","stream":"exit","key":"33:east:target_room_id","from":null,"to":35,"seq":80,"session_id":"20260725T123629Z-db4a75d7","at":"2026-07-25T08:36:57.598-04:00","mono_ms":592297294}
+{"kind":"change","stream":"stat","key":"current_room_id","from":33,"to":35,"seq":81,"session_id":"20260725T123629Z-db4a75d7","at":"2026-07-25T08:36:57.598-04:00","mono_ms":592297294}
+{"kind":"change","stream":"stat","key":"prev_room_id","from":34,"to":33,"seq":82,"session_id":"20260725T123629Z-db4a75d7","at":"2026-07-25T08:36:57.598-04:00","mono_ms":592297294}
+{"kind":"change","stream":"stat","key":"last_direction","from":"south","to":"east","seq":83,"session_id":"20260725T123629Z-db4a75d7","at":"2026-07-25T08:36:57.598-04:00","mono_ms":592297294}
+{"kind":"change","stream":"stat","key":"move","from":79,"to":78,"seq":84,"session_id":"20260725T123629Z-db4a75d7","at":"2026-07-25T08:37:00.188-04:00","mono_ms":592299884}
+{"id":33,"kind":"event","stream":"room","op":"visit","seq":85,"session_id":"20260725T123629Z-db4a75d7","at":"2026-07-25T08:37:00.188-04:00","mono_ms":592299884}
+{"kind":"change","stream":"exit","key":"35:west:target_room_id","from":null,"to":33,"seq":86,"session_id":"20260725T123629Z-db4a75d7","at":"2026-07-25T08:37:00.189-04:00","mono_ms":592299885}
+{"kind":"change","stream":"stat","key":"current_room_id","from":35,"to":33,"seq":87,"session_id":"20260725T123629Z-db4a75d7","at":"2026-07-25T08:37:00.189-04:00","mono_ms":592299885}
+{"kind":"change","stream":"stat","key":"prev_room_id","from":33,"to":35,"seq":88,"session_id":"20260725T123629Z-db4a75d7","at":"2026-07-25T08:37:00.189-04:00","mono_ms":592299885}
+{"kind":"change","stream":"stat","key":"last_direction","from":"east","to":"west","seq":89,"session_id":"20260725T123629Z-db4a75d7","at":"2026-07-25T08:37:00.189-04:00","mono_ms":592299885}
+{"kind":"change","stream":"stat","key":"move","from":78,"to":77,"seq":90,"session_id":"20260725T123629Z-db4a75d7","at":"2026-07-25T08:37:02.586-04:00","mono_ms":592302282}
+{"kind":"change","stream":"entity","key":"29:threat","from":null,"to":"You ARE mad!","seq":91,"session_id":"20260725T123629Z-db4a75d7","at":"2026-07-25T08:37:02.987-04:00","mono_ms":592302682}
+{"id":36,"name":"The Reception","confidence":"confirmed","surveyed":true,"kind":"event","stream":"room","op":"create","seq":92,"session_id":"20260725T123629Z-db4a75d7","at":"2026-07-25T08:37:02.998-04:00","mono_ms":592302694}
+{"kind":"change","stream":"exit","key":"36:north:target_name","from":null,"to":"The Cryogenic Center","seq":93,"session_id":"20260725T123629Z-db4a75d7","at":"2026-07-25T08:37:02.998-04:00","mono_ms":592302694}
+{"kind":"change","stream":"exit","key":"36:down:target_name","from":null,"to":"The Entrance Hall Of The Grunting Boar Inn","seq":94,"session_id":"20260725T123629Z-db4a75d7","at":"2026-07-25T08:37:02.998-04:00","mono_ms":592302694}
+{"kind":"change","stream":"sighting","key":"29:36:count","from":null,"to":1,"seq":95,"session_id":"20260725T123629Z-db4a75d7","at":"2026-07-25T08:37:02.999-04:00","mono_ms":592302695}
+{"kind":"change","stream":"sighting","key":"1:36:count","from":null,"to":1,"seq":96,"session_id":"20260725T123629Z-db4a75d7","at":"2026-07-25T08:37:02.999-04:00","mono_ms":592302695}
+{"kind":"change","stream":"exit","key":"33:up:target_room_id","from":null,"to":36,"seq":97,"session_id":"20260725T123629Z-db4a75d7","at":"2026-07-25T08:37:03.000-04:00","mono_ms":592302696}
+{"kind":"change","stream":"stat","key":"current_room_id","from":33,"to":36,"seq":98,"session_id":"20260725T123629Z-db4a75d7","at":"2026-07-25T08:37:03.000-04:00","mono_ms":592302696}
+{"kind":"change","stream":"stat","key":"prev_room_id","from":35,"to":33,"seq":99,"session_id":"20260725T123629Z-db4a75d7","at":"2026-07-25T08:37:03.000-04:00","mono_ms":592302696}
+{"kind":"change","stream":"stat","key":"last_direction","from":"west","to":"up","seq":100,"session_id":"20260725T123629Z-db4a75d7","at":"2026-07-25T08:37:03.000-04:00","mono_ms":592302696}
+{"kind":"change","stream":"stat","key":"move","from":77,"to":76,"seq":101,"session_id":"20260725T123629Z-db4a75d7","at":"2026-07-25T08:37:06.086-04:00","mono_ms":592305782}
+{"kind":"change","stream":"entity","key":"30:threat","from":null,"to":"You ARE mad!","seq":102,"session_id":"20260725T123629Z-db4a75d7","at":"2026-07-25T08:37:06.486-04:00","mono_ms":592306182}
+{"id":37,"name":"The Cryogenic Center","confidence":"confirmed","surveyed":true,"kind":"event","stream":"room","op":"create","seq":103,"session_id":"20260725T123629Z-db4a75d7","at":"2026-07-25T08:37:06.492-04:00","mono_ms":592306188}
+{"kind":"change","stream":"exit","key":"37:south:target_name","from":null,"to":"The Reception","seq":104,"session_id":"20260725T123629Z-db4a75d7","at":"2026-07-25T08:37:06.492-04:00","mono_ms":592306188}
+{"kind":"change","stream":"sighting","key":"30:37:count","from":null,"to":1,"seq":105,"session_id":"20260725T123629Z-db4a75d7","at":"2026-07-25T08:37:06.493-04:00","mono_ms":592306189}
+{"kind":"change","stream":"exit","key":"36:north:target_room_id","from":null,"to":37,"seq":106,"session_id":"20260725T123629Z-db4a75d7","at":"2026-07-25T08:37:06.494-04:00","mono_ms":592306189}
+{"kind":"change","stream":"stat","key":"current_room_id","from":36,"to":37,"seq":107,"session_id":"20260725T123629Z-db4a75d7","at":"2026-07-25T08:37:06.494-04:00","mono_ms":592306190}
+{"kind":"change","stream":"stat","key":"prev_room_id","from":33,"to":36,"seq":108,"session_id":"20260725T123629Z-db4a75d7","at":"2026-07-25T08:37:06.494-04:00","mono_ms":592306190}
+{"kind":"change","stream":"stat","key":"last_direction","from":"up","to":"north","seq":109,"session_id":"20260725T123629Z-db4a75d7","at":"2026-07-25T08:37:06.494-04:00","mono_ms":592306190}
+{"kind":"change","stream":"stat","key":"move","from":76,"to":75,"seq":110,"session_id":"20260725T123629Z-db4a75d7","at":"2026-07-25T08:37:07.886-04:00","mono_ms":592307582}
+{"id":36,"kind":"event","stream":"room","op":"visit","seq":111,"session_id":"20260725T123629Z-db4a75d7","at":"2026-07-25T08:37:07.887-04:00","mono_ms":592307583}
+{"kind":"change","stream":"exit","key":"37:south:target_room_id","from":null,"to":36,"seq":112,"session_id":"20260725T123629Z-db4a75d7","at":"2026-07-25T08:37:07.887-04:00","mono_ms":592307583}
+{"kind":"change","stream":"stat","key":"current_room_id","from":37,"to":36,"seq":113,"session_id":"20260725T123629Z-db4a75d7","at":"2026-07-25T08:37:07.887-04:00","mono_ms":592307583}
+{"kind":"change","stream":"stat","key":"prev_room_id","from":36,"to":37,"seq":114,"session_id":"20260725T123629Z-db4a75d7","at":"2026-07-25T08:37:07.887-04:00","mono_ms":592307583}
+{"kind":"change","stream":"stat","key":"last_direction","from":"north","to":"south","seq":115,"session_id":"20260725T123629Z-db4a75d7","at":"2026-07-25T08:37:07.887-04:00","mono_ms":592307583}
+{"kind":"change","stream":"stat","key":"move","from":75,"to":74,"seq":116,"session_id":"20260725T123629Z-db4a75d7","at":"2026-07-25T08:37:09.386-04:00","mono_ms":592309082}
+{"id":33,"kind":"event","stream":"room","op":"visit","seq":117,"session_id":"20260725T123629Z-db4a75d7","at":"2026-07-25T08:37:09.387-04:00","mono_ms":592309083}
+{"kind":"change","stream":"exit","key":"36:down:target_room_id","from":null,"to":33,"seq":118,"session_id":"20260725T123629Z-db4a75d7","at":"2026-07-25T08:37:09.387-04:00","mono_ms":592309083}
+{"kind":"change","stream":"stat","key":"current_room_id","from":36,"to":33,"seq":119,"session_id":"20260725T123629Z-db4a75d7","at":"2026-07-25T08:37:09.387-04:00","mono_ms":592309083}
+{"kind":"change","stream":"stat","key":"prev_room_id","from":37,"to":36,"seq":120,"session_id":"20260725T123629Z-db4a75d7","at":"2026-07-25T08:37:09.387-04:00","mono_ms":592309083}
+{"kind":"change","stream":"stat","key":"last_direction","from":"south","to":"down","seq":121,"session_id":"20260725T123629Z-db4a75d7","at":"2026-07-25T08:37:09.387-04:00","mono_ms":592309083}
+{"kind":"change","stream":"stat","key":"move","from":74,"to":73,"seq":122,"session_id":"20260725T123629Z-db4a75d7","at":"2026-07-25T08:37:10.489-04:00","mono_ms":592310184}
+{"id":2,"kind":"event","stream":"room","op":"visit","seq":123,"session_id":"20260725T123629Z-db4a75d7","at":"2026-07-25T08:37:10.489-04:00","mono_ms":592310185}
+{"kind":"change","stream":"exit","key":"33:west:target_room_id","from":null,"to":2,"seq":124,"session_id":"20260725T123629Z-db4a75d7","at":"2026-07-25T08:37:10.489-04:00","mono_ms":592310185}
+{"kind":"change","stream":"stat","key":"current_room_id","from":33,"to":2,"seq":125,"session_id":"20260725T123629Z-db4a75d7","at":"2026-07-25T08:37:10.489-04:00","mono_ms":592310185}
+{"kind":"change","stream":"stat","key":"prev_room_id","from":36,"to":33,"seq":126,"session_id":"20260725T123629Z-db4a75d7","at":"2026-07-25T08:37:10.489-04:00","mono_ms":592310185}
+{"kind":"change","stream":"stat","key":"last_direction","from":"down","to":"west","seq":127,"session_id":"20260725T123629Z-db4a75d7","at":"2026-07-25T08:37:10.489-04:00","mono_ms":592310185}
+{"kind":"change","stream":"stat","key":"move","from":73,"to":72,"seq":128,"session_id":"20260725T123629Z-db4a75d7","at":"2026-07-25T08:37:11.886-04:00","mono_ms":592311582}
+{"kind":"change","stream":"entity","key":"9:threat","from":null,"to":"You ARE mad!","seq":129,"session_id":"20260725T123629Z-db4a75d7","at":"2026-07-25T08:37:12.086-04:00","mono_ms":592311782}
+{"kind":"change","stream":"entity","key":"31:threat","from":null,"to":"You ARE mad!","seq":130,"session_id":"20260725T123629Z-db4a75d7","at":"2026-07-25T08:37:12.286-04:00","mono_ms":592311982}
+{"id":38,"name":"The Entrance To The Clerics' Guild","confidence":"confirmed","surveyed":true,"kind":"event","stream":"room","op":"create","seq":131,"session_id":"20260725T123629Z-db4a75d7","at":"2026-07-25T08:37:12.291-04:00","mono_ms":592311987}
+{"kind":"change","stream":"exit","key":"38:north:target_name","from":null,"to":"The Bar Of Divination","seq":132,"session_id":"20260725T123629Z-db4a75d7","at":"2026-07-25T08:37:12.291-04:00","mono_ms":592311987}
+{"kind":"change","stream":"exit","key":"38:east:target_name","from":null,"to":"The Temple Square","seq":133,"session_id":"20260725T123629Z-db4a75d7","at":"2026-07-25T08:37:12.291-04:00","mono_ms":592311987}
+{"kind":"change","stream":"sighting","key":"9:38:count","from":null,"to":1,"seq":134,"session_id":"20260725T123629Z-db4a75d7","at":"2026-07-25T08:37:12.292-04:00","mono_ms":592311987}
+{"kind":"change","stream":"sighting","key":"31:38:count","from":null,"to":1,"seq":135,"session_id":"20260725T123629Z-db4a75d7","at":"2026-07-25T08:37:12.292-04:00","mono_ms":592311988}
+{"kind":"change","stream":"sighting","key":"1:38:count","from":null,"to":1,"seq":136,"session_id":"20260725T123629Z-db4a75d7","at":"2026-07-25T08:37:12.292-04:00","mono_ms":592311988}
+{"kind":"change","stream":"exit","key":"2:west:target_room_id","from":null,"to":38,"seq":137,"session_id":"20260725T123629Z-db4a75d7","at":"2026-07-25T08:37:12.292-04:00","mono_ms":592311988}
+{"kind":"change","stream":"stat","key":"current_room_id","from":2,"to":38,"seq":138,"session_id":"20260725T123629Z-db4a75d7","at":"2026-07-25T08:37:12.292-04:00","mono_ms":592311988}
+{"kind":"change","stream":"stat","key":"prev_room_id","from":33,"to":2,"seq":139,"session_id":"20260725T123629Z-db4a75d7","at":"2026-07-25T08:37:12.292-04:00","mono_ms":592311988}

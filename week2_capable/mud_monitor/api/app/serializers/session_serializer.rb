@@ -25,6 +25,15 @@ class SessionSerializer
       turns: p.turn_count_real,
       iterations: p.iteration_count,
       tool_calls: p.tool_calls_count,
+      # Split so a hook's bootstrap `score` and its empty polls stop inflating
+      # the model's apparent appetite for tools. `has_provenance` is how the UI
+      # knows the split is meaningful at all — a pre-contract log reports every
+      # call as the model's because it genuinely cannot tell.
+      model_tool_calls: p.model_tool_calls,
+      automatic_tool_calls: p.automatic_tool_calls,
+      automatic_tool_ms: p.automatic_tool_ms,
+      automatic_operations: p.automatic_operations,
+      has_provenance: p.has_provenance?,
       input_tokens: p.total_input_tokens,
       output_tokens: p.total_output_tokens,
       peak_input_tokens: p.peak_input_tokens,

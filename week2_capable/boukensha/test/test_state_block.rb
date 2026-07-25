@@ -32,7 +32,7 @@ class TestStateBlock < Minitest::Test
 
     assert_equal <<~BLOCK.strip, out
       [here] Market Square  (visit 2)
-      exits: n→The Temple Square ✓ | e→Main Street ? | u ?
+      exits: north→The Temple Square ✓ | east→Main Street ? | up ?
       here: A cityguard stands here. (mob — "you could take him")
       you: 20/20hp 100mana 81mv · lvl 1 · 43 gold · standing
     BLOCK
@@ -60,9 +60,9 @@ class TestStateBlock < Minitest::Test
   def test_the_frontier_glyph
     line = S.render(room: room, exits: exits).lines[1]
 
-    assert_includes line, "n→The Temple Square ✓"
-    assert_includes line, "e→Main Street ?"
-    assert_includes line, "u ?", "a direction with no name yet is still a frontier"
+    assert_includes line, "north→The Temple Square ✓"
+    assert_includes line, "east→Main Street ?"
+    assert_includes line, "up ?", "a direction with no name yet is still a frontier"
   end
 
   # A model told the location is ambiguous can act sensibly. A model told a
@@ -117,8 +117,29 @@ class TestStateBlock < Minitest::Test
     refute_includes S.render(room: room, candidates: nil).to_s, "worth a look"
   end
 
-  def test_long_directions_abbreviate_predictably
-    assert_equal %w[n s e w u d ne nw se sw],
-                 %w[north south east west up down northeast northwest southeast southwest].map { |d| S.short(d) }
+  # The `d` failure, at the producer. The block used to abbreviate to match the
+  # MUD's own `[ Exits: n e s w ]` line; the model read it as a menu and passed
+  # `direction: "d"` to a tool whose schema accepts only the long spellings,
+  # losing an iteration to `invalid direction: "d"`. One grammar, both sides.
+  def test_exit_directions_are_spelled_the_way_move_accepts_them
+    full_names = Boukensha::Mud::RoomParser::DIRECTIONS.values
+    exits = full_names.map { |d| { direction: d, target_name: "Somewhere", target_room_id: nil } }
+    printed = S.render(room: room, exits: exits).lines[1].sub("exits: ", "")
+                .split(" | ").map { |part| part.split("→").first }
+
+    assert_equal full_names, printed
+    assert_equal full_names, S::DIRECTIONS
+  end
+
+  # tbaMUD's `move` enum (mud_manager's Primitives::DIRECTIONS) is the six the
+  # stock engine has. Nothing the block prints for them may fall outside it.
+  MOVE_ENUM = %w[north east south west up down].freeze
+
+  def test_the_six_engine_directions_render_inside_the_move_enum
+    exits = MOVE_ENUM.map { |d| { direction: d, target_name: nil, target_room_id: nil } }
+    printed = S.render(room: room, exits: exits).lines[1].sub("exits: ", "")
+                .split(" | ").map { |part| part.split(/[ →]/).first }
+
+    assert_equal MOVE_ENUM, printed
   end
 end

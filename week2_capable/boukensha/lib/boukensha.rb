@@ -384,7 +384,18 @@ module Boukensha
   # mud_monitor's session view reads. The task_start/task_end pair is the
   # caller's to open, because it brackets the whole survey rather than each
   # command.
-  def self.tool_dispatcher(tool_name, logger: nil)
+  #
+  # `initiator:` — stamped on every event this dispatcher writes, and the whole
+  # point of it: a call that arrives here was NOT selected by the model, and a
+  # log that cannot say so makes the hook's bootstrap `score` read as the agent
+  # checking its own sheet. The caller adds the `operation`/`trigger` of the
+  # moment as a third argument:
+  #
+  #   call.call("tbamud__look", {}, operation: "position_refresh", trigger: "before_model")
+  #
+  # A caller that passes neither (RoomSurvey's own calls, tests) still works —
+  # the metadata is additive, and every field is optional on the wire.
+  def self.tool_dispatcher(tool_name, logger: nil, initiator: "hook")
     cfg      = config
     allow    = cfg.dig(:tools, tool_name, :allow)
     perms    = allow.nil? ? Permissions.deny_all : Permissions.from(allow)
@@ -393,15 +404,26 @@ module Boukensha
     register_task_tools(registry, cfg, perms)
     perms.validate_referenced!(registry.tool_names)
 
-    lambda do |name, args = {}|
-      logger&.tool_call(name: name, args: args)
+    lambda do |name, args = {}, meta = {}|
+      meta    = meta.transform_keys(&:to_sym).slice(:operation, :trigger, :parent_call_id)
+      call_id = logger&.tool_call(name: name, args: args, initiator: initiator, **meta)
+      # `parent_call_id` describes what CAUSED the call, so it belongs on the
+      # call and not on its answer.
+      meta    = meta.slice(:operation, :trigger)
+      # Monotonic, so the figure survives an NTP step mid-call — and so §6's
+      # "was the 1.9s the MUD or the model?" is answerable from one field
+      # rather than from the gap between two events.
+      started = Process.clock_gettime(Process::CLOCK_MONOTONIC)
+      done    = -> { ((Process.clock_gettime(Process::CLOCK_MONOTONIC) - started) * 1000).round }
       begin
         result = registry.dispatch(name, args)
       rescue StandardError => e
-        logger&.tool_result(name: name, result: "", ok: false, error: e.message)
+        logger&.tool_result(name: name, result: "", ok: false, error: e.message,
+                            call_id: call_id, initiator: initiator, duration_ms: done.call, **meta)
         raise
       end
-      logger&.tool_result(name: name, result: result)
+      logger&.tool_result(name: name, result: result, call_id: call_id,
+                          initiator: initiator, duration_ms: done.call, **meta)
       result
     end
   end

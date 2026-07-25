@@ -181,6 +181,95 @@ module SessionLog
       assert_nil parser.entries.find { |e| e.type == :task_end }
     end
 
+    # ---- provenance (observ_improvements.md §1-§3) ------------------------
+
+    test "a tool entry carries who initiated it, why, and from which seam" do
+      parser = Parser.load(FIXTURES.join("provenance.jsonl"))
+      by_name = parser.entries.select { |e| e.type == :tool }.to_h { |e| [ e.tool_name, e ] }
+
+      score = by_name["tbamud__check"]
+      assert_equal "hook", score.initiator
+      assert_equal "player_bootstrap", score.operation
+      assert_equal "before_turn", score.trigger
+      assert_equal "call_boot01", score.call_id
+
+      assert_equal "model", by_name["tbamud__move"].initiator
+      assert_nil by_name["tbamud__move"].operation, "a model call has no hook operation"
+    end
+
+    # The 1.9 seconds sat next to Iteration 0 and read as model latency. It was
+    # a blocking MUD `score`, and the dispatcher now says so in one field.
+    test "the dispatcher's own duration is preferred over the gap between events" do
+      parser = Parser.load(FIXTURES.join("provenance.jsonl"))
+      score  = parser.entries.find { |e| e.tool_name == "tbamud__check" }
+
+      assert_equal 1930, score.duration_ms
+    end
+
+    test "model and automatic tool calls are counted separately" do
+      parser = Parser.load(FIXTURES.join("provenance.jsonl"))
+
+      assert_equal 4, parser.tool_calls_count
+      assert_equal 1, parser.model_tool_calls
+      assert_equal 3, parser.automatic_tool_calls
+      assert parser.has_provenance?
+      assert_equal 2035, parser.automatic_tool_ms
+    end
+
+    test "automatic work rolls up by operation, slowest first" do
+      parser = Parser.load(FIXTURES.join("provenance.jsonl"))
+      rows   = parser.automatic_operations
+
+      assert_equal %w[player_bootstrap position_refresh async_poll], rows.map { |r| r[:operation] }
+      assert_equal 1930, rows.first[:duration_ms]
+      assert_equal "before_turn", rows.first[:trigger]
+      # An empty poll is the common case and the group summary says so rather
+      # than giving each one a row in the narrative.
+      assert_equal 1, rows.last[:empty]
+      assert_equal 0, rows.sum { |r| r[:failed] }
+    end
+
+    # The apparent contradiction: a movement card showing a full room dump next
+    # to an assistant that demonstrably saw `moved west → …`. One card, both
+    # halves — never two rows that look like unrelated events.
+    test "a context_transform folds into the tool card it belongs to" do
+      parser = Parser.load(FIXTURES.join("provenance.jsonl"))
+      move   = parser.entries.find { |e| e.tool_name == "tbamud__move" }
+
+      assert_equal "moved west → The Reading Room", move.model_result
+      assert_includes move.tool_result, "Bookshelves line the walls."
+      assert_equal 72, move.raw_chars
+      refute parser.entries.any? { |e| e.type == :context_transform },
+             "the transform belongs inside the movement card, not beside it"
+    end
+
+    test "injected context becomes an entry of its own before the request that carried it" do
+      parser   = Parser.load(FIXTURES.join("provenance.jsonl"))
+      injected = parser.entries.select { |e| e.type == :injected_context }
+
+      assert_equal 2, injected.length
+      assert_equal "state_block", injected.first.kind
+      assert_equal "memory", injected.first.source
+      assert_equal true, injected.first.changed
+      assert_includes injected.first.content, "[here] The Temple Of Midgaard"
+      assert_operator injected.first.seq, :<, parser.entries.find { |e| e.type == :request }.seq
+      refute parser.entries.any? { |e| e.type == :unknown }
+    end
+
+    # Old files must still load and must not be silently re-attributed. With no
+    # provenance on the wire there ARE no automatic calls to report — the file
+    # cannot say — so the count stays where it has always been.
+    test "a log with no provenance reports every call as the model's and says the split is unknown" do
+      parser = Parser.load(FIXTURES.join("complete.jsonl"))
+
+      refute parser.has_provenance?
+      assert_equal 1, parser.tool_calls_count
+      assert_equal 1, parser.model_tool_calls
+      assert_equal 0, parser.automatic_tool_calls
+      assert_nil parser.automatic_tool_ms
+      assert_empty parser.automatic_operations
+    end
+
     # Sessions written before Amendment A carry no task/depth at all. They are
     # one unlabelled root task, which is exactly what they were.
     test "a pre-amendment log parses with no task labels and depth 0 throughout" do

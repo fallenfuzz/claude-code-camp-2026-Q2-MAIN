@@ -37,12 +37,18 @@ module Boukensha
       # #remember_keyword(desc, keyword, threat:). Mud::Memory::Store is the
       # real one; nil means "no memory", and the survey degrades to appraising
       # every mob every time, which is exactly today's behaviour.
-      def initialize(call_tool:, look_candidates: nil, entities: nil, prefix: "tbamud__", warn_to: $stderr)
+      # `call_meta:` — the provenance stamped on every call this survey makes
+      # (`operation:`/`trigger:`). It is constant for the whole survey by
+      # design: the four commands below are one unit of automatic work, and a
+      # reader that sees them as four separate player actions is being lied to.
+      def initialize(call_tool:, look_candidates: nil, entities: nil, prefix: "tbamud__",
+                     warn_to: $stderr, call_meta: {})
         @call_tool = call_tool
         @extract   = look_candidates
         @entities  = entities
         @prefix    = prefix
         @warn_to   = warn_to
+        @call_meta = call_meta || {}
       end
 
       # The survey. `look` and `check(exits)` are unconditional; the
@@ -89,7 +95,7 @@ module Boukensha
       private
 
       def call(tool, **args)
-        @call_tool.call("#{@prefix}#{tool}", args)
+        @call_tool.call("#{@prefix}#{tool}", args, @call_meta)
       end
 
       # consider + examine per DISTINCT mob, priced by what memory already knows

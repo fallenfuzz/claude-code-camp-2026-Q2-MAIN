@@ -54,6 +54,7 @@ module Boukensha
         # this loop, so anything that reconciles "where am I" has to run per
         # iteration or the model reasons about the room it left.
         @hooks.before_model(context: @context)
+        log_injected_context
         # request_messages/advertised_tools, not messages/tools: this event is
         # the readable view of the call, and it would be lying if it showed the
         # transcript without the state block or a tool the turn policy hid.
@@ -152,6 +153,27 @@ module Boukensha
       content.select { |b| b["type"] == "text" }.map { |b| b["text"] }.join("\n")
     end
 
+    def since_ms(started)
+      ((Process.clock_gettime(Process::CLOCK_MONOTONIC) - started) * 1000).round
+    end
+
+    # What `before_model` just appended to the conversation on the model's
+    # behalf — the `[here]` state block, in the MUD deployment. The `request`
+    # event remains the definitive wire record; this one exists so the
+    # transcript itself can answer "what context is it thanking us for?", which
+    # previously required opening the request drawer and reading a payload.
+    #
+    # `changed:` is what lets the monitor collapse an unchanged refresh: the
+    # block is re-rendered every iteration and is usually identical to the last.
+    def log_injected_context
+      block = @context.state_block.to_s
+      return if block.strip.empty?
+
+      @logger.injected_context(kind: "state_block", content: block, source: "memory",
+                               changed: block != @last_state_block)
+      @last_state_block = block
+    end
+
     # Emit one `reasoning` event per reasoning block so the viewer can show the
     # model's thinking as a first-class step. Empty, non-redacted blocks are
     # skipped to avoid noise (a redacted/omitted block still renders, since it
@@ -193,15 +215,22 @@ module Boukensha
         args   = block["input"]
         use_id = block["id"]
 
-        @logger.tool_call(name: name, args: args)
+        # `initiator: "model"` is the counterpart to the `"hook"` the hook
+        # dispatcher stamps: these are the calls the model actually chose, and
+        # a session that cannot tell them apart reports a hook's bootstrap
+        # `score` as the agent being tool-hungry.
+        call_id = @logger.tool_call(name: name, args: args, initiator: "model")
+        started = Process.clock_gettime(Process::CLOCK_MONOTONIC)
         ok = true
         begin
           result = @registry.dispatch(name, args)
-          @logger.tool_result(name: name, result: result, ok: true)
+          @logger.tool_result(name: name, result: result, ok: true, call_id: call_id,
+                              initiator: "model", duration_ms: since_ms(started))
         rescue StandardError => e
           ok     = false
           result = "ERROR: #{e.class}: #{e.message}"
-          @logger.tool_result(name: name, result: result, ok: false, error: e.message)
+          @logger.tool_result(name: name, result: result, ok: false, error: e.message,
+                              call_id: call_id, initiator: "model", duration_ms: since_ms(started))
         end
 
         # Deliberately AFTER @logger.tool_result and BEFORE add_message: the
@@ -209,6 +238,13 @@ module Boukensha
         # faithful record otherwise), and only the model's copy is replaced. A
         # hook never gets to rewrite a failure — it never sees one.
         if ok && (replacement = @hooks.after_tool(name: name, args: args, result: result, context: @context))
+          # The substitution used to be visible only by diffing the transcript
+          # against the request drawer, which is how a movement card could show
+          # a full room dump while the model demonstrably saw `moved west → The
+          # Reading Room`. Both halves are now on the record, correlated by
+          # call_id, and neither replaces the other.
+          @logger.context_transform(call_id: call_id, kind: "tool_result_replacement",
+                                    raw_chars: result.to_s.length, content: replacement)
           result = replacement
         end
 

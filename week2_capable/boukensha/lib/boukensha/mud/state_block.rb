@@ -9,7 +9,7 @@ module Boukensha
     # first_seen_at, its fingerprints, or its prose for the fourth time.
     #
     #   [here] Market Square  (visit 2)
-    #   exits: n→The Temple Square ✓ | e→Main Street ✓ | s→The Common Square ✓ | w→Main Street ?
+    #   exits: north→The Temple Square ✓ | east→Main Street ✓ | south→The Common Square ✓ | west→Main Street ?
     #   here: a cityguard (mob — "you could take him")
     #   you: 20/20hp 100mana 81mv · lvl 1 · 43 gold · standing
     #
@@ -59,9 +59,20 @@ module Boukensha
       # The one glyph that is genuinely new information: `✓` is a destination the
       # agent has stood in, `?` is the exploration frontier. Today it cannot tell
       # "east, which I've mapped" from "east, unknown" at all.
+      #
+      # Directions render in FULL, and that is the whole of the fix for the `d`
+      # failure: this line used to abbreviate to match the MUD's own
+      # `[ Exits: n e s w ]`, but the model reads it as a menu and copies a
+      # value straight into `move.direction` — whose schema accepts only
+      # north/east/south/west/up/down. One session lost an iteration to
+      # `move(direction: "d")` for exactly that reason. The state block and the
+      # tool schema now speak one grammar; the few extra tokens per refresh buy
+      # back a failed round trip. Loosening the schema instead was rejected —
+      # one canonical spelling is what keeps policy pinning, validation, memory
+      # keys and logs consistent with each other.
       def exits_line(exits)
         rendered = exits.map do |e|
-          dir  = short(e[:direction])
+          dir  = e[:direction].to_s
           name = e[:target_name]
           mark = e[:target_room_id] ? "✓" : "?"
           name ? "#{dir}→#{name} #{mark}" : "#{dir} #{mark}"
@@ -115,15 +126,10 @@ module Boukensha
         "just now: #{Array(events).join(' ')}"
       end
 
-      # Back to the MUD's own abbreviations, so the exits line here reads the
-      # same as the `[ Exits: n e s w ]` line the agent sees everywhere else.
-      # A direction we don't recognise renders in full rather than being
-      # truncated into something that looks like a different one.
-      SHORT = RoomParser::DIRECTIONS.each_with_object({}) { |(abbr, full), h| h[full] = abbr }.freeze
-
-      def short(direction)
-        SHORT[direction.to_s] || direction.to_s
-      end
+      # Every direction this block may print, spelled the way `move.direction`
+      # accepts it. Exported so a test can assert the two vocabularies have not
+      # drifted apart again.
+      DIRECTIONS = RoomParser::DIRECTIONS.values.freeze
     end
   end
 end

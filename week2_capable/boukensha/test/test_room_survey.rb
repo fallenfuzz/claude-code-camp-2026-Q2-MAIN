@@ -17,16 +17,18 @@ class TestRoomSurvey < Minitest::Test
   # Records what was asked and replies from a script. The survey's whole
   # dependency on the outside world is this lambda.
   class FakeMud
-    attr_reader :calls
+    attr_reader :calls, :metas
 
     def initialize(responses)
       @responses = responses
       @calls = []
+      @metas = []
     end
 
     def to_proc
-      lambda do |name, args = {}|
+      lambda do |name, args = {}, meta = {}|
         @calls << [name, args]
+        @metas << meta
         key = name.sub("tbamud__", "")
         key = "#{key}:#{args[:target] || args[:kind]}" if args[:target] || args[:kind]
         @responses.fetch(key) { @responses.fetch(name.sub("tbamud__", ""), "") }

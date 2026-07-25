@@ -972,6 +972,215 @@ table.sessions a:hover {
   margin: 1rem 0 0.25rem;
 }
 
+/* ── Automatic context work (observ_improvements.md §3) ────────────────────
+   Hook-initiated MUD round trips: the cold-start score/look, the first-visit
+   room survey, the poll before each dispatch. Deliberately quieter than a
+   model tool card — none of it was the model's decision, and it used to sit in
+   the narrative looking like the agent's own actions. */
+.auto-group {
+  border-left: 3px dashed var(--border);
+  border-radius: 0 6px 6px 0;
+  padding-left: 0.75rem;
+  margin: 0.35rem 0 0.35rem 0.25rem;
+  opacity: 0.85;
+}
+
+.auto-group-failed {
+  border-left-color: var(--danger);
+  opacity: 1;
+}
+
+.auto-group-head {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  width: 100%;
+  background: none;
+  border: none;
+  padding: 0.25rem 0;
+  cursor: pointer;
+  color: var(--muted);
+  font: inherit;
+  font-size: 0.78rem;
+  text-align: left;
+}
+
+.auto-group-title {
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  font-size: 0.7rem;
+}
+
+.auto-group-count {
+  font-family: ui-monospace, monospace;
+  font-size: 0.72rem;
+}
+
+/* The collapsed body: one line per operation, not one per call. Eight empty
+   polls are one row saying so. */
+.auto-summary {
+  list-style: none;
+  margin: 0 0 0.3rem;
+  padding: 0;
+  font-size: 0.74rem;
+  color: var(--muted);
+  font-family: ui-monospace, monospace;
+}
+
+.auto-summary li {
+  display: flex;
+  gap: 0.6rem;
+  align-items: baseline;
+  padding: 0.05rem 0;
+}
+
+.auto-summary-op {
+  min-width: 11rem;
+  color: var(--text);
+  opacity: 0.75;
+}
+
+.auto-summary-tools {
+  flex: 1;
+}
+
+.auto-summary-ms {
+  font-variant-numeric: tabular-nums;
+}
+
+.auto-entry-op {
+  font-size: 0.72rem;
+  color: var(--muted);
+  font-family: ui-monospace, monospace;
+  padding-top: 0.2rem;
+}
+
+/* Session-level rollup: where the automatic time actually went. */
+.auto-table {
+  width: 100%;
+  border-collapse: collapse;
+  margin: 0.75rem 0;
+  font-size: 0.8rem;
+}
+
+.auto-table caption {
+  text-align: left;
+  color: var(--muted);
+  font-size: 0.75rem;
+  padding-bottom: 0.35rem;
+}
+
+.auto-table th,
+.auto-table td {
+  text-align: left;
+  padding: 0.3rem 0.6rem;
+  border-bottom: 1px solid var(--border);
+}
+
+.auto-table th {
+  color: var(--muted);
+  font-weight: 500;
+  font-size: 0.72rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.auto-table .num {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+  font-family: ui-monospace, monospace;
+}
+
+.auto-table-failed td {
+  color: var(--danger);
+}
+
+/* ── Model-visible result vs raw MUD response (§2) ─────────────────────────
+   A movement card shows `moved west → The Reading Room` — what the model
+   actually received — and keeps the MUD's own 105-token room dump one click
+   away. Both are on the record; neither replaces the other. */
+.tool-result-model {
+  background: var(--tool-bg);
+  color: var(--text);
+  font-style: normal;
+}
+
+.raw-toggle {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  width: 100%;
+  background: none;
+  border: none;
+  border-top: 1px solid var(--tool-border);
+  padding: 0.3rem 1rem;
+  cursor: pointer;
+  color: var(--muted);
+  font: inherit;
+  font-size: 0.72rem;
+  text-align: left;
+}
+
+.raw-toggle:hover {
+  color: var(--accent);
+}
+
+/* ── Injected context (§2) ─────────────────────────────────────────────────
+   The `[here]` block a hook appended before the model call. Sits where it was
+   injected, collapsed to its first line, so "thank you for the context" is
+   traceable without opening the request drawer. */
+.injected-card {
+  border: 1px dashed var(--border);
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+.injected-unchanged {
+  opacity: 0.6;
+}
+
+.injected-head {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  width: 100%;
+  background: none;
+  border: none;
+  padding: 0.3rem 0.75rem;
+  cursor: pointer;
+  color: var(--muted);
+  font: inherit;
+  font-size: 0.74rem;
+  text-align: left;
+}
+
+.injected-label {
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  font-size: 0.68rem;
+}
+
+.injected-peek {
+  font-family: ui-monospace, monospace;
+  font-size: 0.72rem;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 55%;
+}
+
+.injected-body {
+  margin: 0;
+  padding: 0.5rem 0.75rem;
+  background: var(--tool-bg);
+  border-top: 1px dashed var(--border);
+  font-family: ui-monospace, monospace;
+  font-size: 0.76rem;
+  line-height: 1.45;
+  white-space: pre-wrap;
+  overflow-x: auto;
+}
+
 /* Live streaming (spec §3.3, §5.1) */
 .live-badge {
   display: inline-flex;

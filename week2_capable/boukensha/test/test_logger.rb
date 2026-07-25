@@ -109,6 +109,90 @@ class TestLogger < Minitest::Test
     refute reqs[1]["system_unchanged"]
   end
 
+  # --- provenance and correlation (observ_improvements.md §1, §2) ----------
+
+  # The failure this fixes: a hook's cold-start `score` and `look` were logged
+  # as ordinary tool_calls at task "player", depth 0 — indistinguishable from
+  # calls the model chose, which is why a 1.9s blocking MUD read read as model
+  # latency next to Iteration 0.
+  def test_a_tool_call_records_who_initiated_it_and_why
+    events = capture do |logger|
+      logger.tool_call(name: "tbamud__check", args: { kind: "score" },
+                       initiator: "hook", operation: "player_bootstrap", trigger: "before_turn")
+    end
+
+    call = events.find { |e| e["phase"] == "tool_call" }
+    assert_equal "hook", call["initiator"]
+    assert_equal "player_bootstrap", call["operation"]
+    assert_equal "before_turn", call["trigger"]
+  end
+
+  # Pairing by name+depth is ambiguous the moment two identical calls are in
+  # flight. The id is generated here so no call site can forget it.
+  def test_a_call_id_is_returned_and_carried_onto_the_matching_result
+    call_id = nil
+    events = capture do |logger|
+      call_id = logger.tool_call(name: "tbamud__look", args: {}, initiator: "hook")
+      logger.tool_result(name: "tbamud__look", result: "a room", call_id: call_id,
+                         initiator: "hook", duration_ms: 42)
+    end
+
+    assert_match(/\Acall_\h+\z/, call_id)
+    assert_equal call_id, events.find { |e| e["phase"] == "tool_call" }["call_id"]
+
+    result = events.find { |e| e["phase"] == "tool_result" }
+    assert_equal call_id, result["call_id"]
+    assert_equal 42, result["duration_ms"]
+  end
+
+  # Additive, or every session file already on disk stops parsing. A caller
+  # that passes no provenance writes exactly the event shape it used to.
+  def test_provenance_fields_are_omitted_entirely_when_not_supplied
+    events = capture do |logger|
+      logger.tool_call(name: "look", args: {})
+      logger.tool_result(name: "look", result: "ok")
+    end
+
+    call = events.find { |e| e["phase"] == "tool_call" }
+    refute call.key?("initiator")
+    refute call.key?("operation")
+    refute call.key?("parent_call_id")
+
+    result = events.find { |e| e["phase"] == "tool_result" }
+    assert_equal "ok", result["result"]
+    assert_equal true, result["ok"]
+    assert result.key?("error"), "ok/error stay on the wire for the existing reader"
+  end
+
+  # The apparent contradiction the monitor used to show: a movement card
+  # displaying a full room dump beside an assistant that demonstrably saw
+  # `moved west → …`. Both are now recorded, correlated, and neither is lost.
+  def test_context_transform_records_the_model_visible_replacement
+    events = capture do |logger|
+      logger.context_transform(call_id: "call_abc", kind: "tool_result_replacement",
+                               raw_chars: 512, content: "moved west → The Reading Room")
+    end
+
+    t = events.find { |e| e["phase"] == "context_transform" }
+    assert_equal "call_abc", t["call_id"]
+    assert_equal "tool_result_replacement", t["kind"]
+    assert_equal 512, t["raw_chars"]
+    assert_equal "moved west → The Reading Room", t["content"]
+  end
+
+  def test_injected_context_records_what_the_hook_appended
+    events = capture do |logger|
+      logger.injected_context(kind: "state_block", content: "[here] The Temple Of Midgaard",
+                              source: "memory", changed: true)
+    end
+
+    i = events.find { |e| e["phase"] == "injected_context" }
+    assert_equal "state_block", i["kind"]
+    assert_equal "memory", i["source"]
+    assert_equal true, i["changed"]
+    assert_includes i["content"], "[here] The Temple Of Midgaard"
+  end
+
   # --- Amendment A: the task stack ----------------------------------------
 
   def test_every_event_carries_the_root_task_at_depth_zero

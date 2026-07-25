@@ -115,12 +115,67 @@ module Boukensha
       write_log(phase: "clear", before: before, dropped: before)
     end
 
-    def tool_call(name:, args:)
-      write_log(phase: "tool_call", name: name, args: args)
+    # PROVENANCE. A session contains two kinds of tool call that used to be
+    # indistinguishable on disk — both `tool_call` at `task: "player"`,
+    # `depth: 0`:
+    #
+    #   the model asked for it        initiator: "model"
+    #   framework/hook code ran it    initiator: "hook"   on the model's behalf
+    #
+    # Without the split, a hook's cold-start `score`/`look` reads as the agent
+    # checking its own sheet, and the ~1.9s that `score` blocks for reads as
+    # model latency. `operation` says WHY (player_bootstrap, position_refresh,
+    # room_survey, async_poll) and `trigger` says from WHICH lifecycle seam.
+    #
+    # Returns the generated `call_id`. The matching `tool_result` carries the
+    # same id, so a reader pairs the two exactly instead of guessing by
+    # name+depth — which is ambiguous the moment two identical calls are in
+    # flight. Every field is optional and additive: a caller that passes none
+    # writes the pre-provenance event shape, and the monitor keeps its legacy
+    # pairing path for files already on disk.
+    def tool_call(name:, args:, initiator: nil, operation: nil, trigger: nil, parent_call_id: nil)
+      call_id = "call_#{SecureRandom.hex(6)}"
+      write_log({
+        phase: "tool_call", call_id: call_id, name: name, args: args,
+        initiator: initiator, operation: operation, trigger: trigger,
+        parent_call_id: parent_call_id
+      }.compact)
+      call_id
     end
 
-    def tool_result(name:, result:, ok: true, error: nil)
-      write_log(phase: "tool_result", name: name, result: result.to_s, ok: ok, error: error)
+    def tool_result(name:, result:, ok: true, error: nil, call_id: nil,
+                    initiator: nil, operation: nil, trigger: nil, duration_ms: nil)
+      write_log({
+        phase: "tool_result", call_id: call_id, name: name, result: result.to_s,
+        ok: ok, error: error, initiator: initiator, operation: operation,
+        trigger: trigger, duration_ms: duration_ms
+      }.reject { |k, v| v.nil? && k != :error })
+    end
+
+    # What the model actually received, when it is NOT what the tool returned.
+    # `Hooks#after_tool` replaces a 105-token room dump with `moved west → The
+    # Reading Room` before it reaches context; the raw `tool_result` above still
+    # holds the MUD's exact words (the log stops being a faithful record
+    # otherwise), and this event holds the substitution. Both are useful and
+    # neither is derivable from the other: the raw result debugs the parser and
+    # the transport, the replacement debugs the agent's behaviour.
+    def context_transform(call_id:, kind:, content:, raw_chars: nil)
+      write_log({
+        phase: "context_transform", call_id: call_id, kind: kind,
+        raw_chars: raw_chars, content: content.to_s
+      }.compact)
+    end
+
+    # State appended to the conversation by something other than the model or a
+    # tool — today, the `[here]` block `before_model` renders from memory. The
+    # `request` event remains the definitive wire record; this is the readable
+    # explanation in the transcript, and it is what makes an assistant turn that
+    # thanks us "for the context" traceable to the context it was given.
+    def injected_context(kind:, content:, source: nil, changed: nil)
+      write_log({
+        phase: "injected_context", kind: kind, content: content.to_s,
+        source: source, changed: changed
+      }.compact)
     end
 
     # `task` is deliberately NOT a parameter here: write_log stamps it on every

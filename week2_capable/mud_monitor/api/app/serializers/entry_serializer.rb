@@ -47,8 +47,26 @@ class EntrySerializer
       {
         tool_name: entry.tool_name, tool_args: entry.tool_args,
         tool_result: entry.tool_result, tool_ok: entry.tool_ok, tool_error: entry.tool_error,
-        result_html: Ansi.to_html(entry.tool_result)
+        result_html: Ansi.to_html(entry.tool_result),
+        # Provenance: who asked for this call and why (§1). Null throughout on a
+        # log written before the contract — the UI reads that as "cannot say"
+        # and falls back to the undifferentiated presentation.
+        call_id: entry.call_id, initiator: entry.initiator,
+        operation: entry.operation, trigger: entry.trigger,
+        parent_call_id: entry.parent_call_id,
+        # What the model actually received, when a hook replaced the result. The
+        # raw MUD text above stays exactly as logged; the card shows this by
+        # default and offers that on demand (§2).
+        model_result: entry.model_result,
+        model_result_chars: entry.model_result_chars,
+        raw_chars: entry.raw_chars
       }
+    when :context_transform
+      # Only reached when the transform's call is missing from the log; the
+      # normal path folds it into the tool card above.
+      { call_id: entry.call_id, kind: entry.kind, content: entry.content, raw_chars: entry.raw_chars }
+    when :injected_context
+      { kind: entry.kind, content: entry.content, source: entry.source, changed: entry.changed }
     when :turn_end
       { reason: entry.reason, iterations: entry.iterations, tokens: entry.tokens }
     when :task_start

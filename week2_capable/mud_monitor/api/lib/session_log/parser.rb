@@ -15,6 +15,18 @@ module SessionLog
                        :provider, :model, :input_tokens, :output_tokens,
                        :cost_usd, :usage_unit, :usage_level,
                        :request_seq, :message_count,
+                       # Provenance (observ_improvements.md §1). `initiator` is
+                       # "model" for a call the model chose and "hook" for work
+                       # the framework did on its behalf; `operation`/`trigger`
+                       # say why and from which lifecycle seam. All nil on logs
+                       # written before the contract existed — which is exactly
+                       # how the legacy display path is selected.
+                       :call_id, :initiator, :operation, :trigger, :parent_call_id,
+                       # What the model actually received when a hook replaced
+                       # the result (`tool` entries), and the source/changed
+                       # flags of an injected_context entry.
+                       :model_result, :model_result_chars, :raw_chars,
+                       :kind, :source, :changed, :content,
                        keyword_init: true)
 
     # One sample per `response`, in order. Drives the cost breakdown and the
@@ -55,6 +67,9 @@ module SessionLog
       turn_started      = nil # {at:, mono_ms:} of the current "turn" event
       open_tasks        = [] # task_start events awaiting their task_end
       request_ordinal   = 0   # 1-based index among request events → sidebar checkpoint seq
+      # call_id → the emitted :tool entry, so a later context_transform can be
+      # folded into the card it belongs to rather than becoming a second one.
+      tool_entries_by_call_id = {}
 
       File.foreach(@path) do |line|
         line = line.strip
@@ -149,14 +164,51 @@ module SessionLog
           @entries << entry
         when "tool_call"
           pending_calls << { name: event["name"], args: event["args"], at: event["at"],
-                             mono_ms: event["mono_ms"], depth: event["depth"].to_i }
+                             mono_ms: event["mono_ms"], depth: event["depth"].to_i,
+                             call_id: event["call_id"], initiator: event["initiator"],
+                             operation: event["operation"], trigger: event["trigger"],
+                             parent_call_id: event["parent_call_id"] }
         when "tool_result"
           call = take_pending_call(pending_calls, event) || {}
-          @entries << seq_entry(seq += 1, event, type: :tool, tool_name: event["name"] || call[:name],
-                                 tool_args: call[:args],
-                                 tool_result: event["result"], tool_ok: event.fetch("ok", true),
-                                 tool_error: event["error"],
-                                 duration_ms: elapsed_ms(call[:mono_ms], call[:at], event["mono_ms"], event["at"]),
+          entry = seq_entry(seq += 1, event, type: :tool, tool_name: event["name"] || call[:name],
+                            tool_args: call[:args],
+                            tool_result: event["result"], tool_ok: event.fetch("ok", true),
+                            tool_error: event["error"],
+                            # The dispatcher now times the call itself; fall back
+                            # to the gap between the two events for older logs.
+                            duration_ms: event["duration_ms"] ||
+                                         elapsed_ms(call[:mono_ms], call[:at], event["mono_ms"], event["at"]),
+                            # Prefer the call's own labels: `tool_result` repeats
+                            # them, but the call is where they originate and a
+                            # partially-written result must not un-label a call.
+                            call_id: event["call_id"] || call[:call_id],
+                            initiator: call[:initiator] || event["initiator"],
+                            operation: call[:operation] || event["operation"],
+                            trigger: call[:trigger] || event["trigger"],
+                            parent_call_id: call[:parent_call_id],
+                            turn: current_turn, iteration: current_iteration)
+          @entries << entry
+          tool_entries_by_call_id[entry.call_id] = entry if entry.call_id
+        when "context_transform"
+          # NOT a second card. The replacement belongs to the call it replaced —
+          # showing it as its own row is what made one movement look like two
+          # contradictory events. Attached to the tool entry; emitted standalone
+          # only if its call is missing, so a malformed log still shows it.
+          target = tool_entries_by_call_id[event["call_id"]]
+          if target
+            target.model_result       = event["content"]
+            target.model_result_chars = event["content"].to_s.length
+            target.raw_chars          = event["raw_chars"] || target.tool_result.to_s.length
+          else
+            @entries << seq_entry(seq += 1, event, type: :context_transform,
+                                   call_id: event["call_id"], kind: event["kind"],
+                                   content: event["content"], raw_chars: event["raw_chars"],
+                                   turn: current_turn, iteration: current_iteration)
+          end
+        when "injected_context"
+          @entries << seq_entry(seq += 1, event, type: :injected_context,
+                                 kind: event["kind"], content: event["content"],
+                                 source: event["source"], changed: event["changed"],
                                  turn: current_turn, iteration: current_iteration)
         when "task_start"
           # A delegated sub-run opening inside this session (plan Amendment A).
@@ -326,9 +378,46 @@ module SessionLog
       entries.count { |e| e.type == :tool }
     end
 
+    # Model actions and automatic work, counted apart (§3). One number for both
+    # let a hook's `score`, `look` and eight empty `poll`s make the model look
+    # far more tool-hungry than it was. A log with no provenance has no
+    # automatic calls to report — not zero because none happened, but because
+    # the file cannot say — so everything there stays in `model_tool_calls`,
+    # which is what that number meant before this split existed.
+    def tool_entries       = entries.select { |e| e.type == :tool }
+    def automatic_tools    = tool_entries.select { |e| e.initiator == "hook" }
+    def model_tool_calls   = tool_entries.count { |e| e.initiator != "hook" }
+    def automatic_tool_calls = automatic_tools.size
+    def has_provenance?    = tool_entries.any? { |e| e.initiator }
+
+    # Wall time spent inside automatic work, so §6's "was the 1.9s the MUD or
+    # the model?" is answerable without reading the transcript.
+    def automatic_tool_ms
+      durations = automatic_tools.filter_map(&:duration_ms)
+      durations.empty? ? nil : durations.sum
+    end
+
+    # Per-operation rollup — `player_bootstrap`, `position_refresh`,
+    # `room_survey`, `async_poll` — for the automatic-work group header.
+    def automatic_operations
+      automatic_tools.group_by { |e| e.operation || "unattributed" }.map do |operation, rows|
+        { operation: operation,
+          trigger: rows.first.trigger,
+          calls: rows.size,
+          duration_ms: rows.filter_map(&:duration_ms).sum,
+          empty: rows.count { |e| e.tool_result.to_s.strip.empty? },
+          failed: rows.count { |e| e.tool_ok == false } }
+      end.sort_by { |row| -row[:duration_ms].to_i }
+    end
+
     private
 
     # Pair a tool_result with the tool_call that opened it.
+    #
+    # `call_id` is exact and is preferred whenever the log carries one
+    # (observ_improvements.md §1). Everything below it is the heuristic that
+    # served logs written before the id existed, kept because those files must
+    # still load:
     #
     # Plain FIFO breaks as soon as a delegating tool is in flight: the player's
     # `inspect_room` call is still pending while the sub-run's own calls open and
@@ -338,10 +427,12 @@ module SessionLog
     # name-only fallback keeps pre-Amendment-A logs, which carry no depth,
     # behaving as before.
     def take_pending_call(pending, event)
-      name  = event["name"]
-      depth = event["depth"].to_i
-      index = pending.rindex { |c| c[:name] == name && c[:depth] == depth } ||
-              pending.rindex { |c| c[:name] == name }
+      call_id = event["call_id"]
+      name    = event["name"]
+      depth   = event["depth"].to_i
+      index   = (call_id && pending.rindex { |c| c[:call_id] == call_id }) ||
+                pending.rindex { |c| c[:name] == name && c[:depth] == depth } ||
+                pending.rindex { |c| c[:name] == name }
       return nil if index.nil?
 
       pending.delete_at(index)

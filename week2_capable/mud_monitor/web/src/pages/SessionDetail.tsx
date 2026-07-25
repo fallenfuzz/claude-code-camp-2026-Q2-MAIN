@@ -1,7 +1,13 @@
 import { Fragment, useCallback, useEffect, useRef, useState } from "react";
 import { Link, useParams } from "react-router";
 import { ApiRequestError, fetchSession } from "../api/client";
-import type { Entry, SessionDetail as SessionDetailData, SessionSummary } from "../api/types";
+import type {
+  AutomaticOperation,
+  Entry,
+  SessionDetail as SessionDetailData,
+  SessionSummary,
+  TimingSummary,
+} from "../api/types";
 import { useEventStream } from "../api/useEventStream";
 import Ansi from "../components/Ansi";
 import CostTable from "../components/CostTable";
@@ -186,7 +192,29 @@ export default function SessionDetail() {
           Session total: {fmtTokens(session.input_tokens)} tok in · {fmtTokens(session.output_tokens)} tok out ·
           across {session.turns} turn{session.turns === 1 ? "" : "s"} · {fmtDuration(session.duration_ms)} total
         </div>
+
+        {/* One tool count let a hook's score, look and eight empty polls make
+            the model look far more tool-hungry than it was. A log with no
+            provenance cannot make the split, and says so by omission. */}
+        <div className="statstrip-total">
+          Tools: {session.tool_calls} total
+          {session.has_provenance && (
+            <>
+              {" · "}
+              {session.model_tool_calls} model
+              {" · "}
+              <span title="score / look / poll / room survey — work the hooks did on the model's behalf">
+                {session.automatic_tool_calls} automatic
+                {session.automatic_tool_ms != null && <> ({fmtDuration(session.automatic_tool_ms)})</>}
+              </span>
+            </>
+          )}
+        </div>
       </div>
+
+      {session.has_provenance && session.automatic_operations.length > 0 && (
+        <AutomaticWorkTable rows={session.automatic_operations} timing={session.timing} />
+      )}
 
       <CostTable rows={costBreakdown} />
 
@@ -218,7 +246,15 @@ export default function SessionDetail() {
 // it produced, and the task_end that closed it (absent when the process died
 // mid-delegation — see `open` below).
 type GroupNode = { kind: "group"; start: Entry; end: Entry | null; children: TranscriptNode[] };
-type TranscriptNode = { kind: "entry"; entry: Entry } | GroupNode;
+// A run of consecutive hook-initiated tool calls — the work framework code did
+// on the model's behalf. It is not part of the model's narrative and does not
+// belong inline with it.
+type AutoNode = { kind: "auto"; entries: Entry[] };
+type TranscriptNode = { kind: "entry"; entry: Entry } | GroupNode | AutoNode;
+
+function isAutomatic(entry: Entry): boolean {
+  return entry.type === "tool" && entry.initiator === "hook";
+}
 
 // Entries arrive flat and ordered — cursors, SSE replay and dropped-strip
 // interleaving all depend on that (§A.4). Nesting is a rendering concern, so
@@ -227,6 +263,16 @@ export function buildTranscriptTree(entries: Entry[]): TranscriptNode[] {
   const root: TranscriptNode[] = [];
   const open: GroupNode[] = [];
   const target = () => (open.length ? open[open.length - 1].children : root);
+
+  // Fold a run of automatic calls into the group that is already collecting
+  // one, so `score` + `look`, or a whole four-command room survey, arrive as a
+  // single muted row instead of four cards competing with the model's actions.
+  const absorb = (entry: Entry) => {
+    const siblings = target();
+    const last = siblings[siblings.length - 1];
+    if (last?.kind === "auto") last.entries.push(entry);
+    else siblings.push({ kind: "auto", entries: [ entry ] });
+  };
 
   for (const entry of entries) {
     if (entry.type === "task_start") {
@@ -239,6 +285,8 @@ export function buildTranscriptTree(entries: Entry[]): TranscriptNode[] {
       // the record on the floor — render it where it sits.
       if (group) group.end = entry;
       else target().push({ kind: "entry", entry });
+    } else if (isAutomatic(entry)) {
+      absorb(entry);
     } else {
       target().push({ kind: "entry", entry });
     }
@@ -259,6 +307,10 @@ function iterationMarkerSeqs(entries: Entry[]): Set<number> {
 
   for (const entry of entries) {
     if (entry.type === "turn_end") continue;
+    // Automatic calls are rendered inside their group, which never draws a
+    // marker — anchoring one to them would simply lose it. The marker belongs
+    // on the first entry of the iteration the reader can actually see.
+    if (isAutomatic(entry)) continue;
     if (entry.iteration !== lastIteration || entry.depth !== lastDepth) {
       if (entry.type !== "task_start" && entry.type !== "task_end") seqs.add(entry.seq);
       lastIteration = entry.iteration;
@@ -316,7 +368,9 @@ function TranscriptNodes({ nodes, ...props }: NodeProps & { nodes: TranscriptNod
   return (
     <>
       {nodes.map((node) =>
-        node.kind === "group" ? (
+        node.kind === "auto" ? (
+          <AutomaticGroup key={`auto-${node.entries[0].seq}`} node={node} {...props} />
+        ) : node.kind === "group" ? (
           <TaskGroup key={`group-${node.start.seq}`} node={node} {...props} />
         ) : (
           <Fragment key={node.entry.seq}>
@@ -399,10 +453,137 @@ function TaskGroup({ node, ...props }: NodeProps & { node: GroupNode }) {
   );
 }
 
-function flatten(node: GroupNode): Entry[] {
-  return node.children.flatMap((child) =>
-    child.kind === "group" ? [ child.start, ...flatten(child) ] : [ child.entry ],
+// Human wording for the semantic reason a hook spent MUD round trips. Falling
+// back to the raw slug is deliberate: an operation this build has never heard
+// of must still be visible, not swallowed.
+const OPERATION_LABELS: Record<string, string> = {
+  player_bootstrap: "bootstrap player",
+  position_refresh: "establish position",
+  room_disambiguation: "disambiguate room",
+  room_survey: "room survey",
+  async_poll: "poll",
+};
+
+function operationLabel(operation: string | null | undefined) {
+  if (!operation) return "automatic";
+  return OPERATION_LABELS[operation] ?? operation.replace(/_/g, " ");
+}
+
+function isEmptyResult(entry: Entry) {
+  return !entry.tool_result?.trim();
+}
+
+// Work the framework did on the model's behalf: the cold-start `score` and
+// `look`, the first-visit room survey, the poll before each dispatch. None of
+// it was chosen by the model, and rendering it as ordinary tool cards is what
+// made a 1.9s blocking MUD read look like model latency next to Iteration 0.
+//
+// Collapsed by default and summarised by operation. Two things are never
+// hidden: a call that failed, and a poll that actually returned something —
+// those are the ones worth reading, and the group opens itself for them.
+function AutomaticGroup({ node, ...props }: NodeProps & { node: AutoNode }) {
+  const entries = node.entries;
+  const notable = entries.filter((e) => e.tool_ok === false || (e.operation === "async_poll" && !isEmptyResult(e)));
+  const [open, setOpen] = useState(false);
+  const containsNewest = props.newestSeq != null && entries.some((e) => e.seq === props.newestSeq);
+  const expanded = open || containsNewest || notable.length > 0;
+
+  const totalMs = entries.reduce((sum, e) => sum + (e.duration_ms ?? 0), 0);
+  const failed = entries.filter((e) => e.tool_ok === false).length;
+
+  // One row per operation, so four survey commands read as "room survey", and
+  // eight empty polls read as one line rather than eight.
+  const byOperation: { key: string; entries: Entry[] }[] = [];
+  for (const entry of entries) {
+    const key = entry.operation ?? "unattributed";
+    const last = byOperation[byOperation.length - 1];
+    if (last?.key === key) last.entries.push(entry);
+    else byOperation.push({ key, entries: [ entry ] });
+  }
+
+  return (
+    <div className={failed ? "auto-group auto-group-failed" : "auto-group"}>
+      <button type="button" className="auto-group-head" aria-expanded={expanded} onClick={() => setOpen(!expanded)}>
+        <span className="task-group-caret">{expanded ? "▾" : "▸"}</span>
+        <span className="auto-group-title">Automatic context work</span>
+        <span className="auto-group-count">
+          {entries.length} call{entries.length === 1 ? "" : "s"}
+        </span>
+        <span className="task-group-spacer" />
+        {failed > 0 && <span className="tool-badge">{failed} failed</span>}
+        {totalMs > 0 && <span className="task-group-meta">{fmtDelta(totalMs, props.coarse)}</span>}
+      </button>
+
+      {!expanded && (
+        <ol className="auto-summary">
+          {byOperation.map(({ key, entries: rows }, i) => {
+            const ms = rows.reduce((sum, e) => sum + (e.duration_ms ?? 0), 0);
+            const empty = rows.filter(isEmptyResult).length;
+            return (
+              <li key={`${key}-${i}`}>
+                <span className="auto-summary-op">{operationLabel(key)}</span>
+                <span className="auto-summary-tools">
+                  {tallyTools(rows)}
+                  {/* An empty poll is the expected case, not a fault — say how
+                      many rather than giving each one a row. */}
+                  {empty === rows.length && rows.length > 1 && ", all empty"}
+                  {empty === rows.length && rows.length === 1 && ", empty"}
+                </span>
+                {ms > 0 && <span className="auto-summary-ms">{fmtDelta(ms, props.coarse)}</span>}
+              </li>
+            );
+          })}
+        </ol>
+      )}
+
+      {expanded && (
+        <div className="task-group-body">
+          {entries.map((entry) => (
+            <Fragment key={entry.seq}>
+              <div className="auto-entry-op">
+                {operationLabel(entry.operation)}
+                {entry.trigger && <span className="task-group-meta"> · {entry.trigger}</span>}
+                {entry.duration_ms != null && (
+                  <span className="task-group-meta"> · {fmtDelta(entry.duration_ms, props.coarse)}</span>
+                )}
+              </div>
+              <ToolCard entry={entry} />
+            </Fragment>
+          ))}
+        </div>
+      )}
+    </div>
   );
+}
+
+// `tbamud__check(kind: score)` → `check(score)`. The prefix and the argument
+// noise are constant across a session and earn no space in a summary line.
+export function shortToolName(entry: Entry) {
+  const name = (entry.tool_name ?? "?").replace(/^.*__/, "");
+  const arg = entry.tool_args?.kind ?? entry.tool_args?.target ?? entry.tool_args?.direction;
+  return arg == null ? name : `${name}(${String(arg)})`;
+}
+
+// `poll × 8`, not `poll, poll, poll, poll, poll, poll, poll, poll`. Eight
+// identical calls carry one fact between them and should occupy one line.
+export function tallyTools(entries: Entry[]): string {
+  const counts = new Map<string, number>();
+  for (const entry of entries) {
+    const label = shortToolName(entry);
+    counts.set(label, (counts.get(label) ?? 0) + 1);
+  }
+  return [ ...counts ].map(([ label, n ]) => (n > 1 ? `${label} × ${n}` : label)).join(", ");
+}
+
+// Every Entry inside a sub-run, automatic work included — the group header's
+// cost and iteration figures must count the hook's calls too, or a delegation
+// that spent most of its time surveying rooms reports as having done nothing.
+function flatten(node: GroupNode): Entry[] {
+  return node.children.flatMap((child) => {
+    if (child.kind === "group") return [ child.start, ...flatten(child) ];
+    if (child.kind === "auto") return child.entries;
+    return [ child.entry ];
+  });
 }
 
 function TranscriptEntry({
@@ -553,15 +734,18 @@ function TranscriptEntry({
       );
 
     case "tool":
+      return <ToolCard entry={entry} />;
+
+    case "injected_context":
+      return <InjectedContext entry={entry} />;
+
+    case "context_transform":
+      // Only reachable when the log lost the call this belongs to; the normal
+      // path folds it into the tool card.
       return (
-        <div className={entry.tool_ok === false ? "tool-call tool-error" : "tool-call"}>
-          <div className="tool-name">
-            ⚙ {entry.tool_name}({formatArgs(entry.tool_args)})
-            {entry.tool_ok === false && <span className="tool-badge">error</span>}
-          </div>
-          <pre className="tool-result">
-            <Ansi html={entry.result_html ?? ""} />
-          </pre>
+        <div className="injected-card">
+          <div className="injected-head">↪ model received (call {entry.call_id ?? "?"})</div>
+          <pre className="injected-body">{entry.content}</pre>
         </div>
       );
 
@@ -580,4 +764,121 @@ function TranscriptEntry({
     default:
       return null;
   }
+}
+
+// One tool call. When a hook replaced the result before it reached the model,
+// the card shows what the MODEL received and offers the MUD's own words on
+// demand — the two used to appear as an unexplained contradiction between the
+// transcript (full room dump) and the request drawer (`moved west → …`).
+//
+// The raw text is never discarded: it is what debugs the parser and the
+// transport, while the replacement is what debugs the agent's behaviour.
+function ToolCard({ entry }: { entry: Entry }) {
+  const replaced = entry.model_result != null;
+  const [showRaw, setShowRaw] = useState(false);
+
+  return (
+    <div className={entry.tool_ok === false ? "tool-call tool-error" : "tool-call"}>
+      <div className="tool-name">
+        <span>
+          ⚙ {entry.tool_name}({formatArgs(entry.tool_args)})
+        </span>
+        {entry.tool_ok === false && <span className="tool-badge">error</span>}
+      </div>
+
+      {replaced ? (
+        <>
+          <pre className="tool-result tool-result-model">{entry.model_result}</pre>
+          <button type="button" className="raw-toggle" aria-expanded={showRaw} onClick={() => setShowRaw(!showRaw)}>
+            {showRaw ? "▾" : "▸"} raw MUD response
+            {entry.raw_chars != null && <span className="task-group-meta"> {entry.raw_chars} chars</span>}
+          </button>
+          {showRaw && (
+            <pre className="tool-result">
+              <Ansi html={entry.result_html ?? ""} />
+            </pre>
+          )}
+        </>
+      ) : (
+        <pre className="tool-result">
+          <Ansi html={entry.result_html ?? ""} />
+        </pre>
+      )}
+    </div>
+  );
+}
+
+// State a hook appended to the conversation on the model's behalf — the
+// `[here]` block, in the MUD deployment. It sits immediately before the request
+// that carried it, which is what makes an assistant thanking us "for the
+// context" traceable without opening the request drawer.
+//
+// Collapsed to its first line by default: the block is re-rendered every
+// iteration and is usually identical to the last one, and `changed` is how the
+// server says which is which.
+function InjectedContext({ entry }: { entry: Entry }) {
+  const [open, setOpen] = useState(false);
+  const lines = (entry.content ?? "").split("\n");
+  const unchanged = entry.changed === false;
+
+  return (
+    <div className={unchanged ? "injected-card injected-unchanged" : "injected-card"}>
+      <button type="button" className="injected-head" aria-expanded={open} onClick={() => setOpen(!open)}>
+        <span className="task-group-caret">{open ? "▾" : "▸"}</span>
+        <span className="injected-label">Context injected</span>
+        {entry.source && <span className="task-group-meta">{entry.source}</span>}
+        {unchanged && <span className="task-group-meta">unchanged</span>}
+        <span className="task-group-spacer" />
+        <span className="injected-peek">{lines[0]}</span>
+      </button>
+      {open && <pre className="injected-body">{entry.content}</pre>}
+    </div>
+  );
+}
+
+// Where the automatic time actually went, by operation. This is the table that
+// answers §6's question directly: in the linked session the ~1.9 seconds is
+// `bootstrap player · check(score)`, not model latency adjacent to Iteration 0.
+function AutomaticWorkTable({ rows, timing }: { rows: AutomaticOperation[]; timing: TimingSummary }) {
+  return (
+    <table className="auto-table">
+      <caption>
+        Automatic context work — MUD round trips the model never asked for
+        {timing.automatic_tool_ms != null && (
+          <>
+            {" · "}
+            {fmtDuration(timing.automatic_tool_ms)} automatic
+            {" vs "}
+            {fmtDuration(timing.model_ms)} inference
+            {timing.model_tool_ms != null && <> · {fmtDuration(timing.model_tool_ms)} model tools</>}
+          </>
+        )}
+      </caption>
+      <thead>
+        <tr>
+          <th scope="col">operation</th>
+          <th scope="col">seam</th>
+          <th scope="col">calls</th>
+          <th scope="col">time</th>
+          <th scope="col">empty</th>
+        </tr>
+      </thead>
+      <tbody>
+        {rows.map((row) => (
+          <tr key={row.operation} className={row.failed > 0 ? "auto-table-failed" : undefined}>
+            <td>{operationLabel(row.operation)}</td>
+            <td className="task-group-meta">{row.trigger ?? "—"}</td>
+            <td className="num">{row.calls}</td>
+            <td className="num">{fmtDuration(row.duration_ms)}</td>
+            {/* An empty poll is the expected case; a failure never is, and is
+                never rolled into the same number. */}
+            <td className="num">
+              {row.empty || "—"}
+              {row.failed > 0 && <span className="tool-badge"> {row.failed} failed</span>}
+            </td>
+          </tr>
+        ))}
+      </tbody>
+    </table>
+  );
 }

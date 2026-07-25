@@ -16,6 +16,15 @@ module SessionLog
         p95_tool_ms: percentile(tool_durations, 95),
         p50_model_ms: percentile(model_durations, 50),
         p95_model_ms: percentile(model_durations, 95),
+        # Where the tool time actually went (observ_improvements.md §6). The
+        # percentiles above mix a hook's 1.9s blocking `score` in with the
+        # model's own calls, which is how that 1.9s came to sit next to
+        # Iteration 0 looking like inference. Both are nil on a log with no
+        # provenance — the file cannot make the split, and reporting 0 would
+        # claim it did.
+        model_tool_ms: sum_or_nil(initiated_durations { |e| e.initiator != "hook" }),
+        automatic_tool_ms: sum_or_nil(initiated_durations { |e| e.initiator == "hook" }),
+        model_ms: model_durations.sum,
         total_idle_ms: idle_ms,
         wall_ms: wall_ms,
         busy_ms: busy_ms
@@ -26,8 +35,24 @@ module SessionLog
 
     IDLE_THRESHOLD_MS = 5_000
 
+    def tool_entries
+      @parser.entries.select { |e| e.type == :tool }
+    end
+
     def tool_durations
-      @parser.entries.select { |e| e.type == :tool }.filter_map(&:duration_ms)
+      tool_entries.filter_map(&:duration_ms)
+    end
+
+    # nil rather than 0 when the log carries no provenance at all: "we cannot
+    # tell" and "there was none" are different answers and only one is honest.
+    def initiated_durations(&predicate)
+      return [] unless tool_entries.any?(&:initiator)
+
+      tool_entries.select(&predicate).filter_map(&:duration_ms)
+    end
+
+    def sum_or_nil(values)
+      values.empty? ? nil : values.sum
     end
 
     def model_durations
