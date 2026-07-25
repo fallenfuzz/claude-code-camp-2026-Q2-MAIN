@@ -91,3 +91,53 @@ class TestToolsMcp < Minitest::Test
     assert_match(/collision on 'look'/, err.message)
   end
 end
+
+# boukensha plan §3: every registered MCP tool call must carry the current
+# span's id over the wire. Deliberately its own class (no `setup` spawning the
+# fake MUD daemon): a minimal fake in place of Boukensha::Mcp::Client is enough
+# to see what `register_client` actually hands `call_tool`, and these must run
+# even where the sibling `week0_explore/mud_manager` checkout isn't present.
+class TestToolsMcpCorrelation < Minitest::Test
+  include McpTestHelper
+
+  class FakeMcpClient
+    attr_reader :calls
+
+    def initialize
+      @tools = [{ "name" => "look", "description" => "d", "inputSchema" => {} }]
+    end
+
+    def tools = @tools
+
+    def call_tool(name, args = {}, meta: nil)
+      @calls ||= []
+      @calls << meta
+      { text: "ok:#{name}", error: false }
+    end
+  end
+
+  def test_registered_tool_calls_carry_the_current_operation_id_as_meta
+    logger = Boukensha::Logger.new(log: File.join(Dir.mktmpdir, "s.jsonl"))
+    _ctx, registry = new_registry
+    client = FakeMcpClient.new
+    Boukensha::Tools::Mcp.register_client(registry, client)
+
+    logger.operation("room_survey") { registry.dispatch("look", {}) }
+
+    meta = client.calls.last
+    assert_equal logger.session_id, meta["boukensha/session_id"]
+    assert_match(/\Aop_\h+\z/, meta["boukensha/operation_id"])
+  end
+
+  def test_a_call_with_nothing_open_carries_no_operation_id
+    Boukensha::Operation.reset!
+    _ctx, registry = new_registry
+    client = FakeMcpClient.new
+    Boukensha::Tools::Mcp.register_client(registry, client)
+
+    registry.dispatch("look", {})
+
+    meta = client.calls.last
+    refute meta.key?("boukensha/operation_id")
+  end
+end

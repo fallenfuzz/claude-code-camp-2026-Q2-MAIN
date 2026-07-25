@@ -74,6 +74,14 @@ module Boukensha
         model_info[:usage_level]
       end
 
+      # "Anthropic" => "anthropic", "OllamaCloud" => "ollama_cloud". The one
+      # place this is computed — Logger#execution_metadata and
+      # Agent#call_model's `llm.generate` span both want the same string on the
+      # same backend and must not drift into disagreeing spellings.
+      def provider_name
+        self.class.name.split("::").last.gsub(/([a-z\d])([A-Z])/, '\1_\2').downcase
+      end
+
       def estimate_cost(input_tokens:, output_tokens:)
         return nil unless input_token_cost_per_million && output_token_cost_per_million
 

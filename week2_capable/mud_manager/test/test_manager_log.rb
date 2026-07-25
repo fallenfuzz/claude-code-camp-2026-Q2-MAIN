@@ -71,6 +71,52 @@ class TestManagerLog < Minitest::Test
     assert_match(/goblin/, record["received"])
   end
 
+  # boukensha plan §3: a call carrying `_meta["boukensha/operation_id"]` must
+  # land in the ManagerLog record for that exchange, so the two logs join by
+  # id instead of a timestamp heuristic. Composed with the session id — an
+  # operation_id alone does not say WHICH FILE it lives in, which is what the
+  # Manager page needs to link `correlation: "exact"` back to `sessions/:id`.
+  def test_correlation_id_is_forwarded_from_the_server_to_the_manager_log
+    pool   = pool_with_manager_log(manager_log)
+    server = MudManager::Mcp::Server.new(pool: pool)
+
+    call = server.send(:call_tool, {
+      "name" => "look", "arguments" => {},
+      "_meta" => { "boukensha/session_id" => "s1", "boukensha/operation_id" => "op_abc123" }
+    })
+    refute call["isError"]
+
+    record = read_records.find { |r| r["mode"] == "command" }
+    assert_equal "s1:op_abc123", record["correlation_id"]
+  end
+
+  # A caller that sends an operation_id with no session_id (a degraded or
+  # future client) still correlates — just at operation granularity.
+  def test_correlation_id_falls_back_to_the_bare_operation_id_without_a_session_id
+    pool   = pool_with_manager_log(manager_log)
+    server = MudManager::Mcp::Server.new(pool: pool)
+
+    server.send(:call_tool, {
+      "name" => "look", "arguments" => {},
+      "_meta" => { "boukensha/operation_id" => "op_abc123" }
+    })
+
+    record = read_records.find { |r| r["mode"] == "command" }
+    assert_equal "op_abc123", record["correlation_id"]
+  end
+
+  # No `_meta` at all — an older client, or the raw JSON protocol — must log
+  # exactly as it did before the correlation id existed.
+  def test_absent_meta_leaves_correlation_id_nil
+    pool   = pool_with_manager_log(manager_log)
+    server = MudManager::Mcp::Server.new(pool: pool)
+
+    server.send(:call_tool, { "name" => "look", "arguments" => {} })
+
+    record = read_records.find { |r| r["mode"] == "command" }
+    assert_nil record["correlation_id"]
+  end
+
   def test_errors_are_captured
     pool = pool_with_manager_log(manager_log, password: "wrong")
 

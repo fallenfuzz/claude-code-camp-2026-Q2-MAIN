@@ -1,4 +1,4 @@
-import { fmtCost, fmtTokens, pct } from "../format";
+import { fmtCost, fmtDelta, fmtTokens, pct } from "../format";
 
 // In-transcript chip: live context size as a mini-bar scaled to the context
 // window, plus the turn spend accumulating toward its cap.
@@ -11,6 +11,8 @@ export default function CtxChip({
   model,
   provider,
   costUsd,
+  modelMs,
+  coarse = false,
 }: {
   usage: Record<string, unknown> | null | undefined;
   running: number | null | undefined;
@@ -19,6 +21,14 @@ export default function CtxChip({
   model?: string | null;
   provider?: string | null;
   costUsd?: number | null;
+  /**
+   * The `llm.generate` span's MEASURED duration — `@client.call` alone,
+   * neither side's JSON serialization. Absent on a log written before the
+   * span existed; the chip simply omits it rather than falling back to the
+   * old (systematically inflated) `dt_ms` gap.
+   */
+  modelMs?: number | null;
+  coarse?: boolean;
 }) {
   if (!usage) return null;
 
@@ -52,6 +62,11 @@ export default function CtxChip({
       <span className="ctx-out">+{fmtTokens(out)} out</span>
       {cache > 0 && <span className="ctx-cache">cached {fmtTokens(cache)}</span>}
       {costUsd != null && <span className="ctx-cost">{fmtCost(costUsd)}</span>}
+      {modelMs != null && (
+        <span className="ctx-model-ms" title="measured llm.generate span duration">
+          {fmtDelta(modelMs, coarse)}
+        </span>
+      )}
       {(provider || model) && (
         <span className="ctx-model">{[provider, model].filter(Boolean).join(" / ")}</span>
       )}

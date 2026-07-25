@@ -405,6 +405,36 @@ class TestLogger < Minitest::Test
     assert_equal 11, events.find { |e| e["phase"] == "operation_end" }["inference_ms"]
   end
 
+  # `frame.set` is how a fact discovered DURING the span (the model actually
+  # used, its token counts) reaches `operation_end` — Frame's other fields are
+  # all decided at `open`, before the block has run.
+  def test_frame_set_merges_attributes_into_operation_end
+    events = capture do |logger|
+      logger.operation("llm.generate") do |frame|
+        frame.set(model: "claude-haiku-4-5", input_tokens: 3474)
+      end
+    end
+
+    finish = events.find { |e| e["phase"] == "operation_end" }
+    assert_equal "claude-haiku-4-5", finish["model"]
+    assert_equal 3474, finish["input_tokens"]
+  end
+
+  # The reserved envelope always wins: a call site setting `duration_ms` or
+  # `ok` (by accident, or a name collision with a future counter) must never
+  # override the span's own measured timing or outcome.
+  def test_frame_set_cannot_clobber_the_reserved_envelope
+    events = capture do |logger|
+      logger.operation("llm.generate") do |frame|
+        frame.set(ok: false, operation_id: "op_fake", phase: "nope")
+      end
+    end
+
+    finish = events.find { |e| e["phase"] == "operation_end" }
+    assert_equal true, finish["ok"]
+    refute_equal "op_fake", finish["operation_id"]
+  end
+
   private
 
   def capture

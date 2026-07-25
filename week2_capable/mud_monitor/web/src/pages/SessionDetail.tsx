@@ -1,5 +1,5 @@
 import { Fragment, useCallback, useEffect, useRef, useState } from "react";
-import { Link, useParams } from "react-router";
+import { Link, useParams, useSearchParams } from "react-router";
 import { ApiRequestError, fetchJournalForOperation, fetchSession } from "../api/client";
 import type {
   AutomaticOperation,
@@ -19,7 +19,9 @@ import MessagesSidebar from "../components/MessagesSidebar";
 import ProgressBar from "../components/ProgressBar";
 import Sparkline from "../components/Sparkline";
 import TaskChip, { taskHue } from "../components/TaskChip";
+import Waterfall from "../components/Waterfall";
 import { fmtCost, fmtDelta, fmtDuration, fmtTokens, formatArgs, formatTime, pct, pctRaw } from "../format";
+import { isFrameworkSpan, operationLabel } from "../spans";
 
 const AT_BOTTOM_THRESHOLD_PX = 80;
 
@@ -31,6 +33,7 @@ function isWindowAtBottom() {
 // Port of week1_baseline/log_viz/views/session.erb.
 export default function SessionDetail() {
   const { id } = useParams<{ id: string }>();
+  const [searchParams, setSearchParams] = useSearchParams();
   const [data, setData] = useState<SessionDetailData | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [entries, setEntries] = useState<Entry[]>([]);
@@ -39,6 +42,12 @@ export default function SessionDetail() {
   // Which request's payload the sidebar is showing (1-based request ordinal),
   // or null when the drawer is closed. Set by the inline buttons in the transcript.
   const [focusedRequest, setFocusedRequest] = useState<number | null>(null);
+  // A toggle, not a route (instrumentation.md §11 non-goals): the waterfall is
+  // a second view of THIS session, not a section of the app.
+  const [view, setView] = useState<"transcript" | "waterfall">("transcript");
+  // Set by a waterfall bar's click; consumed by the scroll effect below, which
+  // switches back to the transcript and jumps to the span's opening entry.
+  const [scrollToSeq, setScrollToSeq] = useState<number | null>(null);
   const stickToBottomRef = useRef(true);
 
   useEffect(() => {
@@ -77,6 +86,52 @@ export default function SessionDetail() {
       window.scrollTo({ top: document.documentElement.scrollHeight });
     }
   }, [entries]);
+
+  // A waterfall bar's click switches back to the transcript and scrolls to
+  // the span's opening entry — `entry.seq` is already the anchor the
+  // live-stream code keys on, so the two views cross-link with no new id.
+  // `operation_start`/`operation_end` (and `task_start`/`task_end`) never
+  // render their own row — they become tree structure, not content — so a
+  // span's anchor seq may have no matching element; fall back to the nearest
+  // rendered entry at or after it.
+  useEffect(() => {
+    if (view !== "transcript" || scrollToSeq == null) return;
+    let el = document.getElementById(`entry-${scrollToSeq}`);
+    if (!el) {
+      const candidate = Array.from(document.querySelectorAll("[id^='entry-']"))
+        .map((node) => ({ node, seq: Number(node.id.slice("entry-".length)) }))
+        .filter((c) => !Number.isNaN(c.seq) && c.seq >= scrollToSeq)
+        .sort((a, b) => a.seq - b.seq)[0];
+      el = (candidate?.node as HTMLElement | undefined) ?? null;
+    }
+    el?.scrollIntoView({ block: "center" });
+    setScrollToSeq(null);
+  }, [view, scrollToSeq]);
+
+  const jumpToSeq = useCallback((seq: number) => {
+    setView("transcript");
+    setScrollToSeq(seq);
+  }, []);
+
+  // The Manager page's `correlation: exact` link (instrumentation.md §12)
+  // lands here with `?op=<operation_id>` — cross-log navigation from a raw
+  // telnet byte count to the operation that caused it. Consumed once entries
+  // arrive (the query param names a span, not a seq, since the Manager page
+  // never sees the transcript's own numbering) and then cleared, so a reload
+  // of the same URL doesn't keep re-scrolling.
+  useEffect(() => {
+    const op = searchParams.get("op");
+    if (!op || entries.length === 0) return;
+
+    const start = entries.find((e) => e.type === "operation_start" && e.operation_id === op);
+    if (start) {
+      setView("transcript");
+      setScrollToSeq(start.seq);
+    }
+    const next = new URLSearchParams(searchParams);
+    next.delete("op");
+    setSearchParams(next, { replace: true });
+  }, [entries, searchParams, setSearchParams]);
 
   if (error) {
     return (
@@ -212,22 +267,33 @@ export default function SessionDetail() {
           )}
         </div>
 
-        {/* Dollars are not the only currency a session spends. Rows written,
-            rows read and inference time were all invisible until spans reported
-            them, and a session that wrote nothing looks identical to one that
-            wrote constantly if the only number on the page is tokens. */}
+        {/* Dollars are not the only currency a session spends. "N operations"
+            was always a proxy for "did we instrument anything" — has_operations
+            already answers that — and it got LESS meaningful the moment spans
+            wrapped every iteration and tool call (§0: 49 → ~150 on the sampled
+            session). The three magnitudes below are the actual question: where
+            did the wall-clock time go. */}
         {session.has_operations && (
-          <div className="statstrip-total">
-            Work: {session.operations} operation{session.operations === 1 ? "" : "s"}
+          <div className="statstrip-total hero-tiles">
+            <span className="hero-tile" title="sum of measured llm.generate span durations">
+              🧠 {fmtDuration(session.timing.model_ms)} inference
+            </span>
+            <span className="hero-tile" title="MUD round trips, summed over root spans">
+              ⚙ {fmtDuration(session.mud_ms)} MUD
+            </span>
+            <span className="hero-tile" title="db_ms summed over root spans">
+              ⛁ {fmtDuration(session.db_ms)} memory
+            </span>
             {" · "}
             <span title="rows written and read by the store, summed over root spans">
-              ⛁ {session.db_writes} written · {session.db_reads} read
+              {session.db_writes} written · {session.db_reads} read
             </span>
             {session.journal_lines > 0 && <> · {session.journal_lines} journal lines</>}
             {session.inference_ms > 0 && <> · ◆ {fmtDuration(session.inference_ms)} local inference</>}
             {session.unclosed_operations > 0 && (
-              <span className="task-group-incomplete" title="the process ended mid-operation">
-                {session.unclosed_operations} incomplete
+              <span className={session.live ? "task-group-meta" : "task-group-incomplete"}
+                    title={session.live ? "still running" : "the process ended mid-operation"}>
+                {session.unclosed_operations} {session.live ? "running" : "incomplete"}
               </span>
             )}
           </div>
@@ -247,15 +313,36 @@ export default function SessionDetail() {
         </div>
       )}
 
-      <div className="transcript">
+      {session.has_operations && (
+        <div className="view-toggle">
+          <button type="button" className={view === "transcript" ? "active" : ""} onClick={() => setView("transcript")}>
+            Transcript
+          </button>
+          <button type="button" className={view === "waterfall" ? "active" : ""} onClick={() => setView("waterfall")}>
+            Waterfall
+          </button>
+        </div>
+      )}
+
+      <div className="transcript" style={{ display: view === "transcript" ? undefined : "none" }}>
         <TranscriptEntries
           entries={entries}
           snapshot={snapshot}
           timingSource={session.timing_source}
           newestSeq={newestSeq}
+          live={session.live}
           onOpenRequest={setFocusedRequest}
         />
       </div>
+
+      {view === "waterfall" && (
+        <Waterfall
+          entries={entries}
+          session={session}
+          coarse={session.timing_source === "wallclock_coarse"}
+          onJumpToSeq={jumpToSeq}
+        />
+      )}
 
       {focusedRequest != null && id && (
         <MessagesSidebar id={id} focusSeq={focusedRequest} onClose={() => setFocusedRequest(null)} />
@@ -301,6 +388,13 @@ export function buildTranscriptTree(entries: Entry[]): TranscriptNode[] {
   const open: OpenNode[] = [];
   const target = () => (open.length ? open[open.length - 1].children : root);
   const insideOperation = () => open.some((n) => n.kind === "op");
+  // Whether a HOOK span (position_refresh, room_survey, …) is on the open
+  // stack — as opposed to a FRAMEWORK span (turn, iteration, tool.<name>, …),
+  // which now wraps everything once instrumentation is on and must not gate
+  // this: if it did, no hook span would ever be absorbed into "Automatic
+  // context work" again, because something framework-shaped is always open.
+  const insideHookOperation = () =>
+    open.some((n) => n.kind === "op" && !isFrameworkSpan(n.start.operation));
 
   // Automatic work sits under one muted heading rather than competing with the
   // model's actions. With spans, the things folded together are whole
@@ -312,12 +406,18 @@ export function buildTranscriptTree(entries: Entry[]): TranscriptNode[] {
     else siblings.push({ kind: "auto", children: [ node ] });
   };
 
-  // A span inside another span nests there. A span that is not — whether at the
-  // top level or at the top level OF A DELEGATION — joins the automatic-work
-  // heading alongside its neighbours, because it is the outermost unit of
-  // automatic work in its own context.
-  const place = (node: TranscriptNode) => {
-    if (insideOperation()) target().push(node);
+  // A FRAMEWORK span is transparent spine content by construction — it always
+  // goes wherever the current context's spine content goes, never absorbed. A
+  // HOOK span inside another hook span nests there (unchanged); a hook span at
+  // the top level of its context (no other HOOK span open — a framework span
+  // does not count) joins the automatic-work heading, because it is the
+  // outermost unit of automatic work there.
+  const place = (node: OpNode) => {
+    if (isFrameworkSpan(node.start.operation)) {
+      target().push(node);
+      return;
+    }
+    if (insideHookOperation()) target().push(node);
     else absorb(node);
   };
 
@@ -402,6 +502,97 @@ function iterationMarkerSeqs(entries: Entry[]): Set<number> {
   return seqs;
 }
 
+// A transparent span (§9) draws no box, so its own summary — duration, MUD
+// calls, tokens — has to reach whatever EXISTING chrome the reader already
+// looks at instead. Built once per render, off the flat entries list rather
+// than the tree, because every one of these is a lookup keyed by an id or a
+// number, not a containment question.
+interface RollupIndex {
+  /** operation_end entries keyed by operation_id. */
+  endsById: Map<string, Entry>;
+  /** operation_start entries keyed by operation_id — gives the span's name
+   *  and parent, which the end event alone does not carry. */
+  startsById: Map<string, Entry>;
+  /** The `iteration` span's operation_end, keyed by iteration number. */
+  iterationSpans: Map<number, Entry>;
+  /** The `turn` span's operation_end, keyed by turn number. */
+  turnSpans: Map<number, Entry>;
+  /**
+   * The `llm.generate` span's operation_end, keyed by the seq of the
+   * `assistant` entry it measured. Sequential pairing (the next assistant
+   * entry after the span closes) rather than by iteration number: wrap_up's
+   * own `llm.generate` carries the LAST real iteration's number (no new
+   * `iteration` marker fires during wind-down), which would collide.
+   */
+  llmLatencyByAssistantSeq: Map<number, Entry>;
+  /** Summed `assistant` cost_usd per iteration — the iteration marker's cost
+   *  figure, since cost is set by `frame.set` and so is not itself a counter
+   *  that rolls up through the iteration span automatically. */
+  iterationCostUsd: Map<number, number>;
+}
+
+export function buildRollupIndex(entries: Entry[]): RollupIndex {
+  const endsById = new Map<string, Entry>();
+  const startsById = new Map<string, Entry>();
+  const iterationSpans = new Map<number, Entry>();
+  const turnSpans = new Map<number, Entry>();
+  const llmLatencyByAssistantSeq = new Map<number, Entry>();
+  const iterationCostUsd = new Map<number, number>();
+  let pendingLlm: Entry | null = null;
+
+  for (const e of entries) {
+    if (e.type === "operation_start" && e.operation_id) {
+      startsById.set(e.operation_id, e);
+    } else if (e.type === "operation_end" && e.operation_id) {
+      endsById.set(e.operation_id, e);
+      if (e.operation === "iteration") iterationSpans.set(e.iteration, e);
+      if (e.operation === "turn") turnSpans.set(e.turn, e);
+      if (e.operation === "llm.generate") pendingLlm = e;
+    } else if (e.type === "assistant") {
+      if (pendingLlm) {
+        llmLatencyByAssistantSeq.set(e.seq, pendingLlm);
+        pendingLlm = null;
+      }
+      if (e.cost_usd != null) {
+        iterationCostUsd.set(e.iteration, (iterationCostUsd.get(e.iteration) ?? 0) + e.cost_usd);
+      }
+    }
+  }
+
+  return { endsById, startsById, iterationSpans, turnSpans, llmLatencyByAssistantSeq, iterationCostUsd };
+}
+
+// The tool.<name> span's own rollup, merged with its after_tool child's (the
+// framework's downstream store/journal writes) — one footer on the ToolCard,
+// never two, because after_tool draws no box of its own (§10).
+export function toolSpanRollup(
+  entry: Entry,
+  idx: RollupIndex,
+): { durationMs: number | null; rollup: Record<string, number> | null; afterToolOperationId: string | null } | null {
+  if (!entry.operation_id) return null;
+  const span = idx.startsById.get(entry.operation_id);
+  if (!span?.operation?.startsWith("tool.")) return null;
+
+  const end = idx.endsById.get(entry.operation_id);
+  const rollup: Record<string, number> = { ...(end?.rollup ?? {}) };
+  let afterToolOperationId: string | null = null;
+
+  for (const start of idx.startsById.values()) {
+    if (start.parent_operation_id !== entry.operation_id || start.operation !== "after_tool") continue;
+    afterToolOperationId = start.operation_id ?? null;
+    const childEnd = start.operation_id ? idx.endsById.get(start.operation_id) : undefined;
+    for (const [ key, value ] of Object.entries(childEnd?.rollup ?? {})) {
+      rollup[key] = (rollup[key] ?? 0) + value;
+    }
+  }
+
+  return {
+    durationMs: end?.duration_ms ?? null,
+    rollup: Object.keys(rollup).length ? rollup : null,
+    afterToolOperationId,
+  };
+}
+
 // Collapse sub-runs by default once there are more than a couple: the player's
 // narrative is the spine, and a sub-run is detail you open when a room looks
 // wrong.
@@ -412,16 +603,19 @@ function TranscriptEntries({
   snapshot,
   timingSource,
   newestSeq,
+  live,
   onOpenRequest,
 }: {
   entries: Entry[];
   snapshot: SessionDetailData["snapshot"];
   timingSource: SessionDetailData["session"]["timing_source"];
   newestSeq: number | null;
+  live: boolean;
   onOpenRequest: (requestSeq: number) => void;
 }) {
   const nodes = buildTranscriptTree(entries);
   const markers = iterationMarkerSeqs(entries);
+  const rollups = buildRollupIndex(entries);
   const subRuns = entries.filter((e) => e.type === "task_start").length;
 
   return (
@@ -431,6 +625,8 @@ function TranscriptEntries({
       coarse={timingSource === "wallclock_coarse"}
       newestSeq={newestSeq}
       markers={markers}
+      rollups={rollups}
+      live={live}
       defaultOpen={subRuns <= COLLAPSE_THRESHOLD}
       onOpenRequest={onOpenRequest}
     />
@@ -442,6 +638,13 @@ interface NodeProps {
   coarse: boolean;
   newestSeq: number | null;
   markers: Set<number>;
+  rollups: RollupIndex;
+  /** A span/task with no closing event reads as "incomplete" — the process
+   *  died mid-flight — except during a live session, where an open span is
+   *  simply still running. Gating on this is the difference between the page
+   *  saying the process crashed and saying it is working (instrumentation.md
+   *  §13). */
+  live: boolean;
   defaultOpen: boolean;
   onOpenRequest: (requestSeq: number) => void;
 }
@@ -460,7 +663,15 @@ function TranscriptNodes({ nodes, ...props }: NodeProps & { nodes: TranscriptNod
         node.kind === "auto" ? (
           <AutomaticGroup key={`auto-${autoKey(node)}`} node={node} {...props} />
         ) : node.kind === "op" ? (
-          <OperationGroup key={`op-${node.start.seq}`} node={node} {...props} />
+          isFrameworkSpan(node.start.operation) ? (
+            // Transparent: draws no box of its own. Its children render at
+            // exactly the indent its parent's other children do — the span's
+            // OWN summary surfaces on existing chrome instead (the iteration
+            // marker, the CtxChip, the ToolCard footer, the turn strip).
+            <TranscriptNodes key={`opspine-${node.start.seq}`} nodes={node.children} {...props} />
+          ) : (
+            <OperationGroup key={`op-${node.start.seq}`} node={node} {...props} />
+          )
         ) : node.kind === "group" ? (
           <TaskGroup key={`group-${node.start.seq}`} node={node} {...props} />
         ) : node.entry.type === "local_inference" ? (
@@ -469,9 +680,17 @@ function TranscriptNodes({ nodes, ...props }: NodeProps & { nodes: TranscriptNod
         ) : (
           <Fragment key={node.entry.seq}>
             {props.markers.has(node.entry.seq) && (
-              <div className="iteration-marker">Iteration {node.entry.iteration}</div>
+              <IterationMarker
+                iteration={node.entry.iteration}
+                span={props.rollups.iterationSpans.get(node.entry.iteration)}
+                costUsd={props.rollups.iterationCostUsd.get(node.entry.iteration)}
+                coarse={props.coarse}
+              />
             )}
-            <div className={node.entry.seq === props.newestSeq ? "entry-row entry-row-new" : "entry-row"}>
+            <div
+              id={`entry-${node.entry.seq}`}
+              className={node.entry.seq === props.newestSeq ? "entry-row entry-row-new" : "entry-row"}
+            >
               <div className="entry-gutter-row">
                 <Duration
                   at={node.entry.at}
@@ -485,12 +704,46 @@ function TranscriptNodes({ nodes, ...props }: NodeProps & { nodes: TranscriptNod
                 entry={node.entry}
                 snapshot={props.snapshot}
                 onOpenRequest={props.onOpenRequest}
+                rollups={props.rollups}
+                coarse={props.coarse}
               />
             </div>
           </Fragment>
         ),
       )}
     </>
+  );
+}
+
+// The iteration span's summary, replacing the bare "Iteration N" marker: what
+// it cost in every currency the log can say — duration (measured, not
+// dt_ms-inferred), MUD round trips, and the model spend within it. Absent
+// span data (a log written before this plan) degrades to exactly the old
+// bare marker.
+function IterationMarker({
+  iteration,
+  span,
+  costUsd,
+  coarse,
+}: {
+  iteration: number;
+  span: Entry | undefined;
+  costUsd: number | undefined;
+  coarse: boolean;
+}) {
+  const mudCalls = span?.rollup?.mud_calls;
+  return (
+    <div className="iteration-marker">
+      Iteration {iteration}
+      {span?.duration_ms != null && <span className="task-group-meta"> · {fmtDelta(span.duration_ms, coarse)}</span>}
+      {mudCalls ? (
+        <span className="task-group-meta">
+          {" "}
+          · {mudCalls} MUD call{mudCalls === 1 ? "" : "s"}
+        </span>
+      ) : null}
+      {costUsd ? <span className="task-group-meta"> · {fmtCost(costUsd)}</span> : null}
+    </div>
   );
 }
 
@@ -532,9 +785,13 @@ function TaskGroup({ node, ...props }: NodeProps & { node: GroupNode }) {
         {iterations > 0 && <span className="task-group-meta">{iterations} iter</span>}
         {cost > 0 && <span className="task-group-meta">{fmtCost(cost)}</span>}
         {incomplete && (
-          <span className="task-group-incomplete" title="no task_end — the run ended mid-delegation">
-            incomplete
-          </span>
+          props.live ? (
+            <span className="task-group-meta" title="still running">running</span>
+          ) : (
+            <span className="task-group-incomplete" title="no task_end — the run ended mid-delegation">
+              incomplete
+            </span>
+          )
         )}
       </button>
 
@@ -545,22 +802,6 @@ function TaskGroup({ node, ...props }: NodeProps & { node: GroupNode }) {
       )}
     </div>
   );
-}
-
-// Human wording for the semantic reason a hook spent MUD round trips. Falling
-// back to the raw slug is deliberate: an operation this build has never heard
-// of must still be visible, not swallowed.
-const OPERATION_LABELS: Record<string, string> = {
-  player_bootstrap: "bootstrap player",
-  position_refresh: "establish position",
-  room_disambiguation: "disambiguate room",
-  room_survey: "room survey",
-  async_poll: "poll",
-};
-
-function operationLabel(operation: string | null | undefined) {
-  if (!operation) return "automatic";
-  return OPERATION_LABELS[operation] ?? operation.replace(/_/g, " ");
 }
 
 function isEmptyResult(entry: Entry) {
@@ -609,7 +850,7 @@ function AutomaticGroup({ node, ...props }: NodeProps & { node: AutoNode }) {
         {totalMs > 0 && <span className="task-group-meta">{fmtDelta(totalMs, props.coarse)}</span>}
       </button>
 
-      {!expanded && <AutomaticSummary node={node} coarse={props.coarse} />}
+      {!expanded && <AutomaticSummary node={node} coarse={props.coarse} live={props.live} />}
 
       {expanded && (
         <div className="task-group-body">
@@ -624,7 +865,7 @@ function AutomaticGroup({ node, ...props }: NodeProps & { node: AutoNode }) {
 // already one operation and contributes one row. Without them (a pre-span log),
 // runs of adjacent calls sharing an `operation` string are folded — which is
 // the approximation spans exist to replace, kept only for those files.
-function AutomaticSummary({ node, coarse }: { node: AutoNode; coarse: boolean }) {
+function AutomaticSummary({ node, coarse, live }: { node: AutoNode; coarse: boolean; live: boolean }) {
   const rows: { key: string; label: string; entries: Entry[]; incomplete: boolean }[] = [];
 
   for (const child of node.children) {
@@ -658,7 +899,7 @@ function AutomaticSummary({ node, coarse }: { node: AutoNode; coarse: boolean })
               {empty === row.entries.length && row.entries.length > 1 && ", all empty"}
               {empty === row.entries.length && row.entries.length === 1 && ", empty"}
             </span>
-            {row.incomplete && <span className="task-group-incomplete">incomplete</span>}
+            {row.incomplete && (live ? <span className="task-group-meta">running</span> : <span className="task-group-incomplete">incomplete</span>)}
             {ms > 0 && <span className="auto-summary-ms">{fmtDelta(ms, coarse)}</span>}
           </li>
         );
@@ -697,9 +938,13 @@ function OperationGroup({ node, ...props }: NodeProps & { node: OpNode }) {
         {calls.length > 0 && <span className="auto-summary-tools">{tallyTools(calls)}</span>}
         <span className="task-group-spacer" />
         {incomplete && (
-          <span className="task-group-incomplete" title="no operation_end — the run ended mid-operation">
-            incomplete
-          </span>
+          props.live ? (
+            <span className="task-group-meta" title="still running">running</span>
+          ) : (
+            <span className="task-group-incomplete" title="no operation_end — the run ended mid-operation">
+              incomplete
+            </span>
+          )
         )}
         {durationMs != null && <span className="task-group-meta">{fmtDelta(durationMs, props.coarse)}</span>}
       </button>
@@ -708,7 +953,11 @@ function OperationGroup({ node, ...props }: NodeProps & { node: OpNode }) {
         <div className="task-group-body">
           {node.children.map((child) =>
             child.kind === "op" ? (
-              <OperationGroup key={`op-${child.start.seq}`} node={child} {...props} />
+              isFrameworkSpan(child.start.operation) ? (
+                <TranscriptNodes key={`opspine-${child.start.seq}`} nodes={child.children} {...props} />
+              ) : (
+                <OperationGroup key={`op-${child.start.seq}`} node={child} {...props} />
+              )
             ) : child.kind === "entry" && child.entry.type === "local_inference" ? (
               <LocalInferenceRow key={child.entry.seq} entry={child.entry} coarse={props.coarse} />
             ) : child.kind === "entry" && child.entry.type === "tool" ? (
@@ -913,10 +1162,14 @@ function TranscriptEntry({
   entry,
   snapshot,
   onOpenRequest,
+  rollups,
+  coarse,
 }: {
   entry: Entry;
   snapshot: SessionDetailData["snapshot"];
   onOpenRequest: (requestSeq: number) => void;
+  rollups: RollupIndex;
+  coarse: boolean;
 }) {
   switch (entry.type) {
     case "user":
@@ -966,12 +1219,17 @@ function TranscriptEntry({
     case "turn_end": {
       const tripped = entry.reason != null && entry.reason !== "completed";
       const hasBar = (snapshot.max_turn_tokens ?? 0) > 0 && entry.tokens != null;
+      // The `turn` span's own measured wall time — distinct from
+      // `entry.duration_ms` (the parser's turn_started→turn_end gap, which
+      // does not include the final wrap_up call when the turn hit a limit).
+      const turnSpan = rollups.turnSpans.get(entry.turn);
       return (
         <div className={tripped ? "turn-strip danger" : "turn-strip"}>
           <div className="turn-strip-text">
             {tripped ? "⚠" : "✓"} Turn {entry.turn} · {entry.iterations} iteration
             {entry.iterations === 1 ? "" : "s"}
             {entry.tokens != null && <> · {fmtTokens(entry.tokens)} tok</>}
+            {turnSpan?.duration_ms != null && <> · {fmtDelta(turnSpan.duration_ms, coarse)}</>}
             {tripped && <> · {entry.reason}</>}
           </div>
           {hasBar && (
@@ -1000,7 +1258,11 @@ function TranscriptEntry({
         </div>
       );
 
-    case "assistant":
+    case "assistant": {
+      // The `llm.generate` span measured ONLY `@client.call` — not our own
+      // request/response serialization either side of it, which is what
+      // `dt_ms` used to charge the model for (work_attribution.md §2).
+      const modelMs = rollups.llmLatencyByAssistantSeq.get(entry.seq)?.duration_ms ?? null;
       if (entry.text?.startsWith("(tool use")) {
         return (
           <div className="tool-marker">
@@ -1013,6 +1275,8 @@ function TranscriptEntry({
               provider={entry.provider}
               model={entry.model}
               costUsd={entry.cost_usd}
+              modelMs={modelMs}
+              coarse={coarse}
             />
           </div>
         );
@@ -1034,11 +1298,14 @@ function TranscriptEntry({
                 provider={entry.provider}
                 model={entry.model}
                 costUsd={entry.cost_usd}
+                modelMs={modelMs}
+                coarse={coarse}
               />
             </div>
           )}
         </div>
       );
+    }
 
     case "reasoning":
       return (
@@ -1057,7 +1324,11 @@ function TranscriptEntry({
       );
 
     case "tool":
-      return <ToolCard entry={entry} />;
+      // A hook-initiated call reaches here via AutomaticCall separately; a
+      // model-chosen one carries the id of its own `tool.<name>` span, whose
+      // rollup (mud_calls/mud_ms plus whatever after_tool wrote downstream)
+      // becomes this card's footer.
+      return <ToolCard entry={entry} rollup={toolSpanRollup(entry, rollups)} coarse={coarse} />;
 
     case "injected_context":
       return <InjectedContext entry={entry} />;
@@ -1096,7 +1367,15 @@ function TranscriptEntry({
 //
 // The raw text is never discarded: it is what debugs the parser and the
 // transport, while the replacement is what debugs the agent's behaviour.
-function ToolCard({ entry }: { entry: Entry }) {
+function ToolCard({
+  entry,
+  rollup,
+  coarse = false,
+}: {
+  entry: Entry;
+  rollup?: { durationMs: number | null; rollup: Record<string, number> | null; afterToolOperationId: string | null } | null;
+  coarse?: boolean;
+}) {
   const replaced = entry.model_result != null;
   const [showRaw, setShowRaw] = useState(false);
 
@@ -1127,6 +1406,51 @@ function ToolCard({ entry }: { entry: Entry }) {
           <Ansi html={entry.result_html ?? ""} />
         </pre>
       )}
+
+      {rollup && <ToolSpanRollup rollup={rollup} coarse={coarse} />}
+    </div>
+  );
+}
+
+// The `tool.<name>` span's own summary, folded in with its `after_tool`
+// child's (never a separate box — §10). ⚙ is the MUD round trip the
+// dispatch itself paid for; ⛁ is what `after_tool`'s store/journal writes
+// spent reacting to the result — two different currencies, both real.
+function ToolSpanRollup({
+  rollup,
+  coarse,
+}: {
+  rollup: { durationMs: number | null; rollup: Record<string, number> | null; afterToolOperationId: string | null };
+  coarse: boolean;
+}) {
+  const [showJournal, setShowJournal] = useState(false);
+  const r = rollup.rollup;
+  if (!r) return null;
+
+  const hasMud = r.mud_calls != null;
+  const hasDb = r.db_writes != null || r.db_reads != null;
+  const lines = r.journal_lines ?? 0;
+  if (!hasMud && !hasDb) return null;
+
+  return (
+    <div className="op-rollup">
+      {hasMud && (
+        <span>
+          <span className="op-rollup-icon">⚙</span> {r.mud_calls} MUD call{r.mud_calls === 1 ? "" : "s"}
+          {r.mud_ms != null && <> · {fmtDelta(r.mud_ms, coarse)}</>}
+        </span>
+      )}
+      {hasDb && (
+        <span>
+          <span className="op-rollup-icon">⛁</span> wrote {r.db_writes ?? 0} · read {r.db_reads ?? 0}
+        </span>
+      )}
+      {lines > 0 && rollup.afterToolOperationId && (
+        <button type="button" className="op-rollup-journal" onClick={() => setShowJournal(!showJournal)}>
+          ({lines} journal line{lines === 1 ? "" : "s"})
+        </button>
+      )}
+      {showJournal && rollup.afterToolOperationId && <JournalDetail operationId={rollup.afterToolOperationId} />}
     </div>
   );
 }

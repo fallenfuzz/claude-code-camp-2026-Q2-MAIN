@@ -74,8 +74,11 @@ module Boukensha
           registered_tool = registry.tool(local, description: tool["description"].to_s,
                                parameters: to_boukensha_params(tool["inputSchema"], permissions: permissions, tool_name: local)) do |**kwargs|
             # Boukensha hands us symbol-keyed kwargs; the server wants strings.
-            # Blank/omitted values are normalized server-side.
-            result = client.call_tool(remote, kwargs.transform_keys(&:to_s))
+            # Blank/omitted values are normalized server-side. `meta:` carries
+            # the session/operation id of whatever span this call is running
+            # inside (empty at top level), so a server that logs its own side
+            # of the exchange can correlate exactly rather than by timestamp.
+            result = client.call_tool(remote, kwargs.transform_keys(&:to_s), meta: Boukensha::Operation.wire_meta)
             result[:error] ? "error: #{result[:text]}" : result[:text]
           end
           next unless registered_tool

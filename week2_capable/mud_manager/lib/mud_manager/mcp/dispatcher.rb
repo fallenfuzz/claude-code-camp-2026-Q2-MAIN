@@ -20,8 +20,13 @@ module MudManager
       end
 
       # name: tool name String; args: Hash with String keys; id: session id.
+      # correlation_id: the caller's span/session id, carried over MCP `_meta`
+      # (boukensha plan §3) — forwarded into ManagerLog so a call that
+      # originated in a spanned tool call joins the two logs exactly instead of
+      # by timestamp adjacency. nil for a caller that sends none (an older
+      # client, or the raw JSON protocol), which logs exactly as it did before.
       # Returns the response text. Raises ProtocolError on any failure.
-      def call(name, args = {}, id: "default")
+      def call(name, args = {}, id: "default", correlation_id: nil)
         tool = ToolSpec.find(name)
         raise ProtocolError.new("unknown_tool", "no such tool: #{name}") unless tool
 
@@ -36,13 +41,13 @@ module MudManager
               # Primitives raises ArgumentError for bad enums / missing required.
               raise ProtocolError.new("argument_error", e.message)
             end
-          @pool.run_command(id, command, tool: name, args: args)
+          @pool.run_command(id, command, tool: name, args: args, correlation_id: correlation_id)
         when :raw
           raw = args["command"].to_s
           raise ProtocolError.new("argument_error", "command is required") if raw.strip.empty?
-          @pool.run_raw(id, raw, tool: name, args: args)
+          @pool.run_raw(id, raw, tool: name, args: args, correlation_id: correlation_id)
         when :poll
-          @pool.poll(id, tool: name, args: args)
+          @pool.poll(id, tool: name, args: args, correlation_id: correlation_id)
         when :status
           @pool.connected?(id) ? "connected to #{@pool.describe(id)}" : "disconnected"
         else

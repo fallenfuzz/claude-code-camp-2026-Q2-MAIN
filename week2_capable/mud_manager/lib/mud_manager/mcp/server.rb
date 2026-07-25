@@ -99,11 +99,34 @@ module MudManager
         name = params["name"]
         args = params["arguments"] || {}
         begin
-          text = @dispatcher.call(name, args, id: "default")
+          text = @dispatcher.call(name, args, id: "default", correlation_id: correlation_id(params))
           { "content" => [ text_block(text) ], "isError" => false }
         rescue ProtocolError => e
           { "content" => [ text_block("error [#{e.code}]: #{e.message}") ], "isError" => true }
         end
+      end
+
+      # The MCP spec's `_meta` slot on `tools/call` params — additive and
+      # ignored by any client that never sends it. Boukensha's `Operation`
+      # writes both `boukensha/session_id` and `boukensha/operation_id`; any
+      # other value there is silently unused rather than erroring, which is
+      # what keeps this slot safe for a future caller to put something else
+      # in.
+      #
+      # `operation_id` alone names a span but not WHICH FILE it lives in — the
+      # mud_monitor Manager page needs both to link `correlation: "exact"`
+      # back to `sessions/:id` anchored on the span, so this composes them
+      # into one string rather than adding a second ManagerLog column for a
+      # value that is meaningless without its session anyway.
+      def correlation_id(params)
+        meta = params["_meta"]
+        return nil unless meta.is_a?(Hash)
+
+        session_id  = meta["boukensha/session_id"]
+        operation_id = meta["boukensha/operation_id"]
+        return nil unless operation_id
+
+        session_id ? "#{session_id}:#{operation_id}" : operation_id
       end
 
       def text_block(text)

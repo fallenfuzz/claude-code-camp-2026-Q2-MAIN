@@ -1,0 +1,12 @@
+{"phase":"session_start","session_id":"llm_generate","at":"2026-07-25T09:00:00.000-04:00","mono_ms":1000,"model":"claude-haiku-4-5","provider":"anthropic","max_iterations":20,"context_window":200000}
+{"phase":"operation_start","operation_id":"op_turn","operation":"turn","session_id":"llm_generate","task":"player","depth":0,"at":"2026-07-25T09:00:00.000-04:00","mono_ms":1000}
+{"phase":"turn","n":0,"session_id":"llm_generate","task":"player","depth":0,"at":"2026-07-25T09:00:00.000-04:00","mono_ms":1000}
+{"phase":"operation_start","operation_id":"op_iter1","parent_operation_id":"op_turn","operation":"iteration","session_id":"llm_generate","task":"player","depth":0,"at":"2026-07-25T09:00:00.010-04:00","mono_ms":1010}
+{"phase":"iteration","n":1,"session_id":"llm_generate","task":"player","depth":0,"at":"2026-07-25T09:00:00.010-04:00","mono_ms":1010}
+{"phase":"request","session_id":"llm_generate","task":"player","depth":0,"at":"2026-07-25T09:00:00.020-04:00","mono_ms":1020}
+{"phase":"operation_start","operation_id":"op_llm1","parent_operation_id":"op_iter1","operation":"llm.generate","session_id":"llm_generate","task":"player","depth":0,"at":"2026-07-25T09:00:00.050-04:00","mono_ms":1050}
+{"phase":"operation_end","operation_id":"op_llm1","operation":"llm.generate","duration_ms":250,"ok":true,"provider":"anthropic","model":"claude-haiku-4-5","iteration":1,"session_id":"llm_generate","task":"player","depth":0,"at":"2026-07-25T09:00:00.300-04:00","mono_ms":1300}
+{"phase":"response","text":"done","usage":{"input_tokens":100,"output_tokens":10},"input_tokens":100,"output_tokens":10,"stop_reason":"end_turn","provider":"anthropic","model":"claude-haiku-4-5","cost_usd":0.0001,"session_id":"llm_generate","task":"player","depth":0,"at":"2026-07-25T09:00:03.300-04:00","mono_ms":4300}
+{"phase":"turn_end","reason":"completed","iterations":1,"tokens":110,"session_id":"llm_generate","task":"player","depth":0,"at":"2026-07-25T09:00:03.310-04:00","mono_ms":4310}
+{"phase":"operation_end","operation_id":"op_iter1","operation":"iteration","duration_ms":3300,"ok":true,"session_id":"llm_generate","task":"player","depth":0,"at":"2026-07-25T09:00:03.310-04:00","mono_ms":4310}
+{"phase":"operation_end","operation_id":"op_turn","operation":"turn","duration_ms":3310,"ok":true,"session_id":"llm_generate","task":"player","depth":0,"at":"2026-07-25T09:00:03.310-04:00","mono_ms":4310}

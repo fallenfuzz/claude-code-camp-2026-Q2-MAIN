@@ -55,7 +55,16 @@ module SessionLog
       values.empty? ? nil : values.sum
     end
 
+    # Prefer the `llm.generate` span's MEASURED duration — `@client.call`
+    # alone, nothing either side of it — over the `assistant` entry's `dt_ms`,
+    # which is the gap since the previous emitted entry and so also charges the
+    # model for our own request/response serialization (work_attribution.md
+    # §2). Falls back to `dt_ms` for a log written before the span existed, the
+    # same way the parser keeps its adjacency fold for pre-span nesting.
     def model_durations
+      spans = @parser.entries.select { |e| e.type == :operation_end && e.operation == "llm.generate" }
+      return spans.filter_map(&:duration_ms) if spans.any?
+
       @parser.entries.select { |e| e.type == :assistant }.filter_map(&:duration_ms)
     end
 

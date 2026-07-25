@@ -30,7 +30,20 @@ module Boukensha
     # downward: a survey opening inside `before_model` fired from `before_model`
     # too, and making RoomSurvey name a seam it should know nothing about is how
     # a label ends up disagreeing with the truth.
-    Frame = Struct.new(:id, :name, :trigger, :parent_id, keyword_init: true)
+    #
+    # `attributes` is the one field a call site fills in DURING the span rather
+    # than at open time — `#set` merges into it, and Logger#operation folds the
+    # bag into `operation_end` alongside the counter delta. Without it there is
+    # nowhere to hang a fact only known once the block is running (the model
+    # actually used, the token counts, the room resolved) — Struct's other
+    # fields are all decided at `open`.
+    Frame = Struct.new(:id, :name, :trigger, :parent_id, :attributes, keyword_init: true) do
+      def set(**attrs)
+        attributes.merge!(attrs)
+      end
+    end
+
+    SESSION_KEY = :boukensha_operation_session_id
 
     class << self
       def stack = (Thread.current[KEY] ||= [])
@@ -41,6 +54,25 @@ module Boukensha
       def current_id    = stack.last&.id
       def current_name  = stack.last&.name
 
+      # Set once by Logger#initialize, read here rather than threaded through
+      # every call site that wants it — the same argument as the frame stack
+      # itself. Thread-local for the same forward-looking reason the stack is.
+      def session_id = Thread.current[SESSION_KEY]
+
+      def session_id=(value)
+        Thread.current[SESSION_KEY] = value
+      end
+
+      # What crosses the MCP wire in `_meta` so the far side (mud_manager) can
+      # stamp its own ManagerLog record with the id of the span that made the
+      # call — the correlation `manager_record_serializer.rb` renders as
+      # "exact". Empty at top level (a call the model made with nothing open)
+      # rather than a hash of nils, so a server that inspects `_meta` sees
+      # exactly the keys that are meaningful.
+      def wire_meta
+        { "boukensha/session_id" => session_id, "boukensha/operation_id" => current_id }.compact
+      end
+
       # Open a span for the duration of the block. Reentrant, and `ensure`
       # RESTORES the predecessor rather than clearing: `room_survey` opens
       # inside `position_refresh`, and a wipe on the way out would send every
@@ -50,7 +82,8 @@ module Boukensha
       # test, a degraded boot). Logger#operation is the normal entry point.
       def open(name, trigger: nil)
         frame = Frame.new(id: "op_#{SecureRandom.hex(3)}", name: name.to_s,
-                          trigger: (trigger || current&.trigger)&.to_s, parent_id: current_id)
+                          trigger: (trigger || current&.trigger)&.to_s, parent_id: current_id,
+                          attributes: {})
         stack.push(frame)
         begin
           yield frame

@@ -42,6 +42,18 @@ module SessionLog
       assert_nil summary[:automatic_tool_ms]
     end
 
+    # work_attribution.md §2: `dt_ms` charges the model for our own request
+    # serialization (the gap since the previous emitted entry), not just the
+    # `@client.call`. Once an `llm.generate` span exists, its measured
+    # duration must win — 250ms, not the ~3000ms gap to the next entry.
+    test "model_ms prefers the llm.generate span duration over dt_ms" do
+      parser  = Parser.load(FIXTURES.join("llm_generate.jsonl"))
+      summary = Timing.new(parser).summary
+
+      assert_equal 250, summary[:p50_model_ms]
+      assert_equal 250, summary[:model_ms]
+    end
+
     test "an empty session reports nil rollups instead of crashing" do
       parser  = Parser.load(FIXTURES.join("empty.jsonl"))
       summary = Timing.new(parser).summary

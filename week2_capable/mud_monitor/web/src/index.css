@@ -34,6 +34,16 @@
     --tool-bg: #33301a;
     --tool-border: #6b6330;
   }
+
+  /* `.duration-slow` hardcodes a light-mode amber-on-cream pair with no dark
+     override. Harmless while span durations sat on a handful of rows; with
+     spans on every iteration marker, tool card and chip (instrumentation.md),
+     it is now most rows in a dark session — an unreadable cream box on a dark
+     panel. Tinted to match `--tool-bg`/`--tool-border`'s existing amber. */
+  .duration-slow {
+    color: #e8b34d;
+    background: #3a2f14;
+  }
 }
 
 * {
@@ -465,6 +475,18 @@ table.sessions a:hover {
   margin-top: 0.15rem;
 }
 
+.statstrip-total.hero-tiles {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0.4rem;
+}
+
+.hero-tile {
+  font-weight: 600;
+  color: var(--text);
+}
+
 .breakdown {
   background: var(--panel);
   border: 1px solid var(--border);
@@ -780,6 +802,13 @@ table.sessions a:hover {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+/* The `llm.generate` span's measured latency — distinct from `.ctx-cost`
+   (green, a currency) since this is a duration, not a spend. */
+.ctx-model-ms {
+  color: var(--muted);
+  font-weight: 600;
 }
 
 .msg-foot {
@@ -2460,4 +2489,250 @@ main:has(.knowledge-map-page) .error {
 .map-note {
   margin-left: 0.9rem;
   font-style: italic;
+}
+
+/* ---------------------------------------------------------------------
+   Transcript / Waterfall toggle (instrumentation.md §11) — a view switch
+   over ONE session, not a nav item, so it reuses the segmented-control shape
+   `.ctx-cp-toggle` already established rather than inventing a second one.
+--------------------------------------------------------------------- */
+
+.view-toggle,
+.waterfall-view-toggle {
+  display: flex;
+  gap: 0.35rem;
+  margin: 0.75rem 0;
+}
+
+.view-toggle button,
+.waterfall-view-toggle button {
+  font-size: 0.78rem;
+  padding: 0.25rem 0.75rem;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--bg);
+  color: var(--muted);
+  cursor: pointer;
+}
+
+.view-toggle button.active,
+.waterfall-view-toggle button.active {
+  border-color: var(--accent);
+  color: var(--accent);
+  background: var(--user-bg);
+}
+
+/* ---------------------------------------------------------------------
+   Waterfall (instrumentation.md §11): magnitude AND causal structure over
+   time. Three hero tiles answer "where did the time go" before the timeline
+   answers "and in what shape" — the headline numbers are deliberately not
+   part of the chart.
+--------------------------------------------------------------------- */
+
+.waterfall {
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 1rem 1.1rem;
+  margin-bottom: 1.25rem;
+}
+
+.waterfall-hero {
+  display: flex;
+  gap: 1.5rem;
+  margin-bottom: 0.75rem;
+  padding-bottom: 0.75rem;
+  border-bottom: 1px solid var(--border);
+}
+
+.hero-stat {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.1rem;
+}
+
+.hero-stat-glyph {
+  font-size: 0.85rem;
+}
+
+.hero-stat-value {
+  font-family: ui-monospace, monospace;
+  font-size: 1.1rem;
+  font-weight: 700;
+  color: var(--text);
+}
+
+.hero-stat-label {
+  font-size: 0.72rem;
+  color: var(--muted);
+}
+
+.waterfall-chart {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.waterfall-row {
+  display: grid;
+  grid-template-columns: minmax(140px, 22%) 1fr auto;
+  align-items: center;
+  gap: 0.6rem;
+  min-height: 22px;
+}
+
+.waterfall-row-label {
+  font-size: 0.75rem;
+  color: var(--muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.waterfall-row-duration {
+  font-family: ui-monospace, monospace;
+  font-size: 0.72rem;
+  color: var(--muted);
+  text-align: right;
+  min-width: 3.5rem;
+}
+
+/* The track is the FULL row width; the bar is absolutely positioned inside
+   it by percentage — no charting library, the same discipline Sparkline.tsx
+   already follows for its own hand-rolled SVG. */
+.waterfall-track {
+  position: relative;
+  height: 14px;
+  background: var(--track);
+  border-radius: 2px;
+}
+
+.waterfall-bar {
+  position: absolute;
+  top: 1px;
+  bottom: 1px;
+  border: none;
+  border-radius: 4px;
+  padding: 0;
+  cursor: pointer;
+}
+
+.waterfall-bar-inference {
+  background: #2a78d6;
+}
+
+.waterfall-bar-mud {
+  background: #eb6834;
+}
+
+.waterfall-bar-memory {
+  background: #1baf7a;
+}
+
+/* Local inference: neutral + texture rather than a fourth hue — validated
+   against `--panel` in both modes, a 4th categorical colour fails the
+   contrast floor outright (§11). */
+.waterfall-bar-local {
+  background: repeating-linear-gradient(
+    45deg,
+    var(--muted),
+    var(--muted) 2px,
+    var(--panel) 2px,
+    var(--panel) 4px
+  );
+}
+
+/* A pure structural container (turn/iteration/wrap_up/compaction): a real
+   span with a real duration, but no work of its own beyond its children —
+   outline only, never a fifth categorical hue. */
+.waterfall-bar-container {
+  background: transparent;
+  border: 1.5px solid var(--border);
+}
+
+.waterfall-bar-open {
+  background: repeating-linear-gradient(
+    90deg,
+    currentColor,
+    currentColor 4px,
+    transparent 4px,
+    transparent 8px
+  );
+  opacity: 0.6;
+}
+
+.waterfall-bar-failed {
+  outline: 2px solid var(--danger);
+  outline-offset: 1px;
+}
+
+.waterfall-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.9rem;
+  margin-top: 0.85rem;
+  padding-top: 0.6rem;
+  border-top: 1px solid var(--border);
+  font-size: 0.75rem;
+  color: var(--muted);
+}
+
+.waterfall-legend-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+}
+
+.waterfall-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.8rem;
+}
+
+.waterfall-table th,
+.waterfall-table td {
+  padding: 0.35rem 0.6rem;
+  border-bottom: 1px solid var(--border);
+  text-align: left;
+}
+
+.waterfall-table td.num,
+.waterfall-table th:nth-child(2) {
+  font-family: ui-monospace, monospace;
+  text-align: right;
+}
+
+.waterfall-table-counters {
+  font-family: ui-monospace, monospace;
+  font-size: 0.72rem;
+  color: var(--muted);
+}
+
+.waterfall-table-failed {
+  background: color-mix(in srgb, var(--danger) 10%, transparent);
+}
+
+.link-button {
+  background: none;
+  border: none;
+  padding: 0;
+  color: var(--accent);
+  cursor: pointer;
+  font: inherit;
+  text-decoration: underline;
+}
+
+@media (prefers-color-scheme: dark) {
+  .waterfall-bar-inference {
+    background: #3987e5;
+  }
+
+  .waterfall-bar-mud {
+    background: #d95926;
+  }
+
+  .waterfall-bar-memory {
+    background: #199e70;
+  }
 }

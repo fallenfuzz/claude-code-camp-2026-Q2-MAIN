@@ -15,6 +15,10 @@ module Boukensha
 
     def initialize(session_id: nil, dir: nil, log: nil, snapshot: {}, task: DEFAULT_TASK)
       @session_id = session_id || generate_session_id
+      # So `Operation.wire_meta` can hand an MCP call the id of the session
+      # that made it, with no session_id parameter threaded through Hooks, the
+      # dispatcher, and Tools::Mcp to get there.
+      Operation.session_id = @session_id
       @path       = log || File.join(dir || default_dir, "#{@session_id}.jsonl")
       @task_stack = [ task.to_s ]
       # Cumulative session-lifetime tallies. A span reports the DELTA across its
@@ -73,9 +77,13 @@ module Boukensha
           ok = false
           raise
         ensure
-          write_log({ phase: "operation_end", operation_id: frame.id, operation: frame.name,
-                      duration_ms: (monotonic_ms - started).round, ok: ok }
-                      .merge(counter_delta(opened)))
+          # `frame.attributes` first so nothing a call site sets through
+          # `frame.set` can clobber the span's own identity/timing fields or
+          # the counter rollup — both of those are reserved.
+          write_log(frame.attributes.merge(
+                      phase: "operation_end", operation_id: frame.id, operation: frame.name,
+                      duration_ms: (monotonic_ms - started).round, ok: ok
+                    ).merge(counter_delta(opened)))
         end
       end
     end
@@ -428,6 +436,10 @@ module Boukensha
       metadata.compact
     end
 
+    # Computed inline rather than delegating to Backends::Base#provider_name:
+    # this call site has always tolerated a bare test double for `backend` (any
+    # object with a `.model`), and requiring a `provider_name` method on it
+    # would break every one of those fakes across the suite.
     def provider_name(backend)
       return nil unless backend
 

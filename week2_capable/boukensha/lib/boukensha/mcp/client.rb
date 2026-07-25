@@ -55,8 +55,16 @@ module Boukensha
       end
 
       # Call a tool. Returns { text:, error: (bool) }.
-      def call_tool(name, arguments = {})
-        res = request("tools/call", { "name" => name.to_s, "arguments" => arguments })
+      #
+      # `meta:` rides in the MCP-spec `_meta` slot on the params (spec-legal,
+      # additive, ignored by any server that doesn't read it) — the boukensha
+      # session/operation id, so a server that logs its own side of the
+      # exchange can stamp the same correlation id rather than a reader
+      # matching two logs by timestamp adjacency.
+      def call_tool(name, arguments = {}, meta: nil)
+        params = { "name" => name.to_s, "arguments" => arguments }
+        params["_meta"] = meta if meta && !meta.empty?
+        res = request("tools/call", params)
         result = res["result"] or raise Error, "tools/call error: #{res["error"].inspect}"
         text = Array(result["content"]).map { |c| c["text"] }.compact.join("\n")
         { text: text, error: !!result["isError"] }

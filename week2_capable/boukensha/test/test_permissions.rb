@@ -177,7 +177,7 @@ class TestPermissions < Minitest::Test
       end
       @calls = []
     end
-    def call_tool(name, args = {})
+    def call_tool(name, args = {}, meta: nil)
       @calls << [name, args]
       { text: "ok:#{name}", error: false }
     end

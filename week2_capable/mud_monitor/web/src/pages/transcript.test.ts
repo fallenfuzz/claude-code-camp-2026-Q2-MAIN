@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { Entry } from "../api/types";
-import { buildTranscriptTree, shortToolName, tallyTools } from "./SessionDetail";
+import { isFrameworkSpan } from "../spans";
+import { buildRollupIndex, buildTranscriptTree, shortToolName, tallyTools, toolSpanRollup } from "./SessionDetail";
 
 // Entries arrive flat and ordered; nesting is a rendering concern decided here.
 // These cover the grouping observ_improvements.md §3 asks for: automatic work
@@ -235,6 +236,104 @@ describe("buildTranscriptTree with operation spans", () => {
     if (op.kind !== "op") return;
     expect(op.children.map((c) => c.kind)).toEqual([ "entry" ]);
     expect(op.end?.rollup).toEqual({ db_writes: 11, db_reads: 6, journal_lines: 7 });
+  });
+});
+
+// instrumentation.md §9-10: turn/iteration/llm.generate/tool.<name>/after_tool
+// now wrap EVERYTHING. If they gated grouping the same way a hook span does,
+// no hook span would ever be absorbed into "Automatic context work" again —
+// something framework-shaped is always open. And a model's own tool.<name>
+// span must never fall into that same heading, or the model's actions vanish
+// into a collapsed group labelled "Automatic context work" (§10 hazard).
+describe("buildTranscriptTree with framework spans (turn/iteration/tool.<name>)", () => {
+  it("classifies the new framework spans, including the dynamically-named tool.<name>", () => {
+    for (const op of [ "turn", "iteration", "llm.generate", "after_tool", "compaction", "wrap_up", "tool.move", "tool.attack" ]) {
+      expect(isFrameworkSpan(op)).toBe(true);
+    }
+    for (const op of [ "player_bootstrap", "position_refresh", "room_disambiguation", "room_survey", "async_poll", null, undefined ]) {
+      expect(isFrameworkSpan(op)).toBe(false);
+    }
+  });
+
+  it("still absorbs a hook span into automatic work with a framework span (iteration) open around it", () => {
+    const nodes = buildTranscriptTree([
+      opStart("op_iter", "iteration"),
+      opStart("op_pos", "position_refresh", "op_iter"),
+      hook({ tool_name: "tbamud__look", operation: "position_refresh", operation_id: "op_pos" }),
+      opEnd("op_pos", "position_refresh"),
+      model({ tool_name: "tbamud__move", operation_id: "op_tool" }),
+      opEnd("op_iter", "iteration"),
+    ]);
+
+    // `iteration` is not itself grouped — buildTranscriptTree still records it
+    // as an "op" node (rendering decides transparency), but position_refresh
+    // inside it is exactly as grouped as it always was.
+    expect(nodes.map((n) => n.kind)).toEqual([ "op" ]);
+    const iter = nodes[0];
+    if (iter.kind !== "op") return;
+    expect(iter.start.operation).toBe("iteration");
+    expect(iter.children.map((c) => c.kind)).toEqual([ "auto", "entry" ]);
+    const auto = iter.children[0];
+    if (auto.kind !== "auto") return;
+    const pos = auto.children[0];
+    expect(pos.kind).toBe("op");
+  });
+
+  // The hazard §10 names outright: a `tool.move` span at `initiator: "model"`
+  // must stay on the spine, nested directly in `iteration`, never absorbed.
+  it("keeps a model-chosen tool.<name> span out of automatic work", () => {
+    const nodes = buildTranscriptTree([
+      opStart("op_iter", "iteration"),
+      opStart("op_tool", "tool.move", "op_iter"),
+      model({ tool_name: "tbamud__move", operation_id: "op_tool" }),
+      opEnd("op_tool", "tool.move", { mud_calls: 1, mud_ms: 23 }),
+      opEnd("op_iter", "iteration"),
+    ]);
+
+    const iter = nodes[0];
+    if (iter.kind !== "op") return;
+    expect(iter.children.map((c) => c.kind)).toEqual([ "op" ]);
+    const tool = iter.children[0];
+    if (tool.kind !== "op") return;
+    expect(tool.start.operation).toBe("tool.move");
+    expect(tool.end?.rollup).toEqual({ mud_calls: 1, mud_ms: 23 });
+  });
+});
+
+describe("rollup attachment (instrumentation.md §9-11)", () => {
+  it("prefers the llm.generate span's measured duration over dt_ms, keyed to the assistant entry that followed it", () => {
+    const llmEnd = opEnd("op_llm", "llm.generate", { input_tokens: 100 });
+    const assistant = entry({ type: "assistant", text: "done", dt_ms: 3000, duration_ms: 3000 });
+    const idx = buildRollupIndex([ opStart("op_llm", "llm.generate"), llmEnd, assistant ]);
+
+    expect(idx.llmLatencyByAssistantSeq.get(assistant.seq)).toBe(llmEnd);
+  });
+
+  it("merges the tool.<name> span's rollup with its after_tool child's, keyed by call site rather than duplicated as a second box", () => {
+    const entries = [
+      opStart("op_tool", "tool.move"),
+      model({ tool_name: "tbamud__move", operation_id: "op_tool" }),
+      opStart("op_after", "after_tool", "op_tool"),
+      opEnd("op_after", "after_tool", { db_writes: 3, journal_lines: 2 }),
+      opEnd("op_tool", "tool.move", { mud_calls: 1, mud_ms: 23 }),
+    ];
+    const idx = buildRollupIndex(entries);
+    const toolEntry = entries[1];
+
+    const rollup = toolSpanRollup(toolEntry, idx);
+    expect(rollup?.rollup).toEqual({ mud_calls: 1, mud_ms: 23, db_writes: 3, journal_lines: 2 });
+    expect(rollup?.afterToolOperationId).toBe("op_after");
+  });
+
+  it("returns null for a hook-initiated call, which carries a hook span's operation_id, not a tool.<name> span's", () => {
+    const entries = [
+      opStart("op_pos", "position_refresh"),
+      hook({ tool_name: "tbamud__look", operation_id: "op_pos" }),
+      opEnd("op_pos", "position_refresh", { mud_calls: 1 }),
+    ];
+    const idx = buildRollupIndex(entries);
+
+    expect(toolSpanRollup(entries[1], idx)).toBeNull();
   });
 });
 

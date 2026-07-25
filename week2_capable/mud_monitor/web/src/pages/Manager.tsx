@@ -1,4 +1,5 @@
 import { Fragment, useCallback, useEffect, useMemo, useState } from "react";
+import { Link } from "react-router";
 import { ApiRequestError, fetchDropped, fetchManager } from "../api/client";
 import type { DroppedEvent, DroppedSummary, ManagerRecord } from "../api/types";
 import { useEventStream } from "../api/useEventStream";
@@ -6,6 +7,17 @@ import Ansi from "../components/Ansi";
 import DroppedStrip from "../components/DroppedStrip";
 import LiveBadge from "../components/LiveBadge";
 import { fmtDelta, fmtAbsolute, fmtBytes, fmtPct, formatArgs, truncate } from "../format";
+
+// `correlation_id` composes as "session_id:operation_id" when the boukensha
+// client's `_meta` carried both (mud_manager server.rb) — an operation_id
+// alone doesn't say WHICH FILE it lives in. Older/degraded callers may send
+// only the operation id, which still correlates, just with nowhere to link.
+function parseCorrelation(id: string | null): { sessionId: string; operationId: string } | null {
+  if (!id) return null;
+  const i = id.indexOf(":");
+  if (i < 0) return null;
+  return { sessionId: id.slice(0, i), operationId: id.slice(i + 1) };
+}
 
 function todayStamp(): string {
   const d = new Date();
@@ -177,6 +189,7 @@ export default function Manager() {
               <th>Sent</th>
               <th>Received</th>
               <th className="nowrap">Elapsed</th>
+              <th className="nowrap">Correlation</th>
             </tr>
           </thead>
           <tbody>
@@ -184,7 +197,7 @@ export default function Manager() {
               !modeFilter &&
               (droppedBySeq.get(null) ?? []).map((d, i) => (
                 <tr key={`dropped-lead-${i}`}>
-                  <td colSpan={7}>
+                  <td colSpan={8}>
                     <DroppedStrip event={d} />
                   </td>
                 </tr>
@@ -223,12 +236,15 @@ export default function Manager() {
                     )}
                   </td>
                   <td className="nowrap">{fmtDelta(r.elapsed_ms)}</td>
+                  <td className="nowrap">
+                    <CorrelationCell record={r} />
+                  </td>
                 </tr>
                 {showDropped &&
                   !modeFilter &&
                   (droppedBySeq.get(r.seq) ?? []).map((d, i) => (
                     <tr key={`dropped-${r.seq}-${i}`}>
-                      <td colSpan={7}>
+                      <td colSpan={8}>
                         <DroppedStrip event={d} />
                       </td>
                     </tr>
@@ -239,5 +255,25 @@ export default function Manager() {
         </table>
       )}
     </>
+  );
+}
+
+// "correlation: exact" was declared in types.ts and never rendered — dead,
+// because `correlation_id` was always null until the MCP `_meta` wiring
+// (instrumentation.md §3) gave it a value. `exact` links straight back to the
+// span that caused this exchange: from a raw telnet byte count to the
+// operation that produced it, cross-log navigation the three logs never had.
+function CorrelationCell({ record }: { record: ManagerRecord }) {
+  if (record.correlation !== "exact") {
+    return <span className="muted">{record.correlation}</span>;
+  }
+
+  const parsed = parseCorrelation(record.correlation_id);
+  if (!parsed) return <span className="muted">exact</span>;
+
+  return (
+    <Link to={`/sessions/${encodeURIComponent(parsed.sessionId)}?op=${encodeURIComponent(parsed.operationId)}`}>
+      exact
+    </Link>
   );
 }

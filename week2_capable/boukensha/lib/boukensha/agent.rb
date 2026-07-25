@@ -31,55 +31,71 @@ module Boukensha
 
     def run
       @context.reset_turn_tokens
-      compact_if_needed
-      @hooks.before_turn(context: @context)
+      # The `turn` span is the trace id's one child that spans the whole call:
+      # every iteration, the compaction check, and wrap_up re-parent under it
+      # for free, because Operation reads the ambient stack rather than being
+      # handed a parent explicitly.
+      @logger.operation("turn") do
+        compact_if_needed
+        @hooks.before_turn(context: @context)
 
-      loop do
-        # Two independent ceilings; stop at whichever trips first. Limits are
-        # *trigger thresholds*, not hard caps: when one is reached we stop
-        # starting new work iterations and make exactly one terminal wind-down
-        # call (counted in tokens, but not as another iteration).
-        if iteration_limit_reached?
-          @logger.limit_reached(kind: "max_iterations", n: @iteration, max: @max_iterations)
-          return wrap_up("max_iterations")
-        end
-        if token_limit_reached?
-          @logger.limit_reached(kind: "max_tokens", n: @context.turn_tokens, max: @max_turn_tokens)
-          return wrap_up("max_tokens")
-        end
+        loop do
+          # Two independent ceilings; stop at whichever trips first. Limits are
+          # *trigger thresholds*, not hard caps: when one is reached we stop
+          # starting new work iterations and make exactly one terminal wind-down
+          # call (counted in tokens, but not as another iteration) — a sibling
+          # of the iteration spans above it, never one itself.
+          if iteration_limit_reached?
+            @logger.limit_reached(kind: "max_iterations", n: @iteration, max: @max_iterations)
+            return wrap_up("max_iterations")
+          end
+          if token_limit_reached?
+            @logger.limit_reached(kind: "max_tokens", n: @context.turn_tokens, max: @max_turn_tokens)
+            return wrap_up("max_tokens")
+          end
 
-        @iteration += 1
-        @logger.iteration(n: @iteration, max: @max_iterations)
-        # Before EVERY model call, not just the first: the agent moves inside
-        # this loop, so anything that reconciles "where am I" has to run per
-        # iteration or the model reasons about the room it left.
-        @hooks.before_model(context: @context)
-        log_injected_context
-        # request_messages/advertised_tools, not messages/tools: this event is
-        # the readable view of the call, and it would be lying if it showed the
-        # transcript without the state block or a tool the turn policy hid.
-        @logger.prompt(messages: @context.request_messages, tools: @context.advertised_tools,
-                       context_window: @context.context_window)
-        # The definitive record: the exact body about to go on the wire. Built
-        # from the same (context, opts) the client will use a line later, so it
-        # is byte-identical to what @client.call sends.
-        @logger.request(payload: @builder.to_api_payload(**call_opts))
+          @iteration += 1
+          # `outcome` is nil while the turn keeps going (a tool_use round) and
+          # the final text once the model stops — so a single non-nil check
+          # after the span closes decides whether to loop again or return,
+          # without duplicating the return sites inside the block.
+          outcome = @logger.operation("iteration") do
+            @logger.iteration(n: @iteration, max: @max_iterations)
+            # Before EVERY model call, not just the first: the agent moves
+            # inside this loop, so anything that reconciles "where am I" has to
+            # run per iteration or the model reasons about the room it left.
+            @hooks.before_model(context: @context)
+            log_injected_context
+            # request_messages/advertised_tools, not messages/tools: this event
+            # is the readable view of the call, and it would be lying if it
+            # showed the transcript without the state block or a tool the turn
+            # policy hid.
+            @logger.prompt(messages: @context.request_messages, tools: @context.advertised_tools,
+                           context_window: @context.context_window)
+            # The definitive record: the exact body about to go on the wire.
+            # Built from the same (context, opts) the client will use a line
+            # later, so it is byte-identical to what @client.call sends.
+            @logger.request(payload: @builder.to_api_payload(**call_opts))
 
-        response = @client.call(**call_opts)
-        @logger.raw(data: response)
-        parsed   = @builder.parse_response(response)
-        record_usage(response)
-        log_reasoning(parsed[:content])
+            response = call_model(**call_opts)
+            @logger.raw(data: response)
+            parsed   = @builder.parse_response(response)
+            record_usage(response)
+            log_reasoning(parsed[:content])
 
-        if parsed[:stop_reason] == "tool_use"
-          handle_tool_calls(parsed[:content], response)
-        else
-          text = extract_text(parsed[:content])
-          @logger.response(text: text, usage: response["usage"], stop_reason: parsed[:stop_reason], backend: @builder.backend)
-          @logger.turn_end(reason: "completed", iterations: @iteration, tokens: @context.turn_tokens)
-          @context.add_message(:assistant, text)
-          @hooks.after_turn(context: @context, text: text)
-          return text
+            if parsed[:stop_reason] == "tool_use"
+              handle_tool_calls(parsed[:content], response)
+              nil
+            else
+              text = extract_text(parsed[:content])
+              @logger.response(text: text, usage: response["usage"], stop_reason: parsed[:stop_reason], backend: @builder.backend)
+              @logger.turn_end(reason: "completed", iterations: @iteration, tokens: @context.turn_tokens)
+              @context.add_message(:assistant, text)
+              @hooks.after_turn(context: @context, text: text)
+              text
+            end
+          end
+          return outcome if outcome
         end
       end
     end
@@ -112,9 +128,27 @@ module Boukensha
     def compact_if_needed
       return unless @context.needs_compaction?
 
-      before  = @context.current_tokens
-      dropped = @context.compact_messages!
-      @logger.compaction(before: before, dropped: dropped, context_window: @context.context_window)
+      @logger.operation("compaction") do
+        before  = @context.current_tokens
+        dropped = @context.compact_messages!
+        @logger.compaction(before: before, dropped: dropped, context_window: @context.context_window)
+      end
+    end
+
+    # The one call site every model round trip goes through, span included:
+    # `agent.rb:68` (dt_ms) used to charge the model for our own JSON
+    # serialization on both sides of the actual network call. The span measures
+    # only `@client.call` — everything around it now shows up as the
+    # `iteration`/`wrap_up` span's OWN self-time instead of inference.
+    def call_model(**opts)
+      backend = @builder.backend
+      provider = backend.respond_to?(:provider_name) ? backend.provider_name : nil
+      @logger.operation("llm.generate") do |frame|
+        frame.set(provider: provider, model: backend&.model,
+                  iteration: @iteration, tools_advertised: @context.advertised_tools.size,
+                  context_tokens: @context.current_tokens)
+        @client.call(**opts)
+      end
     end
 
     # One final, tools-disabled model call so the agent ends the turn in
@@ -123,19 +157,21 @@ module Boukensha
     # @iteration, though its tokens still count toward the reported turn total.
     # Falls back to a deterministic message if the call fails.
     def wrap_up(reason)
-      @context.add_message(:user, WRAP_UP_DIRECTIVE)
-      wrap_opts = { tools: [], max_output_tokens: WRAP_UP_OUTPUT_TOKENS }
-      @logger.request(payload: @builder.to_api_payload(**wrap_opts))
-      response    = @client.call(**wrap_opts)
-      parsed_wrap = @builder.parse_response(response)
-      text        = extract_text(parsed_wrap[:content])
-      text        = fallback_message(reason) if text.strip.empty?
-      record_usage(response)
-      @logger.response(text: text, usage: response["usage"], stop_reason: parsed_wrap[:stop_reason], backend: @builder.backend)
-      @logger.turn_end(reason: reason, iterations: @iteration, tokens: @context.turn_tokens)
-      @context.add_message(:assistant, text)
-      @hooks.after_turn(context: @context, text: text)
-      text
+      @logger.operation("wrap_up") do
+        @context.add_message(:user, WRAP_UP_DIRECTIVE)
+        wrap_opts = { tools: [], max_output_tokens: WRAP_UP_OUTPUT_TOKENS }
+        @logger.request(payload: @builder.to_api_payload(**wrap_opts))
+        response    = call_model(**wrap_opts)
+        parsed_wrap = @builder.parse_response(response)
+        text        = extract_text(parsed_wrap[:content])
+        text        = fallback_message(reason) if text.strip.empty?
+        record_usage(response)
+        @logger.response(text: text, usage: response["usage"], stop_reason: parsed_wrap[:stop_reason], backend: @builder.backend)
+        @logger.turn_end(reason: reason, iterations: @iteration, tokens: @context.turn_tokens)
+        @context.add_message(:assistant, text)
+        @hooks.after_turn(context: @context, text: text)
+        text
+      end
     rescue ApiError
       msg = fallback_message(reason)
       @logger.turn_end(reason: reason, iterations: @iteration, tokens: @context.turn_tokens)
@@ -210,11 +246,21 @@ module Boukensha
       # buffer. The first dispatch below drains it.
       @hooks.before_tools(calls: tool_calls, context: @context)
 
-      tool_calls.each do |block|
-        name   = block["name"]
-        args   = block["input"]
-        use_id = block["id"]
+      tool_calls.each { |block| dispatch_tool_call(block) }
+    end
 
+    # One model-chosen tool call, spanned end to end — dispatch, the hook's
+    # `after_tool` reaction, and the substitution it may produce. Wrapping this
+    # (rather than just the registry dispatch) is what attributes the 153
+    # journal lines `after_tool`'s downstream store/journal writes used to leave
+    # unattributed: they run inside this span now, off the ambient stack, with
+    # no change to Journal or Store.
+    def dispatch_tool_call(block)
+      name   = block["name"]
+      args   = block["input"]
+      use_id = block["id"]
+
+      @logger.operation("tool.#{short_tool_name(name)}") do
         # `initiator: "model"` is the counterpart to the `"hook"` the hook
         # dispatcher stamps: these are the calls the model actually chose, and
         # a session that cannot tell them apart reports a hook's bootstrap
@@ -237,19 +283,30 @@ module Boukensha
         # session log keeps the MUD's exact words (mud_monitor stops being a
         # faithful record otherwise), and only the model's copy is replaced. A
         # hook never gets to rewrite a failure — it never sees one.
-        if ok && (replacement = @hooks.after_tool(name: name, args: args, result: result, context: @context))
-          # The substitution used to be visible only by diffing the transcript
-          # against the request drawer, which is how a movement card could show
-          # a full room dump while the model demonstrably saw `moved west → The
-          # Reading Room`. Both halves are now on the record, correlated by
-          # call_id, and neither replaces the other.
-          @logger.context_transform(call_id: call_id, kind: "tool_result_replacement",
-                                    raw_chars: result.to_s.length, content: replacement)
-          result = replacement
+        if ok
+          replacement = @logger.operation("after_tool") do
+            @hooks.after_tool(name: name, args: args, result: result, context: @context)
+          end
+          if replacement
+            # The substitution used to be visible only by diffing the
+            # transcript against the request drawer, which is how a movement
+            # card could show a full room dump while the model demonstrably saw
+            # `moved west → The Reading Room`. Both halves are now on the
+            # record, correlated by call_id, and neither replaces the other.
+            @logger.context_transform(call_id: call_id, kind: "tool_result_replacement",
+                                      raw_chars: result.to_s.length, content: replacement)
+            result = replacement
+          end
         end
 
         @context.add_message(:tool_result, result.to_s, tool_use_id: use_id)
       end
+    end
+
+    # `tbamud__move` → `move`. Matches the web viewer's `shortToolName` — the
+    # prefix is constant across a session and earns no space in a span name.
+    def short_tool_name(name)
+      name.to_s.sub(/\A.*__/, "")
     end
   end
 end
