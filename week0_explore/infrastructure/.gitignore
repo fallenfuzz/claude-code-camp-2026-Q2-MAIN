@@ -1,3 +1,6 @@
 # CircleMUD data, seeded from lib.dist inside the image on first run.
 # Reproducible — editable on the host via the bind mount, not committed.
 /lib/
+
+# Local AWS deployment configuration. Copy from conf.toml.example.
+/conf.toml

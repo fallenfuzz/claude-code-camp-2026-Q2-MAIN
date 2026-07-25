@@ -1,0 +1,215 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: >-
+  Single-instance public CircleMUD server with Docker, an Elastic IP, and
+  Systems Manager administration.
+
+Parameters:
+  VpcId:
+    Type: AWS::EC2::VPC::Id
+    Description: VPC in which to launch the CircleMUD server.
+
+  SubnetId:
+    Type: AWS::EC2::Subnet::Id
+    Description: Public subnet with a route to an internet gateway.
+
+  AllowedCidr:
+    Type: String
+    Default: 0.0.0.0/0
+    Description: IPv4 CIDR allowed to connect to the MUD on TCP port 4000.
+    AllowedPattern: >-
+      ^(([0-9]|[1-9][0-9]|1[0-9]{2}|2[0-4][0-9]|25[0-5])\.){3}([0-9]|[1-9][0-9]|1[0-9]{2}|2[0-4][0-9]|25[0-5])/(3[0-2]|[12]?[0-9])$
+    ConstraintDescription: Must be a valid IPv4 CIDR such as 0.0.0.0/0.
+
+  InstanceType:
+    Type: String
+    Default: t3.micro
+    Description: EC2 instance type for the CircleMUD host.
+    AllowedValues:
+      - t3.micro
+      - t3.small
+      - t3.medium
+      - t4g.micro
+      - t4g.small
+
+  RootVolumeSize:
+    Type: Number
+    Default: 12
+    MinValue: 8
+    MaxValue: 100
+    Description: Encrypted gp3 root volume size in GiB.
+
+Mappings:
+  Architecture:
+    t3.micro:
+      AmiParameter: /aws/service/ami-amazon-linux-latest/al2023-ami-kernel-default-x86_64
+    t3.small:
+      AmiParameter: /aws/service/ami-amazon-linux-latest/al2023-ami-kernel-default-x86_64
+    t3.medium:
+      AmiParameter: /aws/service/ami-amazon-linux-latest/al2023-ami-kernel-default-x86_64
+    t4g.micro:
+      AmiParameter: /aws/service/ami-amazon-linux-latest/al2023-ami-kernel-default-arm64
+    t4g.small:
+      AmiParameter: /aws/service/ami-amazon-linux-latest/al2023-ami-kernel-default-arm64
+
+Resources:
+  CircleMudSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Public CircleMUD game port
+      VpcId: !Ref VpcId
+      SecurityGroupIngress:
+        - Description: CircleMUD telnet traffic
+          IpProtocol: tcp
+          FromPort: 4000
+          ToPort: 4000
+          CidrIp: !Ref AllowedCidr
+      SecurityGroupEgress:
+        - Description: Host package, Git, and Systems Manager access
+          IpProtocol: "-1"
+          CidrIp: 0.0.0.0/0
+      Tags:
+        - Key: Name
+          Value: !Sub ${AWS::StackName}-circlemud
+        - Key: Application
+          Value: CircleMUD
+
+  CircleMudRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - ec2.amazonaws.com
+            Action:
+              - sts:AssumeRole
+      ManagedPolicyArns:
+        - !Sub arn:${AWS::Partition}:iam::aws:policy/AmazonSSMManagedInstanceCore
+      Tags:
+        - Key: Application
+          Value: CircleMUD
+
+  CircleMudInstanceProfile:
+    Type: AWS::IAM::InstanceProfile
+    Properties:
+      Roles:
+        - !Ref CircleMudRole
+
+  CircleMudInstance:
+    Type: AWS::EC2::Instance
+    CreationPolicy:
+      ResourceSignal:
+        Count: 1
+        Timeout: PT15M
+    Properties:
+      ImageId: !Sub
+        - "{{resolve:ssm:${AmiParameter}}}"
+        - AmiParameter: !FindInMap
+            - Architecture
+            - !Ref InstanceType
+            - AmiParameter
+      InstanceType: !Ref InstanceType
+      IamInstanceProfile: !Ref CircleMudInstanceProfile
+      NetworkInterfaces:
+        - AssociatePublicIpAddress: true
+          DeleteOnTermination: true
+          DeviceIndex: "0"
+          GroupSet:
+            - !Ref CircleMudSecurityGroup
+          SubnetId: !Ref SubnetId
+      MetadataOptions:
+        HttpEndpoint: enabled
+        HttpTokens: required
+        HttpPutResponseHopLimit: 1
+      BlockDeviceMappings:
+        - DeviceName: /dev/xvda
+          Ebs:
+            DeleteOnTermination: true
+            Encrypted: true
+            VolumeSize: !Ref RootVolumeSize
+            VolumeType: gp3
+      Tags:
+        - Key: Name
+          Value: !Sub ${AWS::StackName}-circlemud
+        - Key: Application
+          Value: CircleMUD
+      UserData:
+        Fn::Base64: !Sub |
+          #!/usr/bin/env bash
+          set -uo pipefail
+
+          exec > >(tee -a /var/log/circlemud-bootstrap.log | logger -t circlemud-bootstrap -s 2>/dev/console) 2>&1
+
+          signal_url="/opt/aws/bin/cfn-signal"
+          signal() {
+            local exit_code="$?"
+            if [[ -x "$signal_url" ]]; then
+              "$signal_url" \
+                --exit-code "$exit_code" \
+                --stack "${AWS::StackName}" \
+                --resource CircleMudInstance \
+                --region "${AWS::Region}"
+            fi
+            exit "$exit_code"
+          }
+          trap signal EXIT
+
+          dnf install -y aws-cfn-bootstrap docker git
+          systemctl enable --now docker
+          systemctl enable --now amazon-ssm-agent
+
+          install -d -m 0755 /opt/circlemud-source
+          install -d -m 0755 /srv/circlemud/lib
+
+          docker version
+          git --version
+          systemctl is-active --quiet amazon-ssm-agent
+
+  CircleMudElasticIp:
+    Type: AWS::EC2::EIP
+    Properties:
+      Domain: vpc
+      Tags:
+        - Key: Name
+          Value: !Sub ${AWS::StackName}-circlemud
+        - Key: Application
+          Value: CircleMUD
+
+  CircleMudElasticIpAssociation:
+    Type: AWS::EC2::EIPAssociation
+    Properties:
+      AllocationId: !GetAtt CircleMudElasticIp.AllocationId
+      InstanceId: !Ref CircleMudInstance
+
+Outputs:
+  StackName:
+    Description: CloudFormation stack name.
+    Value: !Ref AWS::StackName
+
+  InstanceId:
+    Description: CircleMUD EC2 instance ID.
+    Value: !Ref CircleMudInstance
+
+  ElasticIp:
+    Description: Stable public IPv4 address.
+    Value: !Ref CircleMudElasticIp
+
+  GameEndpoint:
+    Description: Public CircleMUD endpoint.
+    Value: !Sub ${CircleMudElasticIp}:4000
+
+  ConnectCommand:
+    Description: Example client command.
+    Value: !Sub telnet ${CircleMudElasticIp} 4000
+
+  SessionManagerCommand:
+    Description: AWS CLI command for an administrative shell.
+    Value: !Sub >-
+      aws ssm start-session --target ${CircleMudInstance}
+      --region ${AWS::Region}
+
+  BootstrapLog:
+    Description: Bootstrap log path on the EC2 instance.
+    Value: /var/log/circlemud-bootstrap.log

@@ -1,0 +1,31 @@
+# Copy this file to conf.toml and replace the placeholder values:
+#
+#   cp week0_explore/infrastructure/conf.toml.example \
+#      week0_explore/infrastructure/conf.toml
+
+[deploy]
+# AWS CLI profile containing credentials for the target account.
+profile = 'default'
+
+# AWS region containing the VPC and subnet below.
+region = 'ca-central-1'
+
+# CloudFormation stack name.
+stack_name = 'circlemud'
+
+# Public HTTPS Git repository. The commit being deployed must be pushed here.
+repository_url = 'https://github.com/omenking/claude-code-camp-2026-Q2.git'
+
+[parameters]
+# Existing VPC and public subnet in the selected region.
+VpcId = 'vpc-REPLACE_ME'
+SubnetId = 'subnet-REPLACE_ME'
+
+# Use 0.0.0.0/0 for a public server, or a narrower CIDR while testing.
+AllowedCidr = '0.0.0.0/0'
+
+# Supported values: t3.micro, t3.small, t3.medium, t4g.micro, t4g.small.
+InstanceType = 't3.micro'
+
+# Encrypted gp3 root disk size in GiB. Valid range: 8-100.
+RootVolumeSize = '12'

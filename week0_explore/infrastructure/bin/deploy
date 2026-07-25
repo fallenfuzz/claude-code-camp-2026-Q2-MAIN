@@ -1,0 +1,243 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+infrastructure_dir="$(cd "$script_dir/.." && pwd)"
+repository_root="$(git -C "$infrastructure_dir" rev-parse --show-toplevel)"
+template_file="$infrastructure_dir/cloudformation.yml"
+infrastructure_path="${infrastructure_dir#"$repository_root"/}"
+config_file="${CFN_CONFIG:-"$infrastructure_dir/conf.toml"}"
+
+die() {
+  printf 'error: %s\n' "$*" >&2
+  exit 1
+}
+
+require_command() {
+  command -v "$1" >/dev/null 2>&1 || die "required command not found: $1"
+}
+
+aws_cli() {
+  aws --no-cli-pager \
+    --profile "$aws_profile" \
+    --region "$aws_region" \
+    "$@"
+}
+
+cfn_key() {
+  cfn-toml key "$1" --toml "$config_file"
+}
+
+print_usage() {
+  cat <<'USAGE'
+Deploy CircleMUD to a single EC2 instance.
+
+Configuration:
+  Copy conf.toml.example to conf.toml and fill in its deploy and parameters
+  sections. conf.toml is ignored by Git.
+
+Optional environment:
+  CFN_CONFIG         Path to another TOML configuration file
+
+The current commit must be pushed to deploy.repository_url. The script refuses
+to deploy when week0_explore/infrastructure has uncommitted changes.
+USAGE
+}
+
+if [[ "${1:-}" == "--help" || "${1:-}" == "-h" ]]; then
+  print_usage
+  exit 0
+fi
+
+[[ $# -eq 0 ]] || die "unexpected argument: $1 (use --help)"
+
+require_command aws
+require_command base64
+require_command cfn-toml
+require_command git
+
+[[ -f "$config_file" ]] ||
+  die "configuration not found: $config_file (copy conf.toml.example to conf.toml)"
+
+aws_profile="$(cfn_key deploy.profile)"
+aws_region="$(cfn_key deploy.region)"
+stack_name="$(cfn_key deploy.stack_name)"
+repository_url="$(cfn_key deploy.repository_url)"
+vpc_id="$(cfn_key parameters.VpcId)"
+subnet_id="$(cfn_key parameters.SubnetId)"
+read -r -a parameter_overrides <<< \
+  "$(cfn-toml parameters v2 --toml "$config_file")"
+
+[[ -n "$aws_profile" ]] || die "set deploy.profile in $config_file"
+[[ -n "$aws_region" ]] || die "set deploy.region in $config_file"
+[[ -n "$vpc_id" && "$vpc_id" != *REPLACE_ME* ]] ||
+  die "set parameters.VpcId in $config_file"
+[[ -n "$subnet_id" && "$subnet_id" != *REPLACE_ME* ]] ||
+  die "set parameters.SubnetId in $config_file"
+[[ "${#parameter_overrides[@]}" -gt 0 ]] ||
+  die "add CloudFormation values under [parameters] in $config_file"
+[[ "$stack_name" =~ ^[a-zA-Z][-a-zA-Z0-9]*$ ]] ||
+  die "deploy.stack_name must start with a letter and contain only letters, numbers, and hyphens"
+[[ "$repository_url" =~ ^https://[^[:space:]]+\.git$ ]] ||
+  die "deploy.repository_url must be a public HTTPS Git URL ending in .git"
+[[ "$repository_url" != *"'"* ]] ||
+  die "deploy.repository_url must not contain a single quote"
+
+dirty_files="$(git -C "$repository_root" status --porcelain -- "$infrastructure_path")"
+[[ -z "$dirty_files" ]] ||
+  die "commit the infrastructure changes before deploying:
+$dirty_files"
+
+repository_ref="$(git -C "$repository_root" rev-parse HEAD)"
+[[ "$repository_ref" =~ ^[0-9a-f]{40}$ ]] ||
+  die "could not resolve the current Git commit"
+
+printf 'Checking AWS credentials and network configuration...\n'
+account_id="$(aws_cli sts get-caller-identity --query Account --output text)"
+subnet_vpc="$(aws_cli ec2 describe-subnets \
+  --subnet-ids "$subnet_id" \
+  --query 'Subnets[0].VpcId' \
+  --output text)"
+[[ "$subnet_vpc" == "$vpc_id" ]] ||
+  die "subnet $subnet_id belongs to $subnet_vpc, not $vpc_id"
+
+aws_cli cloudformation validate-template \
+  --template-body "file://$template_file" \
+  >/dev/null
+
+printf 'Deploying stack %s in account %s (%s)...\n' \
+  "$stack_name" "$account_id" "$aws_region"
+
+if ! aws_cli cloudformation deploy \
+  --template-file "$template_file" \
+  --stack-name "$stack_name" \
+  --capabilities CAPABILITY_IAM \
+  --no-fail-on-empty-changeset \
+  --parameter-overrides "${parameter_overrides[@]}"; then
+  printf '\nRecent failed stack events:\n' >&2
+  aws_cli cloudformation describe-stack-events \
+    --stack-name "$stack_name" \
+    --query "StackEvents[?ResourceStatus=='CREATE_FAILED' || ResourceStatus=='UPDATE_FAILED'].[Timestamp,LogicalResourceId,ResourceStatusReason]" \
+    --output table >&2 || true
+  exit 1
+fi
+
+instance_id="$(aws_cli cloudformation describe-stacks \
+  --stack-name "$stack_name" \
+  --query "Stacks[0].Outputs[?OutputKey=='InstanceId'].OutputValue | [0]" \
+  --output text)"
+[[ "$instance_id" =~ ^i-[a-zA-Z0-9]+$ ]] ||
+  die "stack did not return a valid EC2 instance ID"
+
+printf 'Waiting for %s to register with Systems Manager...\n' "$instance_id"
+ssm_ready=0
+for _attempt in {1..30}; do
+  ping_status="$(aws_cli ssm describe-instance-information \
+    --filters "Key=InstanceIds,Values=$instance_id" \
+    --query 'InstanceInformationList[0].PingStatus' \
+    --output text 2>/dev/null || true)"
+  if [[ "$ping_status" == "Online" ]]; then
+    ssm_ready=1
+    break
+  fi
+  sleep 10
+done
+[[ "$ssm_ready" -eq 1 ]] ||
+  die "instance did not become available in Systems Manager within 5 minutes"
+
+read -r -d '' remote_script <<REMOTE_SCRIPT || true
+#!/usr/bin/env bash
+set -euo pipefail
+
+repository_url='$repository_url'
+repository_ref='$repository_ref'
+source_dir=/opt/circlemud-source
+data_dir=/srv/circlemud/lib
+image_name="circlemud:\$repository_ref"
+
+install -d -m 0755 "\$source_dir" "\$data_dir"
+
+if [[ ! -d "\$source_dir/.git" ]]; then
+  git -C "\$source_dir" init
+  git -C "\$source_dir" remote add origin "\$repository_url"
+else
+  git -C "\$source_dir" remote set-url origin "\$repository_url"
+fi
+
+git -C "\$source_dir" fetch --depth 1 origin "\$repository_ref"
+git -C "\$source_dir" checkout --force --detach FETCH_HEAD
+
+docker build \
+  --tag "\$image_name" \
+  "\$source_dir/week0_explore/infrastructure"
+
+if docker container inspect circlemud >/dev/null 2>&1; then
+  docker container rm --force circlemud
+fi
+
+docker run \
+  --detach \
+  --name circlemud \
+  --restart unless-stopped \
+  --publish 4000:4000 \
+  --volume "\$data_dir:/opt/circlemud/lib" \
+  --label "org.opencontainers.image.revision=\$repository_ref" \
+  "\$image_name"
+
+sleep 2
+running="\$(docker container inspect --format '{{.State.Running}}' circlemud)"
+[[ "\$running" == "true" ]] || {
+  docker container logs circlemud >&2
+  exit 1
+}
+docker container inspect --format 'CircleMUD running (image={{.Config.Image}})' circlemud
+REMOTE_SCRIPT
+
+encoded_script="$(printf '%s' "$remote_script" | base64 | tr -d '\n')"
+remote_command="printf '%s' '$encoded_script' | base64 --decode | bash"
+
+printf 'Deploying commit %s through Systems Manager...\n' "$repository_ref"
+command_id="$(aws_cli ssm send-command \
+  --instance-ids "$instance_id" \
+  --document-name AWS-RunShellScript \
+  --comment "Deploy CircleMUD $repository_ref" \
+  --timeout-seconds 1200 \
+  --parameters "commands=$remote_command" \
+  --query 'Command.CommandId' \
+  --output text)"
+
+command_status=""
+for _attempt in {1..120}; do
+  command_status="$(aws_cli ssm get-command-invocation \
+    --command-id "$command_id" \
+    --instance-id "$instance_id" \
+    --query Status \
+    --output text 2>/dev/null || true)"
+  case "$command_status" in
+    Success|Cancelled|TimedOut|Failed)
+      break
+      ;;
+  esac
+  sleep 10
+done
+
+if [[ "$command_status" != "Success" ]]; then
+  invocation="$(aws_cli ssm get-command-invocation \
+    --command-id "$command_id" \
+    --instance-id "$instance_id" \
+    --output json 2>/dev/null || true)"
+  printf 'Systems Manager deployment failed:\n%s\n' "$invocation" >&2
+  exit 1
+fi
+
+aws_cli ssm get-command-invocation \
+  --command-id "$command_id" \
+  --instance-id "$instance_id" \
+  --query '{Status:Status,Output:StandardOutputContent,Errors:StandardErrorContent}' \
+  --output yaml
+
+printf '\nDeployment complete:\n'
+aws_cli cloudformation describe-stacks \
+  --stack-name "$stack_name" \
+  --query 'Stacks[0].Outputs[].[OutputKey,OutputValue]' \
+  --output table
