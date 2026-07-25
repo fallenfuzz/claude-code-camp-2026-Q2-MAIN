@@ -194,7 +194,8 @@ docker container inspect --format 'CircleMUD running (image={{.Config.Image}})' 
 REMOTE_SCRIPT
 
 encoded_script="$(printf '%s' "$remote_script" | base64 | tr -d '\n')"
-remote_command="printf '%s' '$encoded_script' | base64 --decode | bash"
+remote_command="echo $encoded_script | base64 --decode | bash"
+ssm_parameters="{\"commands\":[\"$remote_command\"]}"
 
 printf 'Deploying commit %s through Systems Manager...\n' "$repository_ref"
 command_id="$(aws_cli ssm send-command \
@@ -202,7 +203,7 @@ command_id="$(aws_cli ssm send-command \
   --document-name AWS-RunShellScript \
   --comment "Deploy CircleMUD $repository_ref" \
   --timeout-seconds 1200 \
-  --parameters "commands=$remote_command" \
+  --parameters "$ssm_parameters" \
   --query 'Command.CommandId' \
   --output text)"
 
