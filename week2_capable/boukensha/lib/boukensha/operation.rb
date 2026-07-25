@@ -37,9 +37,17 @@ module Boukensha
     # nowhere to hang a fact only known once the block is running (the model
     # actually used, the token counts, the room resolved) — Struct's other
     # fields are all decided at `open`.
-    Frame = Struct.new(:id, :name, :trigger, :parent_id, :attributes, keyword_init: true) do
+    Frame = Struct.new(:id, :name, :trigger, :parent_id, :attributes,
+                       :trace_id, :span_id, :propagation_carrier, :telemetry_span,
+                       keyword_init: true) do
       def set(**attrs)
         attributes.merge!(attrs)
+      end
+
+      def record_error(exception)
+        telemetry_span&.record_exception(exception)
+        telemetry_span&.error!(exception)
+        set(error_type: exception.class.name)
       end
     end
 
@@ -70,7 +78,8 @@ module Boukensha
       # rather than a hash of nils, so a server that inspects `_meta` sees
       # exactly the keys that are meaningful.
       def wire_meta
-        { "boukensha/session_id" => session_id, "boukensha/operation_id" => current_id }.compact
+        { "boukensha/session_id" => session_id, "boukensha/operation_id" => current_id }
+          .compact.merge(current&.propagation_carrier || {})
       end
 
       # Open a span for the duration of the block. Reentrant, and `ensure`

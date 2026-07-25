@@ -33,5 +33,9 @@ Gem::Specification.new do |spec|
   # boots and simply explores without remembering.
   spec.add_dependency "sqlite3", "~> 2.0"
 
+  spec.add_dependency "opentelemetry-api", "~> 1.0"
+  spec.add_dependency "opentelemetry-sdk", "~> 1.0"
+  spec.add_dependency "opentelemetry-exporter-otlp", "~> 0.30"
+
   # open3, net/http, and json are stdlib. Users supply their own ANTHROPIC_API_KEY.
 end

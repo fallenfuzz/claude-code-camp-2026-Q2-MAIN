@@ -421,6 +421,13 @@ It implemented and we do see grouping of work but room surevy I dont see at all,
 It seems we would greatly benefit from instruementation and will require signfant upheavel
 I cannot tell what the UX will look like aftwards but Im going to give it a rip.
 
+## OTel 
+
+I want to be able to use any OTEL compatabile tool.
+Lets see if we can upgrade proper
+
+docs/plans/week_2/otel.md
+
 
 
 ## Technical Conclusions

@@ -116,6 +116,23 @@ module Boukensha
       v.nil? ? 0.85 : Float(v)
     end
 
+    def otel_enabled?
+      env_boolean("BOUKENSHA_OTEL_ENABLED", dig(:observability, :otel, :enabled), false)
+    end
+
+    def otel_capture_content?
+      env_boolean("BOUKENSHA_OTEL_CAPTURE_CONTENT",
+                  dig(:observability, :otel, :capture_content), false)
+    end
+
+    def otel_content_max_bytes
+      raw = ENV.fetch("BOUKENSHA_OTEL_CONTENT_MAX_BYTES",
+                      dig(:observability, :otel, :content_max_bytes) || 4096)
+      value = Integer(raw)
+      raise ArgumentError, "BOUKENSHA_OTEL_CONTENT_MAX_BYTES must be positive" unless value.positive?
+      value
+    end
+
     # ---------- low-level helpers -----------------------------------------
 
     # Fetch a nested key path from settings, e.g. dig(:provider, :model)
@@ -141,6 +158,16 @@ module Boukensha
     def inspect = to_s
 
     private
+
+    def env_boolean(name, yaml_value, default)
+      raw = ENV.key?(name) ? ENV[name] : yaml_value
+      return default if raw.nil?
+      return raw if raw == true || raw == false
+      return true if %w[1 true yes on].include?(raw.to_s.downcase)
+      return false if %w[0 false no off].include?(raw.to_s.downcase)
+
+      raise ArgumentError, "#{name} must be true or false"
+    end
 
     def resolve_dir
       raw = ENV.fetch("BOUKENSHA_DIR", nil) || DEFAULT_DIR

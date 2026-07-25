@@ -75,7 +75,8 @@ module Boukensha
     # The logger is built BEFORE the block is evaluated so the block can reach
     # it (RunDSL#logger) and hand it to a delegating tool — one session file per
     # run, not one per delegation. It depends only on values resolved above.
-    logger = Logger.new(log: log, task: task_class.task_name, snapshot: {
+    logger = Logger.new(log: log, task: task_class.task_name,
+                        telemetry: Telemetry.build(config: cfg), snapshot: {
       max_iterations:    cfg.agent_max_iterations,
       max_turn_tokens:   cfg.agent_max_turn_tokens,
       max_output_tokens: (max_output_tokens || cfg.agent_max_output_tokens),
@@ -142,7 +143,8 @@ module Boukensha
     servers = register_task_tools(registry, cfg, perms)
 
     # Built before the block for the same reason as in .run — see there.
-    logger = Logger.new(log: log, task: task_class.task_name, snapshot: {
+    logger = Logger.new(log: log, task: task_class.task_name,
+                        telemetry: Telemetry.build(config: cfg), snapshot: {
       max_iterations:    cfg.agent_max_iterations,
       max_turn_tokens:   cfg.agent_max_turn_tokens,
       max_output_tokens: (max_output_tokens || cfg.agent_max_output_tokens),
@@ -245,9 +247,11 @@ module Boukensha
     }
 
     own_logger = logger.nil?
-    logger   ||= Logger.new(log: log, task: task_class.task_name, snapshot: run_snapshot)
+    logger   ||= Logger.new(log: log, task: task_class.task_name,
+                            telemetry: Telemetry.build(config: cfg), snapshot: run_snapshot)
     agent      = Agent.new(context: ctx, registry: registry, builder: builder, client: client, logger: logger,
-                           max_iterations: max_iters, max_turn_tokens: cfg.agent_max_turn_tokens, max_output_tokens: max_out)
+                           max_iterations: max_iters, max_turn_tokens: cfg.agent_max_turn_tokens,
+                           max_output_tokens: max_out, root_trace: own_logger)
 
     body = lambda do
       ctx.add_message(:user, input)
@@ -407,22 +411,32 @@ module Boukensha
     perms.validate_referenced!(registry.tool_names)
 
     lambda do |name, args = {}|
-      call_id = logger&.tool_call(name: name, args: args, initiator: initiator)
-      # Monotonic, so the figure survives an NTP step mid-call — and so §6's
-      # "was the 1.9s the MUD or the model?" is answerable from one field
-      # rather than from the gap between two events.
-      started = Process.clock_gettime(Process::CLOCK_MONOTONIC)
-      done    = -> { ((Process.clock_gettime(Process::CLOCK_MONOTONIC) - started) * 1000).round }
-      begin
-        result = registry.dispatch(name, args)
-      rescue StandardError => e
-        logger&.tool_result(name: name, result: "", ok: false, error: e.message,
-                            call_id: call_id, initiator: initiator, duration_ms: done.call)
-        raise
+      body = lambda do
+        call_id = logger&.tool_call(name: name, args: args, initiator: initiator)
+        # Monotonic, so the figure survives an NTP step mid-call.
+        started = Process.clock_gettime(Process::CLOCK_MONOTONIC)
+        done    = -> { ((Process.clock_gettime(Process::CLOCK_MONOTONIC) - started) * 1000).round }
+        begin
+          result = registry.dispatch(name, args)
+        rescue StandardError => e
+          logger&.tool_result(name: name, result: "", ok: false, error: e.message,
+                              call_id: call_id, initiator: initiator, duration_ms: done.call)
+          raise
+        end
+        logger&.tool_result(name: name, result: result, call_id: call_id,
+                            initiator: initiator, duration_ms: done.call)
+        result
       end
-      logger&.tool_result(name: name, result: result, call_id: call_id,
-                          initiator: initiator, duration_ms: done.call)
-      result
+
+      next body.call unless logger
+
+      short_name = name.to_s.sub(/\A.*__/, "")
+      logger.operation("execute_tool #{short_name}", kind: :client, attributes: {
+        "gen_ai.operation.name" => "execute_tool",
+        "gen_ai.tool.name" => short_name,
+        "boukensha.tool.full_name" => name,
+        "boukensha.tool.initiator" => initiator
+      }, &body)
     end
   end
 

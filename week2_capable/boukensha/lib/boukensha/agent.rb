@@ -14,7 +14,8 @@ module Boukensha
     MSG
 
     def initialize(context:, registry:, builder:, client:, logger: Logger.new, hooks: nil,
-                   max_iterations: MAX_ITERATIONS, max_turn_tokens: nil, max_output_tokens: nil)
+                   max_iterations: MAX_ITERATIONS, max_turn_tokens: nil, max_output_tokens: nil,
+                   root_trace: true)
       @context           = context
       @registry          = registry
       @builder           = builder
@@ -27,6 +28,7 @@ module Boukensha
       @max_turn_tokens   = max_turn_tokens.to_i      # 0 = disabled
       @max_output_tokens = max_output_tokens
       @iteration         = 0
+      @root_trace        = root_trace
     end
 
     def run
@@ -35,7 +37,13 @@ module Boukensha
       # every iteration, the compaction check, and wrap_up re-parent under it
       # for free, because Operation reads the ambient stack rather than being
       # handed a parent explicitly.
-      @logger.operation("turn") do
+      agent_name = @logger.current_task
+      @logger.operation("invoke_agent #{agent_name}", root: @root_trace, attributes: {
+        "gen_ai.operation.name" => "invoke_agent",
+        "gen_ai.agent.name" => agent_name,
+        "boukensha.max_iterations" => @max_iterations,
+        "boukensha.max_turn_tokens" => @max_turn_tokens
+      }) do |turn_frame|
         compact_if_needed
         @hooks.before_turn(context: @context)
 
@@ -89,6 +97,9 @@ module Boukensha
             else
               text = extract_text(parsed[:content])
               @logger.response(text: text, usage: response["usage"], stop_reason: parsed[:stop_reason], backend: @builder.backend)
+              turn_frame.set("boukensha.turn.reason" => "completed",
+                             "boukensha.turn.iterations" => @iteration,
+                             "boukensha.turn.tokens" => @context.turn_tokens)
               @logger.turn_end(reason: "completed", iterations: @iteration, tokens: @context.turn_tokens)
               @context.add_message(:assistant, text)
               @hooks.after_turn(context: @context, text: text)
@@ -143,11 +154,23 @@ module Boukensha
     def call_model(**opts)
       backend = @builder.backend
       provider = backend.respond_to?(:provider_name) ? backend.provider_name : nil
-      @logger.operation("llm.generate") do |frame|
+      @logger.operation("chat #{backend&.model}", kind: :client, attributes: {
+        "gen_ai.operation.name" => "chat",
+        "gen_ai.provider.name" => provider,
+        "gen_ai.request.model" => backend&.model,
+        "boukensha.backend" => provider
+      }) do |frame|
         frame.set(provider: provider, model: backend&.model,
                   iteration: @iteration, tools_advertised: @context.advertised_tools.size,
                   context_tokens: @context.current_tokens)
-        @client.call(**opts)
+        response = @client.call(**opts)
+        usage = response["usage"] || {}
+        frame.set(
+          "gen_ai.usage.input_tokens" => usage["input_tokens"],
+          "gen_ai.usage.output_tokens" => usage["output_tokens"],
+          "gen_ai.response.finish_reasons" => Array(response["stop_reason"]).compact
+        )
+        response
       end
     end
 
@@ -260,7 +283,14 @@ module Boukensha
       args   = block["input"]
       use_id = block["id"]
 
-      @logger.operation("tool.#{short_tool_name(name)}") do
+      tool_name = short_tool_name(name)
+      @logger.operation("execute_tool #{tool_name}", kind: :client, attributes: {
+        "gen_ai.operation.name" => "execute_tool",
+        "gen_ai.tool.name" => tool_name,
+        "boukensha.tool.full_name" => name,
+        "boukensha.tool.initiator" => "model",
+        "boukensha.tool.call_id" => use_id
+      }) do |tool_frame|
         # `initiator: "model"` is the counterpart to the `"hook"` the hook
         # dispatcher stamps: these are the calls the model actually chose, and
         # a session that cannot tell them apart reports a hook's bootstrap
@@ -274,6 +304,7 @@ module Boukensha
                               initiator: "model", duration_ms: since_ms(started))
         rescue StandardError => e
           ok     = false
+          tool_frame.record_error(e)
           result = "ERROR: #{e.class}: #{e.message}"
           @logger.tool_result(name: name, result: result, ok: false, error: e.message,
                               call_id: call_id, initiator: "model", duration_ms: since_ms(started))

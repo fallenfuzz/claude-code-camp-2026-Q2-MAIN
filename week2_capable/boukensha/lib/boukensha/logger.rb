@@ -4,6 +4,7 @@ require "securerandom"
 require "time"
 require "digest"
 require_relative "operation"
+require_relative "telemetry"
 
 module Boukensha
   class Logger
@@ -13,7 +14,8 @@ module Boukensha
 
     DEFAULT_TASK = "player".freeze
 
-    def initialize(session_id: nil, dir: nil, log: nil, snapshot: {}, task: DEFAULT_TASK)
+    def initialize(session_id: nil, dir: nil, log: nil, snapshot: {}, task: DEFAULT_TASK,
+                   telemetry: nil)
       @session_id = session_id || generate_session_id
       # So `Operation.wire_meta` can hand an MCP call the id of the session
       # that made it, with no session_id parameter threaded through Hooks, the
@@ -27,6 +29,7 @@ module Boukensha
       # what nesting means.
       @counters   = Hash.new(0)
       @meters     = []
+      @telemetry  = telemetry || Telemetry::Noop.new
 
       FileUtils.mkdir_p(File.dirname(@path))
       @log_io = File.open(@path, "a")
@@ -63,27 +66,45 @@ module Boukensha
     # Operation::Frame). Returns the block's value; a raise still closes the
     # span, flagged `ok: false`, rather than leaving it open to mislabel
     # everything that follows.
-    def operation(name, trigger: nil)
-      Operation.open(name, trigger: trigger) do |frame|
-        write_log({ phase: "operation_start", operation_id: frame.id,
-                    parent_operation_id: frame.parent_id, operation: frame.name,
-                    trigger: frame.trigger }.compact)
-        started = monotonic_ms
-        opened  = counter_snapshot
-        ok      = true
-        begin
-          yield frame
-        rescue StandardError
-          ok = false
-          raise
-        ensure
-          # `frame.attributes` first so nothing a call site sets through
-          # `frame.set` can clobber the span's own identity/timing fields or
-          # the counter rollup — both of those are reserved.
-          write_log(frame.attributes.merge(
-                      phase: "operation_end", operation_id: frame.id, operation: frame.name,
-                      duration_ms: (monotonic_ms - started).round, ok: ok
-                    ).merge(counter_delta(opened)))
+    def operation(name, trigger: nil, kind: :internal, attributes: {}, root: false)
+      span_attributes = {
+        "session.id" => @session_id,
+        "boukensha.session_id" => @session_id,
+        "boukensha.task" => current_task,
+        "boukensha.trigger" => trigger
+      }.merge(attributes).compact
+      @telemetry.in_span(name, kind: kind, attributes: span_attributes, root: root) do |span|
+        Operation.open(name, trigger: trigger) do |frame|
+          frame.trace_id = span.trace_id
+          frame.span_id = span.span_id
+          frame.telemetry_span = span
+          frame.propagation_carrier = @telemetry.propagation_carrier
+          write_log({ phase: "operation_start", operation_id: frame.id,
+                      parent_operation_id: frame.parent_id, operation: frame.name,
+                      trigger: frame.trigger }.compact)
+          started = monotonic_ms
+          opened  = counter_snapshot
+          ok      = true
+          error   = nil
+          begin
+            yield frame
+          rescue StandardError => e
+            ok = false
+            error = e
+            span.record_exception(e)
+            span.error!(e)
+            raise
+          ensure
+            final = frame.attributes.merge(counter_delta(opened))
+            span.set_attributes(otel_attributes(final))
+            # `frame.attributes` first so nothing a call site sets through
+            # `frame.set` can clobber the span's own identity/timing fields.
+            write_log(frame.attributes.merge(
+                        phase: "operation_end", operation_id: frame.id, operation: frame.name,
+                        duration_ms: (monotonic_ms - started).round, ok: ok,
+                        error_type: error&.class&.name
+                      ).compact.merge(counter_delta(opened)))
+          end
         end
       end
     end
@@ -329,6 +350,7 @@ module Boukensha
     end
 
     def close
+      @telemetry.force_flush(timeout: 5)
       @log_io&.close
     end
 
@@ -369,7 +391,9 @@ module Boukensha
 
     def write_log(event)
       now = Time.now
-      @log_io.puts JSON.generate(event.merge(
+      @telemetry.capture_event(event)
+      correlation = @telemetry.current_ids
+      @log_io.puts JSON.generate(event.merge(correlation).merge(
         session_id: @session_id,
         task:       @task_stack.last,
         depth:      @task_stack.size - 1,
@@ -378,6 +402,15 @@ module Boukensha
       ))
       @log_io.flush
       @subscribers&.each { |s| s.call(event) }
+    end
+
+    def otel_attributes(attributes)
+      attributes.each_with_object({}) do |(key, value), out|
+        next if value.nil?
+
+        name = key.to_s.include?(".") ? key.to_s : "boukensha.#{key}"
+        out[name] = value
+      end
     end
 
     def generate_session_id
