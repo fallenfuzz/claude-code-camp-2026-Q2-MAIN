@@ -247,8 +247,16 @@ describe("buildTranscriptTree with operation spans", () => {
 // span must never fall into that same heading, or the model's actions vanish
 // into a collapsed group labelled "Automatic context work" (§10 hazard).
 describe("buildTranscriptTree with framework spans (turn/iteration/tool.<name>)", () => {
-  it("classifies the new framework spans, including the dynamically-named tool.<name>", () => {
-    for (const op of [ "turn", "iteration", "llm.generate", "after_tool", "compaction", "wrap_up", "tool.move", "tool.attack" ]) {
+  // 4cce5e5 renamed every one of these to OTel GenAI semconv names, but
+  // sessions written before that commit are still on disk — both eras must
+  // classify as framework chrome.
+  it("classifies the framework spans of both naming eras, including the dynamically-named tool.<name>/execute_tool <name>", () => {
+    const legacy = [ "turn", "iteration", "llm.generate", "after_tool", "compaction", "wrap_up", "tool.move", "tool.attack" ];
+    const current = [
+      "invoke_agent player", "iteration", "chat claude-haiku-4-5", "after_tool",
+      "compaction", "wrap_up", "state_render", "execute_tool move", "execute_tool attack",
+    ];
+    for (const op of [ ...legacy, ...current ]) {
       expect(isFrameworkSpan(op)).toBe(true);
     }
     for (const op of [ "player_bootstrap", "position_refresh", "room_disambiguation", "room_survey", "async_poll", null, undefined ]) {
@@ -335,6 +343,32 @@ describe("rollup attachment (instrumentation.md §9-11)", () => {
     const idx = buildRollupIndex(entries);
 
     expect(toolSpanRollup(entries[1], idx)).toBeNull();
+  });
+
+  // 4cce5e5's rename left the read side matching span names that no longer
+  // exist — this is the case whose absence let that regression land. Same
+  // rollups, post-rename names: `invoke_agent player` / `chat <model>` /
+  // `execute_tool move`.
+  it("populates turnSpans, llmLatencyByAssistantSeq and toolSpanRollup off the OTel GenAI semconv span names", () => {
+    const turnEnd = opEnd("op_turn", "invoke_agent player");
+    turnEnd.turn = 0;
+    const llmEnd = opEnd("op_llm", "chat claude-haiku-4-5", { input_tokens: 100 });
+    const assistant = entry({ type: "assistant", text: "done", dt_ms: 3000, duration_ms: 3000 });
+    const entries = [
+      opStart("op_turn", "invoke_agent player"),
+      opStart("op_llm", "chat claude-haiku-4-5"),
+      llmEnd,
+      assistant,
+      opStart("op_tool", "execute_tool move"),
+      model({ tool_name: "tbamud__move", operation_id: "op_tool" }),
+      opEnd("op_tool", "execute_tool move", { mud_calls: 1, mud_ms: 23 }),
+      turnEnd,
+    ];
+    const idx = buildRollupIndex(entries);
+
+    expect(idx.turnSpans.get(0)).toBe(turnEnd);
+    expect(idx.llmLatencyByAssistantSeq.get(assistant.seq)).toBe(llmEnd);
+    expect(toolSpanRollup(entries[5], idx)?.rollup).toEqual({ mud_calls: 1, mud_ms: 23 });
   });
 });
 

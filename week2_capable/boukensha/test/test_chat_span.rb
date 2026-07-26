@@ -1,9 +1,10 @@
 require_relative "helper"
 require "json"
 
-# session_story_tree.md Phase 1: the `chat` span widened to the whole
-# exchange, plus the turn/iteration numbers a story-tree reader needs off the
-# span itself rather than by walking entries.
+# The `chat` span widened to the whole exchange — injected context, prompt,
+# request, plan and response all fall inside its brackets and carry its
+# operation_id, so the transcript's duration and MUD/db rollup for that
+# exchange come off the span, not off `dt_ms`.
 class TestChatSpan < Minitest::Test
   # Stands in for PromptBuilder + Client together, exactly as
   # TestHooksSeam::FakePipe does — the agent only ever asks the builder for a
@@ -95,27 +96,6 @@ class TestChatSpan < Minitest::Test
     refute_nil chat_end["boukensha.wire_ms"]
     refute_nil chat_end["gen_ai.client.operation.duration"]
     assert_operator chat_end["boukensha.wire_ms"], :<=, chat_end["duration_ms"]
-  end
-
-  # The root row cannot title itself "Turn 1" unless the number is on the
-  # span at open — `@logger.turn` fires before `Agent#run` opens it, so the
-  # per-entry turn tracking alone would only be an accident of ordering.
-  def test_the_invoke_agent_span_carries_its_turn_number
-    agent, logger = build(responses: [ text_response("done") ], turn: 3)
-    agent.run
-    events = read_events(logger)
-
-    turn_start = events.find { |e| e["phase"] == "operation_start" && e["operation"].to_s.start_with?("invoke_agent ") }
-    assert_equal 3, turn_start.dig("attributes", "boukensha.turn.n")
-  end
-
-  def test_the_iteration_span_carries_its_iteration_number
-    agent, logger = build(responses: [ tool_use_response("probe"), text_response("done") ])
-    agent.run
-    events = read_events(logger)
-
-    iteration_starts = events.select { |e| e["phase"] == "operation_start" && e["operation"] == "iteration" }
-    assert_equal [ 1, 2 ], iteration_starts.map { |e| e.dig("attributes", "boukensha.iteration.n") }
   end
 
   # Every content phase this exchange produces carries operation_id — the

@@ -13,7 +13,6 @@ import CostTable from "../components/CostTable";
 import Duration from "../components/Duration";
 import LiveBadge from "../components/LiveBadge";
 import MessagesSidebar from "../components/MessagesSidebar";
-import SessionStory from "../components/SessionStory";
 import ProgressBar from "../components/ProgressBar";
 import Sparkline from "../components/Sparkline";
 import TaskChip, { taskHue } from "../components/TaskChip";
@@ -26,7 +25,7 @@ import { shortToolName, tallyTools, ToolCard } from "../components/transcript/To
 import { flattenNode as flatten, toolsIn } from "../components/transcript/types";
 import type { AutoNode, GroupNode, OpenNode, OpNode, ToolRollupInfo, TranscriptNode } from "../components/transcript/types";
 import { fmtCost, fmtDelta, fmtDuration, fmtTokens, formatTime, pct, pctRaw } from "../format";
-import { isFrameworkSpan, operationLabel } from "../spans";
+import { isFrameworkSpan, isModelSpan, isToolSpan, isTurnSpan, operationLabel } from "../spans";
 
 const AT_BOTTOM_THRESHOLD_PX = 80;
 
@@ -47,7 +46,9 @@ export default function SessionDetail() {
   // Which request's payload the sidebar is showing (1-based request ordinal),
   // or null when the drawer is closed. Set by the inline buttons in the transcript.
   const [focusedRequest, setFocusedRequest] = useState<number | null>(null);
-  const [sessionTab, setSessionTab] = useState<"summary" | "story">("story");
+  // Set by the `?op=` resolution effect below; consumed by the scroll effect
+  // once the anchor entry exists in the DOM.
+  const [scrollToSeq, setScrollToSeq] = useState<number | null>(null);
   const stickToBottomRef = useRef(true);
 
   useEffect(() => {
@@ -82,13 +83,10 @@ export default function SessionDetail() {
   });
 
   useEffect(() => {
-    // Only the legacy transcript is a document that follows the browser
-    // window. Trace-enabled sessions use internal panes, including Summary;
-    // firing this on a tab switch jumped Summary to the bottom of the page.
-    if (data && !data.session.has_operations && stickToBottomRef.current) {
+    if (stickToBottomRef.current) {
       window.scrollTo({ top: document.documentElement.scrollHeight });
     }
-  }, [entries, data]);
+  }, [entries]);
 
   // The Manager page's `correlation: exact` link (instrumentation.md §12)
   // lands here with `?op=<operation_id>` — cross-log navigation from a raw
@@ -98,12 +96,32 @@ export default function SessionDetail() {
   // of the same URL doesn't keep re-scrolling.
   useEffect(() => {
     const op = searchParams.get("op");
-    if (!op) return;
+    if (!op || entries.length === 0) return;
+
+    const start = entries.find((e) => e.type === "operation_start" && e.operation_id === op);
+    if (start) setScrollToSeq(start.seq);
     const next = new URLSearchParams(searchParams);
     next.delete("op");
-    next.set("span", op);
     setSearchParams(next, { replace: true });
-  }, [searchParams, setSearchParams]);
+  }, [entries, searchParams, setSearchParams]);
+
+  // `operation_start`/`operation_end` (and `task_start`/`task_end`) never
+  // render their own row — they become tree structure, not content — so a
+  // span's anchor seq may have no matching element; fall back to the nearest
+  // rendered entry at or after it.
+  useEffect(() => {
+    if (scrollToSeq == null) return;
+    let el = document.getElementById(`entry-${scrollToSeq}`);
+    if (!el) {
+      const candidate = Array.from(document.querySelectorAll("[id^='entry-']"))
+        .map((node) => ({ node, seq: Number(node.id.slice("entry-".length)) }))
+        .filter((c) => !Number.isNaN(c.seq) && c.seq >= scrollToSeq)
+        .sort((a, b) => a.seq - b.seq)[0];
+      el = (candidate?.node as HTMLElement | undefined) ?? null;
+    }
+    el?.scrollIntoView({ block: "center" });
+    setScrollToSeq(null);
+  }, [scrollToSeq, entries]);
 
   if (error) {
     return (
@@ -128,29 +146,15 @@ export default function SessionDetail() {
   const largestTripped = turns.some((t) => t.reason === "max_tokens");
 
   return (
-    <div className={`session-detail-page ${sessionTab === "story" && session.has_operations ? "waterfall-active" : ""}`}>
+    <div className="session-detail-page">
       <div className="session-page-head">
         <Link to="/sessions" className="session-back" aria-label="All sessions">← Sessions</Link>
         <h1>
           <span className="session-heading-label">Session</span> {session.id}
           {data.session.live && <LiveBadge status={streamStatus} />}
         </h1>
-        {session.has_operations && (
-          <div className="session-tabs" role="tablist" aria-label="Session view">
-            <button type="button" role="tab" aria-selected={sessionTab === "summary"}
-              className={sessionTab === "summary" ? "active" : ""} onClick={() => setSessionTab("summary")}>
-              Summary
-            </button>
-            <button type="button" role="tab" aria-selected={sessionTab === "story"}
-              className={sessionTab === "story" ? "active" : ""} onClick={() => setSessionTab("story")}>
-              Story
-            </button>
-          </div>
-        )}
       </div>
 
-      {(!session.has_operations || sessionTab === "summary") && (
-      <>
       <p className="meta">
         Started {formatTime(session.started_at)}
         {" · "}
@@ -298,31 +302,11 @@ export default function SessionDetail() {
           <Sparkline points={usageSeries} max={session.peak_input_tokens} />
         </div>
       )}
-      </>
-      )}
 
-      {session.has_operations && sessionTab === "story" ? (
-        <SessionStory
-          trace={data.trace}
-          entries={entries}
-          selectedId={searchParams.get("span")}
-          onSelect={(span) => {
-            const next = new URLSearchParams(searchParams);
-            next.set("span", span);
-            setSearchParams(next, { replace: true });
-          }}
-          onOpenRequest={setFocusedRequest}
-          contextWindow={snapshot.context_window}
-          maxTurnTokens={snapshot.max_turn_tokens}
-          coarse={session.timing_source === "wallclock_coarse"}
-          live={session.live}
-        />
-      ) : !session.has_operations ? (
-        <div className="transcript">
-          <TranscriptEntries entries={entries} snapshot={snapshot} timingSource={session.timing_source}
-            newestSeq={newestSeq} live={session.live} onOpenRequest={setFocusedRequest} />
-        </div>
-      ) : null}
+      <div className="transcript">
+        <TranscriptEntries entries={entries} snapshot={snapshot} timingSource={session.timing_source}
+          newestSeq={newestSeq} live={session.live} onOpenRequest={setFocusedRequest} />
+      </div>
 
       {focusedRequest != null && id && (
         <MessagesSidebar id={id} focusSeq={focusedRequest} onClose={() => setFocusedRequest(null)} />
@@ -509,8 +493,8 @@ export function buildRollupIndex(entries: Entry[]): RollupIndex {
     } else if (e.type === "operation_end" && e.operation_id) {
       endsById.set(e.operation_id, e);
       if (e.operation === "iteration") iterationSpans.set(e.iteration, e);
-      if (e.operation === "turn") turnSpans.set(e.turn, e);
-      if (e.operation === "llm.generate") pendingLlm = e;
+      if (isTurnSpan(e.operation)) turnSpans.set(e.turn, e);
+      if (isModelSpan(e.operation)) pendingLlm = e;
     } else if (e.type === "assistant") {
       if (pendingLlm) {
         llmLatencyByAssistantSeq.set(e.seq, pendingLlm);
@@ -534,7 +518,7 @@ export function toolSpanRollup(
 ): ToolRollupInfo | null {
   if (!entry.operation_id) return null;
   const span = idx.startsById.get(entry.operation_id);
-  if (!span?.operation?.startsWith("tool.")) return null;
+  if (!isToolSpan(span?.operation)) return null;
 
   const end = idx.endsById.get(entry.operation_id);
   const rollup: Record<string, number> = { ...(end?.rollup ?? {}) };

@@ -67,7 +67,6 @@ module Boukensha
     # span, flagged `ok: false`, rather than leaving it open to mislabel
     # everything that follows.
     def operation(name, trigger: nil, kind: :internal, attributes: {}, root: false)
-      semantic_kind = semantic_kind_for(name)
       span_attributes = {
         "session.id" => @session_id,
         "boukensha.session_id" => @session_id,
@@ -83,10 +82,9 @@ module Boukensha
           write_log({ phase: "operation_start", operation_id: frame.id,
                       parent_operation_id: frame.parent_id, operation: frame.name,
                       trigger: frame.trigger, trace_id: frame.trace_id,
-                      span_id: frame.span_id, otel_kind: kind.to_s,
-                      semantic_kind: semantic_kind, initiator: attributes[:initiator] ||
-                        attributes["boukensha.tool.initiator"],
-                      attributes: span_attributes }.compact)
+                      span_id: frame.span_id,
+                      initiator: attributes[:initiator] ||
+                        attributes["boukensha.tool.initiator"] }.compact)
           started = monotonic_ms
           opened  = counter_snapshot
           ok      = true
@@ -107,8 +105,6 @@ module Boukensha
             write_log(frame.attributes.merge(
                         phase: "operation_end", operation_id: frame.id, operation: frame.name,
                         trace_id: frame.trace_id, span_id: frame.span_id,
-                        otel_kind: kind.to_s, semantic_kind: semantic_kind,
-                        attributes: final,
                         duration_ms: (monotonic_ms - started).round, ok: ok,
                         error_type: error&.class&.name
                       ).compact.merge(counter_delta(opened)))
@@ -116,24 +112,6 @@ module Boukensha
         end
       end
     end
-
-    def semantic_kind_for(name)
-      value = name.to_s
-      return "invoke_agent" if value == "turn" || value.start_with?("invoke_agent ")
-      return "iteration" if value == "iteration"
-      return "chat" if value == "llm.generate" || value.start_with?("chat ")
-      return "execute_tool" if value.start_with?("tool.") || value.start_with?("execute_tool ")
-      return "after_tool" if ["after_tool", "record outcome"].include?(value)
-      return "compaction" if value == "compaction"
-      return "wrap_up" if value == "wrap_up"
-      return "hook" if ["player_bootstrap", "bootstrap player", "position_refresh",
-                        "establish position", "room_disambiguation", "room_survey",
-                        "async_poll", "poll"].include?(value)
-      return "state" if value.include?("state") || value.include?("render")
-
-      "internal"
-    end
-    private :semantic_kind_for
 
     # The local ONNX token classifier that picks look candidates, priced in the
     # two currencies that are not dollars.

@@ -454,7 +454,13 @@ I moved over to Opus 5 and told it my problems and it wrote me a plan that looke
 It appears to know what I brought back.
 docs/plans/week_2/session_story_tree
 
+We have a new kind of view but it doesn't work. 
+My effort to try and make it easier to consume failed and our original tarnscript was better
+Having the traces and spans built in are not useful and now we have graphana and jaeger as a method.
 
+I want it to go back and fix my old view and remove the traces.
+
+ docs/plans/week_2/restore_transcript_view.md.
 
 ## Technical Conclusions
 Reflecting back your education guesses from the technical uncertainty section what was the technical outcomes. Is there any new technical uncertainty that has been put aside for future exploration. Are there any next steps or technical considerations worth noting?

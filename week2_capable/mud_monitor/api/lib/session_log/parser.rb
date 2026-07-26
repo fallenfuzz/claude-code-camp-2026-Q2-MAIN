@@ -29,8 +29,7 @@ module SessionLog
                        # every log written before spans existed, which is how the
                        # adjacency fallback is selected.
                        :operation_id, :parent_operation_id, :ok, :rollup,
-                       :trace_id, :span_id, :otel_kind, :semantic_kind,
-                       :attributes,
+                       :trace_id, :span_id,
                        # The local ONNX classifier's per-call record (§2).
                        :backend, :artifact, :pool, :kept, :threshold, :top_k,
                        :available, :unit,
@@ -55,6 +54,16 @@ module SessionLog
 
     def self.load(path)
       new(path).tap(&:parse!)
+    end
+
+    # Matches the `llm.generate` span's two names: the literal from before
+    # `4cce5e5` and the OTel GenAI semconv rename (`chat <model>`) after it.
+    # Kept here, next to the rest of the span-name knowledge, rather than
+    # inlined at each call site — `message_timeline.rb` and this file's own
+    # `"turn"` checks match the log's `phase` field, a different concept that
+    # happens to share a word.
+    def self.model_span?(operation)
+      operation == "llm.generate" || operation.to_s.start_with?("chat ")
     end
 
     def initialize(path)
@@ -187,9 +196,6 @@ module SessionLog
                                  operation_id: event["operation_id"],
                                  parent_operation_id: event["parent_operation_id"],
                                  trace_id: event["trace_id"], span_id: event["span_id"],
-                                 otel_kind: event["otel_kind"],
-                                 semantic_kind: event["semantic_kind"],
-                                 attributes: event["attributes"] || {},
                                  turn: current_turn, iteration: current_iteration)
         when "operation_end"
           opened = open_operations.delete(event["operation_id"]) || {}
@@ -197,9 +203,6 @@ module SessionLog
                                  operation: event["operation"],
                                  operation_id: event["operation_id"],
                                  trace_id: event["trace_id"], span_id: event["span_id"],
-                                 otel_kind: event["otel_kind"],
-                                 semantic_kind: event["semantic_kind"],
-                                 attributes: event["attributes"] || {},
                                  ok: event.fetch("ok", true),
                                  duration_ms: event["duration_ms"] ||
                                               elapsed_ms(opened[:mono_ms], opened[:at],
@@ -308,7 +311,7 @@ module SessionLog
     # enumerated, so a new meter on the writing side needs no change here — the
     # same reason Journal::Parser keeps its open set of `fields`.
     SPAN_ENVELOPE = %w[phase operation operation_id parent_operation_id trigger
-                       trace_id span_id otel_kind semantic_kind attributes
+                       trace_id span_id
                        duration_ms ok session_id task depth at mono_ms].freeze
 
     # "monotonic" once every logged event carries `mono_ms` (§4.1); "wallclock"

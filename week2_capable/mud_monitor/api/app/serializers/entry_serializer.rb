@@ -88,18 +88,14 @@ class EntrySerializer
         operation: entry.operation, trigger: entry.trigger,
         operation_id: entry.operation_id,
         parent_operation_id: entry.parent_operation_id,
-        trace_id: entry.trace_id, span_id: entry.span_id,
-        otel_kind: entry.otel_kind, semantic_kind: entry.semantic_kind,
-        attributes: entry.attributes
+        trace_id: entry.trace_id, span_id: entry.span_id
       }
     when :operation_end
       # `rollup` is an open set on purpose — a new counter on the writing side
       # reaches the UI without a serializer change.
       { operation: entry.operation, operation_id: entry.operation_id,
         ok: entry.ok, rollup: entry.rollup,
-        trace_id: entry.trace_id, span_id: entry.span_id,
-        otel_kind: entry.otel_kind, semantic_kind: entry.semantic_kind,
-        attributes: entry.attributes }
+        trace_id: entry.trace_id, span_id: entry.span_id }
     when :local_inference
       {
         model: entry.model, backend: entry.backend, artifact: entry.artifact,

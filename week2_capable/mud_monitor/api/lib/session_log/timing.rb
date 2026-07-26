@@ -62,7 +62,7 @@ module SessionLog
     # §2). Falls back to `dt_ms` for a log written before the span existed, the
     # same way the parser keeps its adjacency fold for pre-span nesting.
     def model_durations
-      spans = @parser.entries.select { |e| e.type == :operation_end && e.operation == "llm.generate" }
+      spans = @parser.entries.select { |e| e.type == :operation_end && SessionLog::Parser.model_span?(e.operation) }
       return spans.filter_map(&:duration_ms) if spans.any?
 
       @parser.entries.select { |e| e.type == :assistant }.filter_map(&:duration_ms)

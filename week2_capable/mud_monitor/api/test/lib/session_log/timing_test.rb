@@ -54,6 +54,18 @@ module SessionLog
       assert_equal 250, summary[:model_ms]
     end
 
+    # 4cce5e5 renamed the span to OTel GenAI semconv (`chat <model>`) without
+    # updating this read side — model_ms silently fell back to dt_ms for every
+    # session written after that commit. `SessionLog::Parser.model_span?` must
+    # match both names.
+    test "model_ms prefers the chat <model> span duration over dt_ms" do
+      parser  = Parser.load(FIXTURES.join("chat_span.jsonl"))
+      summary = Timing.new(parser).summary
+
+      assert_equal 250, summary[:p50_model_ms]
+      assert_equal 250, summary[:model_ms]
+    end
+
     test "an empty session reports nil rollups instead of crashing" do
       parser  = Parser.load(FIXTURES.join("empty.jsonl"))
       summary = Timing.new(parser).summary
