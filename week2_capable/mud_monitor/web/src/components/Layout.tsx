@@ -14,6 +14,7 @@ export default function Layout() {
           <Link to="/sessions">Sessions</Link>
           <Link to="/manager">Manager</Link>
           <Link to="/telnet">Telnet</Link>
+          <Link to="/errors">Errors</Link>
           <Link to="/knowledge">Knowledge</Link>
           <Link to="/journal">Change Log</Link>
           <Link to="/health">Health</Link>

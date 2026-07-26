@@ -212,6 +212,24 @@ Environment variables should override YAML for deployability:
 - `BOUKENSHA_OTEL_CAPTURE_CONTENT`
 - `BOUKENSHA_OTEL_CONTENT_MAX_BYTES`
 
+Standard SDK variables may also be persisted under an allowlisted YAML mapping
+for local use, while real environment variables retain precedence:
+
+```yaml
+observability:
+  otel:
+    enabled: true
+    env:
+      OTEL_SERVICE_NAME: boukensha
+      OTEL_EXPORTER_OTLP_ENDPOINT: http://localhost:4318
+      OTEL_EXPORTER_OTLP_PROTOCOL: http/protobuf
+      OTEL_TRACES_EXPORTER: otlp
+```
+
+Only uppercase `OTEL_*` keys are accepted. Hosted-backend authentication
+headers should remain in the process environment rather than being stored in
+`settings.yaml`.
+
 `enabled: false` must load no SDK and behave exactly as today. If enabled,
 configure the SDK once at process startup, before creating `Logger`. Reject
 invalid booleans/config clearly, but degrade exporter/network failures to a

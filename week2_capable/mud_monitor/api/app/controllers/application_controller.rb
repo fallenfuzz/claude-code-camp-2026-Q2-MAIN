@@ -34,6 +34,7 @@ class ApplicationController < ActionController::API
       c.telnet_dir = legacy ? monitor_config.telnet_dir : root.join("telnet")
       c.manager_dir = legacy ? monitor_config.manager_dir : root.join("manager")
       c.journal_dir = legacy ? monitor_config.journal_dir : root.join("journal")
+      c.error_log = legacy ? monitor_config.error_log : root.join("error.log")
       c.knowledge_db = legacy ? monitor_config.knowledge_db : root.join("knowledge.sqlite3")
       c.world_dir = monitor_config.world_dir
       c.live_window = monitor_config.live_window

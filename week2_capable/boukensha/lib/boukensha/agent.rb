@@ -305,9 +305,14 @@ module Boukensha
         rescue StandardError => e
           ok     = false
           tool_frame.record_error(e)
+          error_id = Boukensha.error_log.record(
+            e, component: "agent", boundary: "tool_dispatch",
+            context: { tool: name, call_id: call_id }
+          )
           result = "ERROR: #{e.class}: #{e.message}"
           @logger.tool_result(name: name, result: result, ok: false, error: e.message,
-                              call_id: call_id, initiator: "model", duration_ms: since_ms(started))
+                              error_id: error_id, call_id: call_id,
+                              initiator: "model", duration_ms: since_ms(started))
         end
 
         # Deliberately AFTER @logger.tool_result and BEFORE add_message: the

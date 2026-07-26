@@ -156,3 +156,12 @@ mcp_servers:
     args:     [-y, "@modelcontextprotocol/server-filesystem", /tmp]
     prefix:   fs
     required: false
+observability:
+  otel:
+    enabled: true
+    capture_content: false
+    env:
+      OTEL_SERVICE_NAME: boukensha
+      OTEL_EXPORTER_OTLP_ENDPOINT: http://localhost:4318
+      OTEL_EXPORTER_OTLP_PROTOCOL: http/protobuf
+      OTEL_TRACES_EXPORTER: otlp

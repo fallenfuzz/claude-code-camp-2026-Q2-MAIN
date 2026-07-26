@@ -4,6 +4,7 @@ require "pathname"
 
 module Boukensha
   class Config
+    OTEL_ENV_NAME = /\AOTEL_[A-Z0-9_]+\z/.freeze
     # The .boukensha config directory is resolved in this order:
     #   1. BOUKENSHA_DIR environment variable (set before loading .env)
     #   2. ~/.boukensha  (default)
@@ -131,6 +132,30 @@ module Boukensha
       value = Integer(raw)
       raise ArgumentError, "BOUKENSHA_OTEL_CONTENT_MAX_BYTES must be positive" unless value.positive?
       value
+    end
+
+    # Apply standard OpenTelemetry environment configuration from settings.yaml
+    # before the SDK is loaded. A real process environment variable always
+    # wins, which keeps deployment overrides and secret headers out of YAML.
+    #
+    # observability:
+    #   otel:
+    #     env:
+    #       OTEL_SERVICE_NAME: boukensha
+    #       OTEL_EXPORTER_OTLP_ENDPOINT: http://localhost:4318
+    def apply_otel_environment!
+      configured = dig(:observability, :otel, :env) || {}
+      raise ArgumentError, "observability.otel.env must be a YAML mapping" unless configured.is_a?(Hash)
+
+      configured.each do |name, value|
+        key = name.to_s
+        unless OTEL_ENV_NAME.match?(key)
+          raise ArgumentError, "observability.otel.env key #{key.inspect} must start with OTEL_ and use uppercase letters"
+        end
+        raise ArgumentError, "observability.otel.env value for #{key} must be a scalar" if value.is_a?(Hash) || value.is_a?(Array)
+
+        ENV[key] = value.to_s unless value.nil? || ENV.key?(key)
+      end
     end
 
     # ---------- low-level helpers -----------------------------------------

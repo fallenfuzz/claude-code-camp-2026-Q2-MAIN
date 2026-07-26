@@ -23,6 +23,9 @@ Rails.application.routes.draw do
       get "telnet", to: "telnet#index"
       get "telnet/stream", to: "telnet#stream"
 
+      get "errors", to: "errors#index"
+      get "errors/stream", to: "errors#stream"
+
       # The agent's progression log. Append-only with a per-record seq, so unlike
       # knowledge it streams (SSE) — #index folds the day into graphable series,
       # #stream tails new records after a cursor.

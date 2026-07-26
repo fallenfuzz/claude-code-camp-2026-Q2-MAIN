@@ -141,8 +141,10 @@ module Boukensha
       output("")
       output(result)
     rescue LoopError => e
+      Boukensha.error_log.record(e, component: "repl", boundary: "run_turn")
       output("\n[error] #{e.message}")
     rescue ApiError => e
+      Boukensha.error_log.record(e, component: "repl", boundary: "run_turn")
       output("\n[error] API call failed: #{e.message}")
     end
 

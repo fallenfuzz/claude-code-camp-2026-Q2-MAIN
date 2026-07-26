@@ -183,6 +183,8 @@ module Boukensha
     def guard
       yield
     rescue StandardError => e
+      Boukensha.error_log.record(e, component: "journal", boundary: "write",
+                                context: { path: @dir })
       @warn_to&.puts "[journal] #{e.class}: #{e.message}"
       nil
     end

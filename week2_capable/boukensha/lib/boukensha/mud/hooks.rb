@@ -754,6 +754,8 @@ module Boukensha
       def guard
         yield
       rescue StandardError => e
+        Boukensha.error_log.record(e, component: "mud_hooks",
+                                  boundary: caller_locations(1, 1).first&.label || "guard")
         @warn_to&.puts "[mud_hooks] #{e.class}: #{e.message}"
         nil
       end

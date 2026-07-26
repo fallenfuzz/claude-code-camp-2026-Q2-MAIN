@@ -349,7 +349,7 @@ It would be nice if the nodes are orgranized based on their actual positioning
 
 docs/plans/week_2/knowledge_map.md
 
-## Review Pathing
+## 18 Review Pathing
 
 Now with all my observability I can reset the player and find the bakery
 http://localhost:5173/sessions/20260724T221941Z-e99aa04f
@@ -408,7 +408,7 @@ Okay so the main conclusion:
 
 docs/plans/week_2/observ_improvements.
 
-## Spans and Traces with Observsation
+## 19 Spans and Traces with Observsation
 
 We have still not moved onto plan_route because I can't see things like:
 - the BERT medium call, the actualy details of room survey
@@ -421,12 +421,30 @@ It implemented and we do see grouping of work but room surevy I dont see at all,
 It seems we would greatly benefit from instruementation and will require signfant upheavel
 I cannot tell what the UX will look like aftwards but Im going to give it a rip.
 
-## OTel 
+## 20 OTel 
 
 I want to be able to use any OTEL compatabile tool.
 Lets see if we can upgrade proper
 
 docs/plans/week_2/otel.md
+
+It implemented multiple solutions like Jaeger.
+When starting up my MUD I started to get hook errors
+I realized I have a observablity gap is my agent runs into errors it doesn't log them
+
+## 21 Agent error logs
+
+We want agent error logs and to see the in our mud monitor
+We should now be able to see errors capture with their backtraces in ~/boukensha/profiles/<profile>/error.log
+
+docs/plans/week_2/error_log.md
+
+## Step 22 - Better Bespoke Waterfall
+
+I did review the graphana, tempo and jaeger and these are not going 
+give me what I want, which is a waterfall with rich information so I can understand the player journey. Its not a waste that we implemented OTEL and the OTEL infrastructure can be turend off anytime. 
+
+It did break out transcript, so we need to fix that first, its because of the data cchange.
 
 
 
@@ -435,3 +453,210 @@ Reflecting back your education guesses from the technical uncertainty section wh
 
 ## Key Takeaway
 In one sentence. State the most important lesson from the week.
+
+
+# AI Journal Rollup
+
+• I found several implemented features that were missing from the original 14-step summary. 
+I also separated completed work from research and plans that were not implemented.
+
+  1. Benchmark navigation cost to expose why the agent could not reliably reach the bakery.
+      - Ran repeated start-to-bakery navigation sessions.
+      - Observed runs consuming roughly 65K tokens without reaching the destination.
+      - Identified missing exit knowledge, repeated room reasoning, and manual resets.
+      - Used those failures to drive automated resets and structured room inspection.
+
+  2. Automate player resets so navigation experiments are repeatable.
+      - Added bin/move_player_to_start_room.
+      - Added Mud Manager admin primitives needed to relocate another player.
+      - Logged in both the mortal and administrator to perform the reset.
+      - Made it possible to rerun the same navigation benchmark from a known state.
+
+  3. Collect complete room information before choosing the next movement.
+      - Combined room descriptions with full exit destination information.
+      - Confirmed that look only provides exit directions, while exits provides destination names.
+      - Investigated entities, hidden scenery, asynchronous room activity, and player vitals.
+      - Initially built a composite inspection command, then moved composition into Boukensha policy.
+
+  4. Delegate room investigation so the player remains focused on orchestration.
+      - Added a room_inspector task and prompt.
+      - Added a native inspect_room tool to invoke that task.
+      - Shared the existing MCP/Telnet session between the player and delegated task.
+      - Let the inspector call MUD tools directly instead of receiving copied raw output.
+      - Added mob appraisal using consider and examine.
+      - Later removed the model-driven subagent from the inspection path when deterministic processing proved faster.
+
+  5. Restrict tools so each task can only perform its intended role.
+      - Added default-deny allow: rules per task.
+      - Added parameter-level rules such as restricting check to specific kinds.
+      - Validated permission rules against each tool’s schema during startup.
+      - Preserved explicit MCP prefixes to prevent naming conflicts.
+      - Enforced permissions during both tool advertisement and dispatch.
+      - Later moved permission enforcement into the registry so native tools were also gated.
+
+  6. Shorten the development feedback loop.
+      - Added week2_capable/bin/rebuild.
+      - Rebuilt the Boukensha and Mud Manager gems together.
+      - Reduced errors caused by testing stale local gem builds.
+
+  7. Test room inspection and identify where the first design failed.
+      - Captured real inspect_room outputs as journal artifacts.
+      - Measured inspection calls taking roughly 30–35 seconds.
+      - Found that delegated inspection was running a full agent loop instead of a focused parse.
+      - Found that the player sometimes moved without inspecting the new room.
+      - Exposed missing visibility into delegated calls, durations, and token accounting.
+      - Used these failures to drive Mud Monitor and deterministic room surveying.
+
+  8. Build unified observability before optimizing further.
+      - Created Mud Monitor with a Rails API and React frontend.
+      - Added agent-session, manager-command, and raw Telnet views.
+      - Added timestamps, durations, live polling, filtering, and session details.
+      - Correlated agent tool calls with the underlying MUD commands.
+      - Kept delegated work inside the parent session and labeled it by task.
+      - Added health checks and configurable log/database locations.
+      - Fixed manager and Telnet log path resolution.
+
+  9. Find a faster and cheaper way to detect hidden room interactions.
+      - Extracted supervised training data from the MUD’s world files.
+      - Built frozen train/test splits and reachable-room filtering.
+      - Compared lexicons, hand-built features, BERT variants, Qwen, and Haiku.
+      - Discovered that context matters because the same word can be interactive in one room but not another.
+      - Found and corrected evaluation problems involving unreachable rooms, data leakage, and model inputs.
+      - Determined that a trained local model outperformed the tested LLM approaches for this task.
+      - Built a reproducible model-training and evaluation pipeline.
+      - Documented the dataset, experiments, results, and model design.
+
+  10. Replace slow agentic room inspection with a deterministic survey pipeline.
+
+  - Shipped an int8 BERT-medium model for look_candidates.
+  - Exported the model to ONNX and ran it directly from Ruby.
+  - Verified Ruby/Python token and score parity.
+  - Stored the model threshold and metadata in a manifest.
+  - Added model download, verification, and status tasks.
+  - Replaced the Room Inspector subagent with one deterministic InspectRoom implementation.
+  - Added fixed poll, look, exits, consider, and examine sequencing.
+  - Added colour-based mob/object classification, deduplication, keyword verification, and retries.
+  - Reduced the warm inspection path to zero LLM calls.
+  - Confirmed the TUI—not the model—was creating much of the observed latency.
+
+  11. Expose exactly what the model consumes on every request.
+
+  - Added request-level message inspection to Mud Monitor.
+  - Reconstructed message timelines from complete prompt snapshots.
+  - Added a sidebar showing system, user, assistant, and tool messages.
+  - Handled message additions, compaction, and cleared histories.
+  - Added token counts by message and request section.
+  - Added pricing estimates and clearer cumulative token usage.
+  - Made injected context visible instead of leaving it hidden from the session view.
+
+  12. Add lifecycle control and memory so inspection is enforced by the loop.
+
+  - Added generic lifecycle hooks around turns and tool calls.
+  - Added automatic room surveying before model calls.
+  - Added a SQLite knowledge store using WAL mode.
+  - Added tables for player state, rooms, exits, entities, sightings, and encounters.
+  - Added room fingerprinting and exit linking.
+  - Added current-location tracking and visit counts.
+  - Added frontier tracking for exits that had been seen but not walked.
+  - Injected a compact [here] state block before each model call.
+  - Replaced large raw room outputs with condensed movement and state summaries.
+  - Added stale-state handling and survey rules after movement.
+
+  13. Visualize stored knowledge so memory behavior can be verified.
+
+  - Added a Knowledge section to Mud Monitor.
+  - Added overview, rooms, entities, frontier, and player views.
+  - Read the live SQLite database without introducing ActiveRecord.
+  - Added WAL-aware freshness checks and schema-version handling.
+  - Displayed room confidence, visits, exits, entities, and survey times.
+  - Clarified that a frontier represents an unexplored exit, not an unexplored room.
+
+  14. Explore a real-time observer inspired by IbnouT’s implementation.
+
+  - Reverse-engineered the bootcamper’s observer into a technical specification.
+  - Adapted the design to Boukensha’s knowledge store and available runtime data.
+  - Designed a combined map, vitals, trail, activity feed, and thought display.
+  - Identified missing vitals and task-management data.
+  - Produced an implementation plan, but the full Observatory view was not built.
+
+  15. Capture changes over time instead of storing only the latest state.
+
+  - Added an append-only JSONL change journal.
+  - Captured every knowledge-store mutation at the store layer.
+  - Recorded before/after values while suppressing unchanged writes.
+  - Captured room, exit, entity, encounter, player, death, level-up, and item events.
+  - Added sequence numbers, timestamps, session attribution, and restart continuity.
+  - Added a Progression view with time-series charts and a raw change log.
+  - Captured changing HP, mana, and movement values instead of pre-filtering them.
+
+  16. Create populated test players and isolate their state.
+
+  - Added bin/seed_player as a deterministic development harness.
+  - Deleted and recreated the configured player on every run.
+  - Added Mud Manager character-seeding and administrator primitives.
+  - Seeded level, money, stats, skills, inventory, and equipment.
+  - Verified the resulting character through live MUD output.
+  - Added optional fixture generation for parser development.
+  - Added named Boukensha profiles with separate databases and logs.
+  - Added --profile selection to Boukensha.
+  - Added a player-profile selector to Mud Monitor.
+  - Kept shared models, prompts, and installation settings outside profile state.
+
+  17. Expand player memory beyond basic vitals.
+
+  - Extended the schema for score data, skills, inventory, and equipment.
+  - Captured live fixtures from a seeded level-10 cleric.
+  - Added parsers for score, practice, inventory, and equipment.
+  - Accounted for this MUD’s actual wording instead of assumed CircleMUD formats.
+  - Reused already-issued commands to avoid extra network round trips.
+  - Marked inventory state stale when mutations could not be verified.
+  - Added a Player view under Knowledge.
+
+  18. Add a map of what the agent currently knows.
+
+  - Added /knowledge/map to Mud Monitor.
+  - Built the map entirely from the existing knowledge endpoint.
+  - Positioned connected rooms using deterministic grid-based BFS layout.
+  - Displayed room names, internal IDs, visits, entities, and look targets.
+  - Highlighted the current room.
+  - Rendered explored connections and unexplored frontiers differently.
+  - Added zooming, panning, disconnected-component handling, and layout tests.
+  - Exposed malformed exit-direction data discovered during visualization.
+
+  19. Review a complete bakery run and identify the next navigation problem.
+
+  - Reset the player and ran another end-to-end bakery attempt.
+  - Confirmed automatic context injection and compact movement summaries.
+  - Found redundant-looking score and look work originating from hooks.
+  - Found that automatic work was not clearly distinguished from model-selected tools.
+  - Found invalid abbreviated movement arguments such as d.
+  - Concluded that navigation needed an explicit plan_route tool.
+  - Designed known-route, frontier-ranking, and broad-exploration behavior.
+  - Produced the route-planning specification, but did not implement the tool.
+
+  20. Attribute hidden automatic work to the turn that caused it.
+
+  - Added provenance to automatic context work and tool calls.
+  - Grouped room surveys and hook activity into expandable operations.
+  - Added operation IDs, parent IDs, nesting, timing, and outcome data.
+  - Logged local look-candidate model duration and output counts.
+  - Joined knowledge-store journal writes back into the relevant session.
+  - Added visibility into automatic room surveys and database mutations.
+
+  21. Convert operation logs into structured traces.
+
+  - Instrumented turns, iterations, LLM generation, tool execution, hooks, compaction, and wrap-up.
+  - Added nested span trees and duration waterfalls to Mud Monitor.
+  - Propagated trace context across MCP boundaries.
+  - Recorded errors and incomplete operations.
+  - Added a waterfall interface for understanding where each turn spent its time.
+  - Preserved detailed JSONL logs alongside the new trace structure.
+
+  22. Export traces through OpenTelemetry.
+
+  - Added an optional OpenTelemetry telemetry backend.
+  - Exported spans through OTLP while retaining existing JSONL logging.
+  - Added trace attributes, parentage, durations, errors, and status recording.
+  - Added local Collector configurations for Jaeger, Tempo, and debug output.
+  - Added Docker Compose observability infrastructure and Grafana provisioning.
+  - Added telemetry contract tests and a no-op backend when tracing is disabled.

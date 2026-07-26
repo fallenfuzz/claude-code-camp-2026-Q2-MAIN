@@ -38,17 +38,24 @@ Jaeger is the recommended first visual test. The `debug` profile is the
 smallest transport smoke test. The `compare` profile sends each accepted batch
 to both backends so the same JSONL `trace_id` can be checked in both UIs.
 
-## Configure Boukensha
+## Configure Boukensha once
 
-```sh
-export BOUKENSHA_OTEL_ENABLED=true
-export OTEL_SERVICE_NAME=boukensha
-export OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4318
-export OTEL_EXPORTER_OTLP_PROTOCOL=http/protobuf
-export OTEL_TRACES_EXPORTER=otlp
+Add this to `~/.boukensha/settings.yaml`:
+
+```yaml
+observability:
+  otel:
+    enabled: true
+    capture_content: false
+    env:
+      OTEL_SERVICE_NAME: boukensha
+      OTEL_EXPORTER_OTLP_ENDPOINT: http://localhost:4318
+      OTEL_EXPORTER_OTLP_PROTOCOL: http/protobuf
+      OTEL_TRACES_EXPORTER: otlp
 ```
 
-Then run Boukensha normally. Each top-level turn is a separate trace. Search
+Then start a profile and run Boukensha normally—no shell exports are required.
+Each top-level turn is a separate trace. Search
 using `session.id` or `boukensha.session_id` to find all turns in one session.
 In Grafana Explore, select the provisioned Tempo data source and use TraceQL:
 
@@ -66,11 +73,14 @@ observability:
     content_max_bytes: 4096
 ```
 
+Only uppercase `OTEL_*` keys are accepted in the YAML `env` mapping. Existing
+process environment variables take precedence over YAML, so deployments can
+override endpoint, protocol, resource attributes, sampling, and propagators.
 `BOUKENSHA_OTEL_ENABLED`, `BOUKENSHA_OTEL_CAPTURE_CONTENT`, and
-`BOUKENSHA_OTEL_CONTENT_MAX_BYTES` override YAML. Standard `OTEL_*` variables
-configure exporter endpoint, protocol, headers, resource attributes, sampling,
-and propagators. For hosted backends, change only these variables or configure
-another Collector exporter; do not put backend credentials in Boukensha YAML.
+`BOUKENSHA_OTEL_CONTENT_MAX_BYTES` likewise override their YAML settings.
+
+Keep authentication headers such as `OTEL_EXPORTER_OTLP_HEADERS` in the real
+process environment rather than committing credentials to `settings.yaml`.
 
 All exposed ports bind to `127.0.0.1`; these development services do not provide
 authentication and should not be exposed publicly.

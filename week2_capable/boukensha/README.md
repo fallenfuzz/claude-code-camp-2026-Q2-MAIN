@@ -35,3 +35,9 @@ Keep `MUD_PASSWORD_DUMMY` and provider keys in the shared `.env`; never put a
 password in `profile.yaml`. Move existing `knowledge.sqlite3`, `sessions/`,
 `journal/`, `manager/`, and `telnet/` into the current player's profile.
 Shared `settings.yaml`, `.env`, `models/`, and `prompts/` remain at the root.
+
+Runtime exceptions intentionally absorbed by the agent are appended as JSONL
+to the active profile's `error.log` (for example,
+`.boukensha/profiles/Dummy/error.log`). Records include the exception class,
+message, Ruby backtrace, and available session/operation/trace identifiers.
+Logging is best-effort and never replaces the concise terminal error.

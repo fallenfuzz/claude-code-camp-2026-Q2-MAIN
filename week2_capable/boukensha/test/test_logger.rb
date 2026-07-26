@@ -5,6 +5,18 @@ require "json"
 # carries a monotonic `mono_ms`, so cross-layer joins (telnet/manager/agent)
 # compare like with like and durations survive NTP steps / DST.
 class TestLogger < Minitest::Test
+  def test_operation_can_wrap_a_strict_dispatcher_lambda
+    result = capture do |logger|
+      body = lambda do |_frame = nil|
+        "dispatched"
+      end
+
+      assert_equal "dispatched", logger.operation("execute_tool poll", &body)
+    end
+
+    assert result.any? { |event| event["phase"] == "operation_end" && event["ok"] }
+  end
+
   def test_write_log_stamps_millisecond_at_and_monotonic_mono_ms
     Dir.mktmpdir do |dir|
       path = File.join(dir, "session.jsonl")

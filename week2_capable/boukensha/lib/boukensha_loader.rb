@@ -221,6 +221,7 @@ module BoukenshaLoader
           parent&.add_meter(j)
           j
         rescue StandardError => e
+          Boukensha.error_log.record(e, component: "journal", boundary: "setup")
           warn "[boukensha] #{e.message} — continuing without progression journal"
           nil
         end
@@ -237,6 +238,7 @@ module BoukenshaLoader
           turn_policy: cfg.dig(:memory, :turn_policy) == true
         )
       rescue Boukensha::Mud::Memory::Store::Unavailable => e
+        Boukensha.error_log.record(e, component: "mud_hooks_setup", boundary: "memory_store")
         # No memory is a degraded agent, not a dead one: it explores exactly as
         # it did before this feature existed.
         warn "[boukensha] #{e.message} — continuing without room memory"

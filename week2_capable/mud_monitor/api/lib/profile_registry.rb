@@ -3,7 +3,7 @@ require "yaml"
 
 class ProfileRegistry
   NAME_PATTERN = /\A[a-zA-Z0-9][a-zA-Z0-9_-]{0,63}\z/
-  RUNTIME_ENTRIES = %w[knowledge.sqlite3 sessions journal manager telnet].freeze
+  RUNTIME_ENTRIES = %w[knowledge.sqlite3 sessions journal manager telnet error.log].freeze
 
   Profile = Data.define(:id, :label, :dir, :available) do
     def as_json(*) = { id: id, label: label, available: available }

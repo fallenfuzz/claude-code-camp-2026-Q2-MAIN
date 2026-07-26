@@ -745,3 +745,32 @@ export interface JournalPage {
   next_seq: number;
   live: boolean;
 }
+
+// --- Durable exception log -------------------------------------------------
+export interface ErrorRecord {
+  seq: number;
+  id: string;
+  at?: string;
+  severity: "error" | "warning" | string;
+  component: string;
+  boundary: string;
+  exception_class: string;
+  message: string;
+  backtrace: string[];
+  profile_id?: string;
+  session_id?: string;
+  operation_id?: string;
+  operation?: string;
+  trace_id?: string;
+  span_id?: string;
+  malformed?: boolean;
+}
+
+export interface ErrorPage {
+  entries: ErrorRecord[];
+  next_cursor: number;
+  previous_cursor?: number | null;
+  live: boolean;
+  available: boolean;
+  profile: string;
+}

@@ -1,6 +1,7 @@
 import { Route, Routes } from "react-router";
 import Layout from "./components/Layout";
 import Dashboard from "./pages/Dashboard";
+import Errors from "./pages/Errors";
 import HealthPage from "./pages/Health";
 import Journal from "./pages/Journal";
 import Entities from "./pages/knowledge/Entities";
@@ -26,6 +27,7 @@ export default function App() {
         <Route path="sessions/:id" element={<SessionDetail />} />
         <Route path="manager" element={<Manager />} />
         <Route path="telnet" element={<Telnet />} />
+        <Route path="errors" element={<Errors />} />
         <Route path="journal" element={<Journal />} />
         {/* Nested routes rather than useState tabs: a room the agent got wrong
             is something you paste into chat, and "click Knowledge, then Rooms,

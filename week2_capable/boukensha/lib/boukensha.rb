@@ -2,6 +2,7 @@ require_relative "boukensha/version"
 require_relative "boukensha/config"
 require_relative "boukensha/permissions"
 require_relative "boukensha/tasks/player"
+require_relative "boukensha/error_log"
 
 module Boukensha
   @quiet  = false
@@ -10,6 +11,15 @@ module Boukensha
 
   def self.config
     @config ||= Config.new
+  end
+
+  def self.error_log
+    @error_log ||= ErrorLog.new
+  end
+
+  # Test/profile-reload seam: the writer's default path follows Config.
+  def self.reset_error_log!
+    @error_log = nil
   end
 
   def self.quiet!
@@ -344,6 +354,8 @@ module Boukensha
         at_exit { client.close rescue nil }
         out << { name: name, prefix: entry[:prefix], client: client }
       rescue StandardError => e
+        error_log.record(e, component: "mcp", boundary: "spawn_mcp_client",
+                        context: { server: name })
         raise "boukensha: MCP server '#{name}' failed to start: #{e.message}" if entry[:required]
         warn "[boukensha] optional MCP server '#{name}' failed to start: #{e.message} — continuing without its tools"
       end
@@ -411,7 +423,10 @@ module Boukensha
     perms.validate_referenced!(registry.tool_names)
 
     lambda do |name, args = {}|
-      body = lambda do
+      # Logger#operation yields its frame. Keep this a lambda (so its return
+      # behaviour stays local) but explicitly accept the frame; Ruby 4 rejects
+      # passing it to a zero-argument lambda before the tool body can run.
+      body = lambda do |_frame = nil|
         call_id = logger&.tool_call(name: name, args: args, initiator: initiator)
         # Monotonic, so the figure survives an NTP step mid-call.
         started = Process.clock_gettime(Process::CLOCK_MONOTONIC)
@@ -419,8 +434,12 @@ module Boukensha
         begin
           result = registry.dispatch(name, args)
         rescue StandardError => e
+          error_id = error_log.record(e, component: "hook_dispatcher",
+                                     boundary: "tool_dispatch",
+                                     context: { tool: name, initiator: initiator })
           logger&.tool_result(name: name, result: "", ok: false, error: e.message,
-                              call_id: call_id, initiator: initiator, duration_ms: done.call)
+                              call_id: call_id, initiator: initiator, duration_ms: done.call,
+                              error_id: error_id)
           raise
         end
         logger&.tool_result(name: name, result: result, call_id: call_id,

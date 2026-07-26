@@ -273,7 +273,7 @@ module Boukensha
     end
 
     def tool_result(name:, result:, ok: true, error: nil, call_id: nil,
-                    initiator: nil, duration_ms: nil)
+                    initiator: nil, duration_ms: nil, error_id: nil)
       # The MUD round trips a span paid for. Counted here rather than at the
       # dispatcher because this is the one place every tool result passes
       # through, hook-initiated or not. Gated on `duration_ms` so the callers
@@ -285,7 +285,8 @@ module Boukensha
       end
       write_log({
         phase: "tool_result", call_id: call_id, name: name, result: result.to_s,
-        ok: ok, error: error, initiator: initiator, duration_ms: duration_ms
+        ok: ok, error: error, error_id: error_id,
+        initiator: initiator, duration_ms: duration_ms
       }.merge(operation_stamp).reject { |k, v| v.nil? && k != :error })
     end
 

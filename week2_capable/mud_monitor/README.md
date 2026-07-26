@@ -43,6 +43,13 @@ with a `seq` cursor. Path is resolved from `boukensha_dir` (override with
 `MUD_MONITOR_JOURNAL_DIR`); when the agent has not journalled yet, both views
 render empty. See `docs/plans/week_2/change_capture.md`.
 
+The top-level **Errors** page reads the selected profile's
+`.boukensha/profiles/<id>/error.log`. Boukensha writes one JSON record per
+rescued exception, including its Ruby backtrace and available
+session/operation/trace correlation. The page filters and live-tails those
+records; error capture does not require OpenTelemetry or Jaeger. Override the
+legacy/default monitor path with `MUD_MONITOR_ERROR_LOG`.
+
 ## Run
 
 ```

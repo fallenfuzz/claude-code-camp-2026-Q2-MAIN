@@ -1,6 +1,7 @@
 import type {
   ApiError,
   DroppedDiff,
+  ErrorPage,
   KnowledgeEntitiesPage,
   KnowledgeFrontierPage,
   KnowledgeMapPage,
@@ -76,6 +77,27 @@ export function fetchTelnet(filters: TelnetFilters = {}): Promise<TelnetPage> {
   if (filters.dir) params.set("dir", filters.dir);
   const qs = params.toString();
   return get(`/telnet${qs ? `?${qs}` : ""}`);
+}
+
+export interface ErrorFilters {
+  component?: string;
+  exceptionClass?: string;
+  sessionId?: string;
+  q?: string;
+  before?: number;
+  limit?: number;
+}
+
+export function fetchErrors(filters: ErrorFilters = {}): Promise<ErrorPage> {
+  const params = new URLSearchParams();
+  if (filters.component) params.set("component", filters.component);
+  if (filters.exceptionClass) params.set("exception_class", filters.exceptionClass);
+  if (filters.sessionId) params.set("session_id", filters.sessionId);
+  if (filters.q) params.set("q", filters.q);
+  if (filters.before != null) params.set("before", String(filters.before));
+  if (filters.limit != null) params.set("limit", String(filters.limit));
+  const qs = params.toString();
+  return get(`/errors${qs ? `?${qs}` : ""}`);
 }
 
 export interface DroppedFilters {

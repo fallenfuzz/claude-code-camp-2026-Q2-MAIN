@@ -274,6 +274,7 @@ module Boukensha
       rescue Interrupt
         @events << { phase: :turn_interrupted }
       rescue => e
+        Boukensha.error_log.record(e, component: "tui", boundary: "launch_turn")
         @events << { phase: :turn_error, error: e.message }
       ensure
         @events << { phase: :turn_complete }

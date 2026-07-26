@@ -53,6 +53,7 @@ Rails.application.config.x.mud_monitor = ActiveSupport::OrderedOptions.new.tap d
   # knowledge.sqlite3. Resolved from boukensha_dir exactly as telnet/manager do,
   # so the monitor never guesses a path the writer isn't using.
   c.journal_dir   = Pathname.new(ENV.fetch("MUD_MONITOR_JOURNAL_DIR", boukensha_dir.join("journal").to_s))
+  c.error_log     = Pathname.new(ENV.fetch("MUD_MONITOR_ERROR_LOG", boukensha_dir.join("error.log").to_s))
   # Not part of .boukensha — world files ship with the repo, so this one stays
   # anchored to repo_root.
   c.world_dir     = Pathname.new(ENV.fetch("MUD_MONITOR_WORLD_DIR", repo_root.join("week0_explore/preview/data/world").to_s))
