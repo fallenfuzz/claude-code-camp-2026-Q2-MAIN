@@ -152,6 +152,13 @@ export type EntryType =
  * Null on logs written before the provenance contract.
  */
 export type Initiator = "model" | "hook" | "delegated_task";
+export type SemanticKind =
+  | "invoke_agent" | "iteration" | "chat" | "execute_tool" | "hook"
+  | "state" | "after_tool" | "compaction" | "wrap_up" | "internal"
+  // Synthetic: the session root TraceProjection synthesizes to own content
+  // written before any span existed (session_start, an orphaned entry).
+  // Absent from a well-instrumented session with nothing left over.
+  | "session";
 
 export interface Entry {
   seq: number;
@@ -236,6 +243,11 @@ export interface Entry {
   // operation_start — the span below it on the stack. This is the field that
   // makes nesting a recorded fact instead of a guess about adjacency.
   parent_operation_id?: string | null;
+  trace_id?: string | null;
+  span_id?: string | null;
+  otel_kind?: string | null;
+  semantic_kind?: SemanticKind;
+  attributes?: Record<string, unknown>;
 
   // operation_end
   ok?: boolean;
@@ -359,7 +371,58 @@ export interface SessionDetail {
   turns: TurnRow[];
   usage_series: UsagePoint[];
   cost_breakdown: CostBreakdownRow[];
+  trace: SessionTrace;
   entries: Entry[];
+}
+
+export interface SessionTrace {
+  roots: string[];
+  spans: Record<string, SessionSpan>;
+  orphan_entry_seqs: number[];
+}
+
+/** One entry, in the reading-order position it occupied in the log. */
+export interface TimelineEntryItem {
+  kind: "entry";
+  seq: number;
+}
+/** A child span, keyed by its OWN operation_start seq — this is what makes
+ *  "the injected context came before the chat child" answerable by sorting
+ *  one list instead of walking entries and children separately. */
+export interface TimelineSpanItem {
+  kind: "span";
+  id: string;
+}
+export type TimelineItem = TimelineEntryItem | TimelineSpanItem;
+
+export interface SessionSpan {
+  id: string;
+  parent_id: string | null;
+  child_ids: string[];
+  trace_id: string | null;
+  span_id: string | null;
+  name: string;
+  semantic_kind: SemanticKind;
+  task: string | null;
+  initiator: Initiator | null;
+  trigger: string | null;
+  /** The turn/iteration this span ran in — read from a stamped span
+   *  attribute (`boukensha.turn.n` / `boukensha.iteration.n`) or, absent
+   *  that, the per-entry turn/iteration the parser tracks for every line. */
+  turn: number | null;
+  iteration: number | null;
+  start_at: string | null;
+  start_mono_ms: number | null;
+  end_at: string | null;
+  duration_ms: number | null;
+  self_ms: number | null;
+  status: "ok" | "error" | "running" | "incomplete";
+  attributes: Record<string, unknown>;
+  rollup: Record<string, number>;
+  direct_entry_seqs: number[];
+  /** Entries and child spans, interleaved in log sequence order. */
+  timeline: TimelineItem[];
+  diagnostics?: string[];
 }
 
 export interface ApiError {

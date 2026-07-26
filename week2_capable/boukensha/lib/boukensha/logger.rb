@@ -67,6 +67,7 @@ module Boukensha
     # span, flagged `ok: false`, rather than leaving it open to mislabel
     # everything that follows.
     def operation(name, trigger: nil, kind: :internal, attributes: {}, root: false)
+      semantic_kind = semantic_kind_for(name)
       span_attributes = {
         "session.id" => @session_id,
         "boukensha.session_id" => @session_id,
@@ -81,7 +82,11 @@ module Boukensha
           frame.propagation_carrier = @telemetry.propagation_carrier
           write_log({ phase: "operation_start", operation_id: frame.id,
                       parent_operation_id: frame.parent_id, operation: frame.name,
-                      trigger: frame.trigger }.compact)
+                      trigger: frame.trigger, trace_id: frame.trace_id,
+                      span_id: frame.span_id, otel_kind: kind.to_s,
+                      semantic_kind: semantic_kind, initiator: attributes[:initiator] ||
+                        attributes["boukensha.tool.initiator"],
+                      attributes: span_attributes }.compact)
           started = monotonic_ms
           opened  = counter_snapshot
           ok      = true
@@ -101,6 +106,9 @@ module Boukensha
             # `frame.set` can clobber the span's own identity/timing fields.
             write_log(frame.attributes.merge(
                         phase: "operation_end", operation_id: frame.id, operation: frame.name,
+                        trace_id: frame.trace_id, span_id: frame.span_id,
+                        otel_kind: kind.to_s, semantic_kind: semantic_kind,
+                        attributes: final,
                         duration_ms: (monotonic_ms - started).round, ok: ok,
                         error_type: error&.class&.name
                       ).compact.merge(counter_delta(opened)))
@@ -108,6 +116,24 @@ module Boukensha
         end
       end
     end
+
+    def semantic_kind_for(name)
+      value = name.to_s
+      return "invoke_agent" if value == "turn" || value.start_with?("invoke_agent ")
+      return "iteration" if value == "iteration"
+      return "chat" if value == "llm.generate" || value.start_with?("chat ")
+      return "execute_tool" if value.start_with?("tool.") || value.start_with?("execute_tool ")
+      return "after_tool" if ["after_tool", "record outcome"].include?(value)
+      return "compaction" if value == "compaction"
+      return "wrap_up" if value == "wrap_up"
+      return "hook" if ["player_bootstrap", "bootstrap player", "position_refresh",
+                        "establish position", "room_disambiguation", "room_survey",
+                        "async_poll", "poll"].include?(value)
+      return "state" if value.include?("state") || value.include?("render")
+
+      "internal"
+    end
+    private :semantic_kind_for
 
     # The local ONNX token classifier that picks look candidates, priced in the
     # two currencies that are not dollars.
@@ -268,7 +294,7 @@ module Boukensha
       write_log({
         phase: "tool_call", call_id: call_id, name: name, args: args,
         initiator: initiator, parent_call_id: parent_call_id
-      }.merge(operation_stamp).compact)
+      }.compact)
       call_id
     end
 
@@ -287,7 +313,7 @@ module Boukensha
         phase: "tool_result", call_id: call_id, name: name, result: result.to_s,
         ok: ok, error: error, error_id: error_id,
         initiator: initiator, duration_ms: duration_ms
-      }.merge(operation_stamp).reject { |k, v| v.nil? && k != :error })
+      }.reject { |k, v| v.nil? && k != :error })
     end
 
     # What the model actually received, when it is NOT what the tool returned.
@@ -361,13 +387,30 @@ module Boukensha
       File.join(Boukensha.config.profile_dir, DEFAULT_SESSION_DIR)
     end
 
-    # The three fields every event inside a span inherits. Empty at top level,
-    # which is the honest record for a call the model itself chose.
-    def operation_stamp
-      frame = Operation.current
-      return {} unless frame
+    # The three fields every event inside a span inherits — stamped here,
+    # generically, rather than at each call site (which is how `prompt`,
+    # `request`, `injected_context`, `plan` and `response` ended up with no
+    # `operation_id` at all: nobody had written a call site for them yet).
+    # `operation_start`/`operation_end` are excluded: they carry the identity
+    # of the span they OPEN or CLOSE, not the one they run inside, and already
+    # set `operation_id` explicitly at their own call site in `#operation`.
+    # Empty (bar operation_id, passed through as-is) at top level, which is the
+    # honest record for a call the model itself chose.
+    STRUCTURAL_PHASES = %w[operation_start operation_end].freeze
 
-      { operation: frame.name, operation_id: frame.id, trigger: frame.trigger }
+    def operation_stamp(event)
+      phase       = (event[:phase] || event["phase"]).to_s
+      existing_id = event[:operation_id] || event["operation_id"]
+      return { operation_id: existing_id } if STRUCTURAL_PHASES.include?(phase)
+
+      frame = Operation.current
+      return { operation_id: existing_id } unless frame
+
+      {
+        operation:    event[:operation] || event["operation"] || frame.name,
+        trigger:      event[:trigger] || event["trigger"] || frame.trigger,
+        operation_id: existing_id || frame.id
+      }.compact
     end
 
     # The logger's own tallies plus every registered meter's, summed. Meters
@@ -394,7 +437,7 @@ module Boukensha
       now = Time.now
       @telemetry.capture_event(event)
       correlation = @telemetry.current_ids
-      @log_io.puts JSON.generate(event.merge(correlation).merge(
+      @log_io.puts JSON.generate(event.merge(correlation).merge(operation_stamp(event)).merge(
         session_id: @session_id,
         task:       @task_stack.last,
         depth:      @task_stack.size - 1,

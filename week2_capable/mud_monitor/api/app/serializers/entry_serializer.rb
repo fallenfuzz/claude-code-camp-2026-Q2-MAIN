@@ -15,7 +15,10 @@ class EntrySerializer
       iteration: entry.iteration,
       at: entry.at,
       dt_ms: entry.dt_ms,
-      duration_ms: entry.duration_ms
+      duration_ms: entry.duration_ms,
+      operation_id: entry.operation_id,
+      call_id: entry.call_id,
+      initiator: entry.initiator
     }
 
     base.merge(type_fields(entry))
@@ -84,13 +87,19 @@ class EntrySerializer
       {
         operation: entry.operation, trigger: entry.trigger,
         operation_id: entry.operation_id,
-        parent_operation_id: entry.parent_operation_id
+        parent_operation_id: entry.parent_operation_id,
+        trace_id: entry.trace_id, span_id: entry.span_id,
+        otel_kind: entry.otel_kind, semantic_kind: entry.semantic_kind,
+        attributes: entry.attributes
       }
     when :operation_end
       # `rollup` is an open set on purpose — a new counter on the writing side
       # reaches the UI without a serializer change.
       { operation: entry.operation, operation_id: entry.operation_id,
-        ok: entry.ok, rollup: entry.rollup }
+        ok: entry.ok, rollup: entry.rollup,
+        trace_id: entry.trace_id, span_id: entry.span_id,
+        otel_kind: entry.otel_kind, semantic_kind: entry.semantic_kind,
+        attributes: entry.attributes }
     when :local_inference
       {
         model: entry.model, backend: entry.backend, artifact: entry.artifact,

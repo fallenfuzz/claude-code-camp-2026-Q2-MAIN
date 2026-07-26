@@ -446,6 +446,14 @@ give me what I want, which is a waterfall with rich information so I can underst
 
 It did break out transcript, so we need to fix that first, its because of the data cchange.
 
+docs/plans/week_2/fix_transcripts.md
+Codex Just did not understand that I wanted a tree like structuer for stories
+It was getting hung up on waterfall information and made the view simply something we already with had with Jageer
+
+I moved over to Opus 5 and told it my problems and it wrote me a plan that looked ideal.
+It appears to know what I brought back.
+docs/plans/week_2/session_story_tree
+
 
 
 ## Technical Conclusions

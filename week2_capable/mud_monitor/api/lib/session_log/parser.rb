@@ -29,6 +29,8 @@ module SessionLog
                        # every log written before spans existed, which is how the
                        # adjacency fallback is selected.
                        :operation_id, :parent_operation_id, :ok, :rollup,
+                       :trace_id, :span_id, :otel_kind, :semantic_kind,
+                       :attributes,
                        # The local ONNX classifier's per-call record (§2).
                        :backend, :artifact, :pool, :kept, :threshold, :top_k,
                        :available, :unit,
@@ -76,7 +78,7 @@ module SessionLog
       seq               = 0
       turn_started      = nil # {at:, mono_ms:} of the current "turn" event
       open_tasks        = [] # task_start events awaiting their task_end
-      open_operations   = [] # operation_start events awaiting their operation_end
+      open_operations   = {} # operation_id => operation_start timing
       request_ordinal   = 0   # 1-based index among request events → sidebar checkpoint seq
       # call_id → the emitted :tool entry, so a later context_transform can be
       # folded into the card it belongs to rather than becoming a second one.
@@ -176,18 +178,28 @@ module SessionLog
         when "operation_start"
           # A unit of work opening. Everything until the matching
           # `operation_end` belongs to it — by id, not by proximity.
-          open_operations << { at: event["at"], mono_ms: event["mono_ms"] }
+          open_operations[event["operation_id"]] = {
+            at: event["at"], mono_ms: event["mono_ms"]
+          }
           @unclosed_operations = open_operations.size
           @entries << seq_entry(seq += 1, event, type: :operation_start,
                                  operation: event["operation"], trigger: event["trigger"],
                                  operation_id: event["operation_id"],
                                  parent_operation_id: event["parent_operation_id"],
+                                 trace_id: event["trace_id"], span_id: event["span_id"],
+                                 otel_kind: event["otel_kind"],
+                                 semantic_kind: event["semantic_kind"],
+                                 attributes: event["attributes"] || {},
                                  turn: current_turn, iteration: current_iteration)
         when "operation_end"
-          opened = open_operations.pop || {}
+          opened = open_operations.delete(event["operation_id"]) || {}
           @entries << seq_entry(seq += 1, event, type: :operation_end,
                                  operation: event["operation"],
                                  operation_id: event["operation_id"],
+                                 trace_id: event["trace_id"], span_id: event["span_id"],
+                                 otel_kind: event["otel_kind"],
+                                 semantic_kind: event["semantic_kind"],
+                                 attributes: event["attributes"] || {},
                                  ok: event.fetch("ok", true),
                                  duration_ms: event["duration_ms"] ||
                                               elapsed_ms(opened[:mono_ms], opened[:at],
@@ -296,6 +308,7 @@ module SessionLog
     # enumerated, so a new meter on the writing side needs no change here — the
     # same reason Journal::Parser keeps its open set of `fields`.
     SPAN_ENVELOPE = %w[phase operation operation_id parent_operation_id trigger
+                       trace_id span_id otel_kind semantic_kind attributes
                        duration_ms ok session_id task depth at mono_ms].freeze
 
     # "monotonic" once every logged event carries `mono_ms` (§4.1); "wallclock"
@@ -553,6 +566,12 @@ module SessionLog
       ts = ts_ms(event)
       dt = (ts && @last_ts_ms) ? (ts - @last_ts_ms).round : nil
       @last_ts_ms = ts if ts
+      # Correlation is part of the event envelope, not a type-specific detail.
+      # Carry it on every parsed entry so request/reasoning/assistant and future
+      # content phases do not silently fall back to interval inference.
+      attrs[:operation_id] = event["operation_id"] unless attrs.key?(:operation_id)
+      attrs[:call_id] = event["call_id"] unless attrs.key?(:call_id)
+      attrs[:initiator] = event["initiator"] unless attrs.key?(:initiator)
 
       Entry.new(seq: seq, at: event["at"], mono_ms: event["mono_ms"], dt_ms: dt,
                 task: event["task"], depth: event["depth"].to_i, **attrs)

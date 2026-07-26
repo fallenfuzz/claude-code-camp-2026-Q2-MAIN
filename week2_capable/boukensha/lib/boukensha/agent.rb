@@ -15,7 +15,7 @@ module Boukensha
 
     def initialize(context:, registry:, builder:, client:, logger: Logger.new, hooks: nil,
                    max_iterations: MAX_ITERATIONS, max_turn_tokens: nil, max_output_tokens: nil,
-                   root_trace: true)
+                   root_trace: true, turn: 1)
       @context           = context
       @registry          = registry
       @builder           = builder
@@ -29,6 +29,12 @@ module Boukensha
       @max_output_tokens = max_output_tokens
       @iteration         = 0
       @root_trace        = root_trace
+      # The turn number the REPL already tracks and logs (`@logger.turn`)
+      # BEFORE this span opens — passed in so the `invoke_agent` span can title
+      # itself "Turn N" at open rather than the reader having to walk its
+      # entries to find one. 1 for callers (single-shot run, task delegation)
+      # that never call `@logger.turn` at all: there is exactly one.
+      @turn              = turn
     end
 
     def run
@@ -42,7 +48,8 @@ module Boukensha
         "gen_ai.operation.name" => "invoke_agent",
         "gen_ai.agent.name" => agent_name,
         "boukensha.max_iterations" => @max_iterations,
-        "boukensha.max_turn_tokens" => @max_turn_tokens
+        "boukensha.max_turn_tokens" => @max_turn_tokens,
+        "boukensha.turn.n" => @turn
       }) do |turn_frame|
         compact_if_needed
         @hooks.before_turn(context: @context)
@@ -67,36 +74,20 @@ module Boukensha
           # the final text once the model stops — so a single non-nil check
           # after the span closes decides whether to loop again or return,
           # without duplicating the return sites inside the block.
-          outcome = @logger.operation("iteration") do
+          outcome = @logger.operation("iteration", attributes: { "boukensha.iteration.n" => @iteration }) do
             @logger.iteration(n: @iteration, max: @max_iterations)
             # Before EVERY model call, not just the first: the agent moves
             # inside this loop, so anything that reconciles "where am I" has to
             # run per iteration or the model reasons about the room it left.
             @hooks.before_model(context: @context)
-            log_injected_context
-            # request_messages/advertised_tools, not messages/tools: this event
-            # is the readable view of the call, and it would be lying if it
-            # showed the transcript without the state block or a tool the turn
-            # policy hid.
-            @logger.prompt(messages: @context.request_messages, tools: @context.advertised_tools,
-                           context_window: @context.context_window)
-            # The definitive record: the exact body about to go on the wire.
-            # Built from the same (context, opts) the client will use a line
-            # later, so it is byte-identical to what @client.call sends.
-            @logger.request(payload: @builder.to_api_payload(**call_opts))
 
-            response = call_model(**call_opts)
-            @logger.raw(data: response)
-            parsed   = @builder.parse_response(response)
-            record_usage(response)
-            log_reasoning(parsed[:content])
+            parsed = perform_chat_exchange(**call_opts)
 
             if parsed[:stop_reason] == "tool_use"
-              handle_tool_calls(parsed[:content], response)
+              handle_tool_calls(parsed[:content])
               nil
             else
-              text = extract_text(parsed[:content])
-              @logger.response(text: text, usage: response["usage"], stop_reason: parsed[:stop_reason], backend: @builder.backend)
+              text = parsed[:text]
               turn_frame.set("boukensha.turn.reason" => "completed",
                              "boukensha.turn.iterations" => @iteration,
                              "boukensha.turn.tokens" => @context.turn_tokens)
@@ -146,13 +137,20 @@ module Boukensha
       end
     end
 
-    # The one call site every model round trip goes through, span included:
-    # `agent.rb:68` (dt_ms) used to charge the model for our own JSON
-    # serialization on both sides of the actual network call. The span measures
-    # only `@client.call` — everything around it now shows up as the
-    # `iteration`/`wrap_up` span's OWN self-time instead of inference.
-    def call_model(**opts)
-      backend = @builder.backend
+    # The `chat` span, widened to the whole exchange (work_attribution.md /
+    # session_story_tree.md §Phase 1.2): everything from the point the request
+    # is finalized through the point the response is recorded lives inside it,
+    # so the span's window matches what a reader means by "the model call" —
+    # gen_ai semconv's own definition of `chat`. Previously it bracketed only
+    # `@client.call`, which is adjacent to nothing: no event fell inside it, so
+    # the one span a reader most wants to open was guaranteed empty.
+    #
+    # Yields `frame` so the caller can log injected context / prompt / request
+    # before the wire call and reasoning / response after it, all inside the
+    # span. Model/provider attributes are set at open, before the block runs,
+    # so an interrupted exchange still reports what it was calling.
+    def chat_operation
+      backend  = @builder.backend
       provider = backend.respond_to?(:provider_name) ? backend.provider_name : nil
       @logger.operation("chat #{backend&.model}", kind: :client, attributes: {
         "gen_ai.operation.name" => "chat",
@@ -163,15 +161,83 @@ module Boukensha
         frame.set(provider: provider, model: backend&.model,
                   iteration: @iteration, tools_advertised: @context.advertised_tools.size,
                   context_tokens: @context.current_tokens)
-        response = @client.call(**opts)
-        usage = response["usage"] || {}
-        frame.set(
-          "gen_ai.usage.input_tokens" => usage["input_tokens"],
-          "gen_ai.usage.output_tokens" => usage["output_tokens"],
-          "gen_ai.response.finish_reasons" => Array(response["stop_reason"]).compact
-        )
-        response
+        yield frame
       end
+    end
+
+    # The actual network round trip, timed on its own so the span can report
+    # BOTH numbers instead of losing one: "the exchange took 1.9s" (the span's
+    # own duration) and "1.73s of that was on the wire" (`boukensha.wire_ms`).
+    # `work_attribution.md §2` deliberately excluded our own request/response
+    # serialization from measured model time, and widening the span must not
+    # quietly re-include it — this is what keeps that promise.
+    def call_and_measure(frame, **opts)
+      started  = Process.clock_gettime(Process::CLOCK_MONOTONIC)
+      response = @client.call(**opts)
+      wire_ms  = since_ms(started)
+      usage    = response["usage"] || {}
+      frame.set(
+        "gen_ai.usage.input_tokens" => usage["input_tokens"],
+        "gen_ai.usage.output_tokens" => usage["output_tokens"],
+        "gen_ai.response.finish_reasons" => Array(response["stop_reason"]).compact,
+        "gen_ai.client.operation.duration" => wire_ms / 1000.0,
+        "boukensha.wire_ms" => wire_ms
+      )
+      response
+    end
+
+    # One full model exchange: injected context, the readable `prompt`
+    # reconstruction, the definitive `request` payload, the timed wire call,
+    # reasoning, and the response (a `plan` + tool-use placeholder, or the
+    # final text) — all inside one `chat` span. Returns the parsed response
+    # plus `:text` when the turn ended, so the iteration loop can decide
+    # whether to dispatch tool calls or return without re-opening the span.
+    def perform_chat_exchange(**opts)
+      parsed = nil
+      chat_operation do |frame|
+        log_injected_context
+        # request_messages/advertised_tools, not messages/tools: this event
+        # is the readable view of the call, and it would be lying if it
+        # showed the transcript without the state block or a tool the turn
+        # policy hid.
+        @logger.prompt(messages: @context.request_messages, tools: @context.advertised_tools,
+                       context_window: @context.context_window)
+        # The definitive record: the exact body about to go on the wire.
+        # Built from the same (context, opts) the client will use a line
+        # later, so it is byte-identical to what @client.call sends.
+        @logger.request(payload: @builder.to_api_payload(**opts))
+
+        response = call_and_measure(frame, **opts)
+        @logger.raw(data: response)
+        parsed = @builder.parse_response(response)
+        record_usage(response)
+        log_reasoning(parsed[:content])
+
+        if parsed[:stop_reason] == "tool_use"
+          log_tool_use_response(parsed[:content], response)
+        else
+          text = extract_text(parsed[:content])
+          @logger.response(text: text, usage: response["usage"], stop_reason: parsed[:stop_reason], backend: @builder.backend)
+          parsed[:text] = text
+        end
+      end
+      parsed
+    end
+
+    # The preamble text (if any) and the tool-use placeholder — logged inside
+    # the `chat` span, since both are part of what the model returned on this
+    # exchange, not part of dispatching the calls it asked for.
+    def log_tool_use_response(content, response)
+      preamble = extract_text(content)
+      @logger.plan(text: preamble) unless preamble.strip.empty?
+      tool_calls = content.select { |b| b["type"] == "tool_use" }
+      # `backend:` matters here as much as on the final response: in an
+      # agentic loop most of the turn's spend rides on tool-use placeholders,
+      # and without it those calls land in the cost breakdown as
+      # provider/model "unknown" — the per-task cost table Amendment A exists
+      # to enable.
+      @logger.response(text: "(tool use — #{tool_calls.size} call#{'s' if tool_calls.size != 1})",
+                       usage: response["usage"], stop_reason: "tool_use", backend: @builder.backend)
     end
 
     # One final, tools-disabled model call so the agent ends the turn in
@@ -183,13 +249,16 @@ module Boukensha
       @logger.operation("wrap_up") do
         @context.add_message(:user, WRAP_UP_DIRECTIVE)
         wrap_opts = { tools: [], max_output_tokens: WRAP_UP_OUTPUT_TOKENS }
-        @logger.request(payload: @builder.to_api_payload(**wrap_opts))
-        response    = call_model(**wrap_opts)
-        parsed_wrap = @builder.parse_response(response)
-        text        = extract_text(parsed_wrap[:content])
-        text        = fallback_message(reason) if text.strip.empty?
-        record_usage(response)
-        @logger.response(text: text, usage: response["usage"], stop_reason: parsed_wrap[:stop_reason], backend: @builder.backend)
+        text = nil
+        chat_operation do |frame|
+          @logger.request(payload: @builder.to_api_payload(**wrap_opts))
+          response    = call_and_measure(frame, **wrap_opts)
+          parsed_wrap = @builder.parse_response(response)
+          text        = extract_text(parsed_wrap[:content])
+          text        = fallback_message(reason) if text.strip.empty?
+          record_usage(response)
+          @logger.response(text: text, usage: response["usage"], stop_reason: parsed_wrap[:stop_reason], backend: @builder.backend)
+        end
         @logger.turn_end(reason: reason, iterations: @iteration, tokens: @context.turn_tokens)
         @context.add_message(:assistant, text)
         @hooks.after_turn(context: @context, text: text)
@@ -249,19 +318,12 @@ module Boukensha
       end
     end
 
-    def handle_tool_calls(content, response)
+    # The preamble and placeholder are already logged (inside the `chat` span,
+    # by `log_tool_use_response`) by the time this runs — dispatching the
+    # calls the model asked for is a separate concern from the exchange that
+    # asked for them, and happens outside that span as a sibling of it.
+    def handle_tool_calls(content)
       tool_calls = content.select { |b| b["type"] == "tool_use" }
-
-      # Log any preamble text that accompanied the tool call (carries no usage —
-      # the placeholder below owns the turn's usage chip), then the placeholder.
-      preamble = extract_text(content)
-      @logger.plan(text: preamble) unless preamble.strip.empty?
-      # `backend:` matters here as much as on the final response: in an agentic
-      # loop most of the turn's spend rides on tool-use placeholders, and
-      # without it those calls land in the cost breakdown as provider/model
-      # "unknown" — the per-task cost table Amendment A exists to enable.
-      @logger.response(text: "(tool use — #{tool_calls.size} call#{'s' if tool_calls.size != 1})",
-                       usage: response["usage"], stop_reason: "tool_use", backend: @builder.backend)
 
       @context.add_message(:assistant, content)
 

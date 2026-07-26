@@ -72,6 +72,7 @@ class SessionSerializer
       # "what did this session spend" answers in dollars AND in the latency that
       # replaced three LLM calls.
       cost_breakdown: p.cost_breakdown + p.local_cost_rows,
+      trace: SessionLog::TraceProjection.new(p, live: @live).as_json,
       entries: p.entries.map { |e| EntrySerializer.call(e) }
     }
   end

@@ -1,7 +1,8 @@
 import { describe, expect, it } from "vitest";
 import type { Entry } from "../api/types";
 import { isFrameworkSpan } from "../spans";
-import { buildRollupIndex, buildTranscriptTree, shortToolName, tallyTools, toolSpanRollup } from "./SessionDetail";
+import { shortToolName, tallyTools } from "../components/transcript/ToolCard";
+import { buildRollupIndex, buildTranscriptTree, toolSpanRollup } from "./SessionDetail";
 
 // Entries arrive flat and ordered; nesting is a rendering concern decided here.
 // These cover the grouping observ_improvements.md §3 asks for: automatic work

@@ -1,5 +1,50 @@
 # Session trace explorer: waterfall-first transcript redesign
 
+## Product amendments
+
+### 2026-07-26 — viewport width and controls
+
+- The trace explorer uses the full available window width. It is not constrained
+  by the monitor shell's 980px reading-column maximum.
+- Do not show a span-search field.
+- Do not show a failures-only button or bind `f` to that action.
+- Failure and incomplete status remain visible directly on their rows and in
+  the selected-span details.
+
+### 2026-07-26 — session tabs and reading-first pane order
+
+- Put the dashboard-style session metrics under a **Summary** tab and the trace
+  explorer under a **Waterfall** tab. Waterfall is the default so the trace is
+  reachable without scrolling through summary cards.
+- On wide screens, the selected-span transcript/details pane is the primary,
+  larger reading area on the left. The trace outline and waterfall navigation
+  sit on the right.
+- Give the details pane and waterfall pane independent vertical scrolling
+  within the available viewport height. Keep the waterfall column headings
+  visible while its rows scroll.
+- On narrow screens, stack the trace navigation above the details instead of
+  forcing two undersized columns.
+
+### 2026-07-26 — stable application shell
+
+- Keep the main monitor navigation pinned to the top of the viewport.
+- Summary and Waterfall share the same full-width session shell so switching
+  tabs does not change the page width or cause horizontal layout shift.
+- While Waterfall is active, the document itself must not scroll. The explorer
+  fills the remaining viewport below the fixed session chrome, and scrolling is
+  owned exclusively by its details and trace panes.
+- Do not run transcript follow-scroll against the browser window while the
+  Waterfall workspace is active.
+
+### 2026-07-26 — compact session chrome
+
+- Combine the sessions backlink, session ID/live state, and Summary/Waterfall
+  tabs into one compact row. Do not spend separate vertical rows on the backlink,
+  large session heading, and tab switcher.
+- Switching tabs must preserve the document scroll position. Window-level
+  follow-scroll is limited to legacy sessions that only have the linear
+  transcript; trace-enabled Summary must never be pushed to the page bottom.
+
 ## Outcome
 
 Replace the session page's separate Transcript and Waterfall modes with one
@@ -69,17 +114,16 @@ Use a two-pane explorer below the existing session summary:
 
 ```text
 ┌ Session summary / limits / cost / live state ──────────────────────────────┐
-├ Filters: search | task | kind | status | model/hook | collapse framework ─┤
 │                                                                           │
-│ Trace outline + waterfall (primary)       │ Selected span details          │
-│ ▾ invoke agent player          33.6s      │ chat claude-haiku-4-5          │
-│   ▾ iteration                   1.9s       │ 1.7s · 2,431 in · 188 out      │
-│     establish position           89ms     │                               │
-│     chat claude-haiku-4-5        1.7s     │ [Overview] [Input] [Output]    │
-│     execute tool move             66ms    │ [Events] [Raw metadata]        │
-│   ▾ iteration                   6.2s       │                               │
-│     ...                                   │ prompt/context, reasoning,      │
-│                                           │ tool args/result, errors, etc.  │
+│ Selected span details (primary)           │ Trace outline + waterfall      │
+│ chat claude-haiku-4-5                      │ ▾ invoke agent player    33.6s │
+│ 1.7s · 2,431 in · 188 out                 │   ▾ iteration             1.9s │
+│                                           │     establish position     89ms │
+│ [Overview] [Input] [Output]                │     chat claude-haiku…     1.7s │
+│ [Events] [Raw metadata]                    │     execute tool move       66ms│
+│                                           │   ▾ iteration             6.2s │
+│ prompt/context, reasoning, response,       │     ...                          │
+│ tool args/result, errors, etc.             │                                  │
 └───────────────────────────────────────────┴───────────────────────────────┘
 ```
 
@@ -316,8 +360,8 @@ SessionDetail
         └── RelatedOperationData
 ```
 
-Use a reducer for explorer state (`selectedSpanId`, expanded IDs, filters,
-scope, zoom) and encode only shareable state in the URL. Derive visible rows
+Use a reducer for explorer state (`selectedSpanId`, expanded IDs, scope, zoom)
+and encode only shareable state in the URL. Derive visible rows
 with memoized pure selectors.
 
 Keep `spans.ts`, but change it from string-pattern classification to helpers
@@ -332,8 +376,6 @@ labels work. Add:
 - Up/Down: previous/next visible row;
 - Left/Right: collapse/expand or parent/first child;
 - Enter: select/open details;
-- `/`: focus search;
-- `f`: show failures;
 - `0`: reset time scope.
 
 For ordinary sessions, plain React rows are sufficient. Add windowing only
@@ -381,7 +423,7 @@ classification in the existing waterfall.
 
 ### Phase 3 — waterfall-first explorer
 
-1. Build `SessionExplorer`, tree rows, aligned timeline, filtering, selection,
+1. Build `SessionExplorer`, tree rows, aligned timeline, selection,
    URL state, zoom scopes, and span details.
 2. Make it the default and remove the top-level Transcript/Waterfall toggle.
 3. Extract the message sidebar content into `ModelCallDetails`.
@@ -420,7 +462,7 @@ classification in the existing waterfall.
 - Selecting a tool row shows arguments, raw result, model-transformed result,
   initiator, and error.
 - Selecting a structural row shows a sequence-ordered composed narrative.
-- Collapse/filter/search never loses the selected span silently.
+- Collapsing a branch never loses the selected span silently.
 - `?span=` opens and focuses the correct row; legacy `?op=` still works.
 - Repeated polls may collapse visually but expand to every underlying span.
 - A new SSE end changes a running span to completed without resetting selection
@@ -455,3 +497,14 @@ is reachable from the selected work unit in one click.
 - Hiding automatic calls or zero-duration spans from the underlying data.
 - Introducing a charting library before the plain HTML/CSS implementation has
   demonstrated a limitation.
+
+## Bring UX Problems
+
+You implemented a waterfall but its not useful for telling the story.
+What we asked for what a waterfall like structure that still tells the transcript story.
+Clicking in each span gives us generic rawdata.
+The waterfall doesnt' teh story very well for example:
+- it doesn't have turns
+  - it doens't collpased based on turns
+  -we can't see that "Player" task was called"
+Basically all the information we had in transcript is lost.

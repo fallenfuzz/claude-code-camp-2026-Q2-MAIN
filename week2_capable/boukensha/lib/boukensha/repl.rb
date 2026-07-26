@@ -134,7 +134,8 @@ module Boukensha
         hooks:    @hooks,
         max_iterations:    @max_iterations,
         max_turn_tokens:   @max_turn_tokens,
-        max_output_tokens: @max_output_tokens
+        max_output_tokens: @max_output_tokens,
+        turn:     @turn
       )
       result = agent.run
 

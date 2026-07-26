@@ -1,26 +1,31 @@
 import { Fragment, useCallback, useEffect, useRef, useState } from "react";
 import { Link, useParams, useSearchParams } from "react-router";
-import { ApiRequestError, fetchJournalForOperation, fetchSession } from "../api/client";
+import { ApiRequestError, fetchSession } from "../api/client";
 import type {
   AutomaticOperation,
   Entry,
-  JournalRecord,
   SessionDetail as SessionDetailData,
   SessionSummary,
   TimingSummary,
 } from "../api/types";
 import { useEventStream } from "../api/useEventStream";
-import Ansi from "../components/Ansi";
 import CostTable from "../components/CostTable";
-import CtxChip from "../components/CtxChip";
 import Duration from "../components/Duration";
 import LiveBadge from "../components/LiveBadge";
 import MessagesSidebar from "../components/MessagesSidebar";
+import SessionStory from "../components/SessionStory";
 import ProgressBar from "../components/ProgressBar";
 import Sparkline from "../components/Sparkline";
 import TaskChip, { taskHue } from "../components/TaskChip";
-import Waterfall from "../components/Waterfall";
-import { fmtCost, fmtDelta, fmtDuration, fmtTokens, formatArgs, formatTime, pct, pctRaw } from "../format";
+import AutomaticSummary from "../components/transcript/AutomaticSummary";
+import EntryCard from "../components/transcript/EntryCard";
+import IterationMarker from "../components/transcript/IterationMarker";
+import LocalInferenceRow from "../components/transcript/LocalInferenceRow";
+import StoreRollup from "../components/transcript/StoreRollup";
+import { shortToolName, tallyTools, ToolCard } from "../components/transcript/ToolCard";
+import { flattenNode as flatten, toolsIn } from "../components/transcript/types";
+import type { AutoNode, GroupNode, OpenNode, OpNode, ToolRollupInfo, TranscriptNode } from "../components/transcript/types";
+import { fmtCost, fmtDelta, fmtDuration, fmtTokens, formatTime, pct, pctRaw } from "../format";
 import { isFrameworkSpan, operationLabel } from "../spans";
 
 const AT_BOTTOM_THRESHOLD_PX = 80;
@@ -42,12 +47,7 @@ export default function SessionDetail() {
   // Which request's payload the sidebar is showing (1-based request ordinal),
   // or null when the drawer is closed. Set by the inline buttons in the transcript.
   const [focusedRequest, setFocusedRequest] = useState<number | null>(null);
-  // A toggle, not a route (instrumentation.md §11 non-goals): the waterfall is
-  // a second view of THIS session, not a section of the app.
-  const [view, setView] = useState<"transcript" | "waterfall">("transcript");
-  // Set by a waterfall bar's click; consumed by the scroll effect below, which
-  // switches back to the transcript and jumps to the span's opening entry.
-  const [scrollToSeq, setScrollToSeq] = useState<number | null>(null);
+  const [sessionTab, setSessionTab] = useState<"summary" | "story">("story");
   const stickToBottomRef = useRef(true);
 
   useEffect(() => {
@@ -82,36 +82,13 @@ export default function SessionDetail() {
   });
 
   useEffect(() => {
-    if (stickToBottomRef.current) {
+    // Only the legacy transcript is a document that follows the browser
+    // window. Trace-enabled sessions use internal panes, including Summary;
+    // firing this on a tab switch jumped Summary to the bottom of the page.
+    if (data && !data.session.has_operations && stickToBottomRef.current) {
       window.scrollTo({ top: document.documentElement.scrollHeight });
     }
-  }, [entries]);
-
-  // A waterfall bar's click switches back to the transcript and scrolls to
-  // the span's opening entry — `entry.seq` is already the anchor the
-  // live-stream code keys on, so the two views cross-link with no new id.
-  // `operation_start`/`operation_end` (and `task_start`/`task_end`) never
-  // render their own row — they become tree structure, not content — so a
-  // span's anchor seq may have no matching element; fall back to the nearest
-  // rendered entry at or after it.
-  useEffect(() => {
-    if (view !== "transcript" || scrollToSeq == null) return;
-    let el = document.getElementById(`entry-${scrollToSeq}`);
-    if (!el) {
-      const candidate = Array.from(document.querySelectorAll("[id^='entry-']"))
-        .map((node) => ({ node, seq: Number(node.id.slice("entry-".length)) }))
-        .filter((c) => !Number.isNaN(c.seq) && c.seq >= scrollToSeq)
-        .sort((a, b) => a.seq - b.seq)[0];
-      el = (candidate?.node as HTMLElement | undefined) ?? null;
-    }
-    el?.scrollIntoView({ block: "center" });
-    setScrollToSeq(null);
-  }, [view, scrollToSeq]);
-
-  const jumpToSeq = useCallback((seq: number) => {
-    setView("transcript");
-    setScrollToSeq(seq);
-  }, []);
+  }, [entries, data]);
 
   // The Manager page's `correlation: exact` link (instrumentation.md §12)
   // lands here with `?op=<operation_id>` — cross-log navigation from a raw
@@ -121,17 +98,12 @@ export default function SessionDetail() {
   // of the same URL doesn't keep re-scrolling.
   useEffect(() => {
     const op = searchParams.get("op");
-    if (!op || entries.length === 0) return;
-
-    const start = entries.find((e) => e.type === "operation_start" && e.operation_id === op);
-    if (start) {
-      setView("transcript");
-      setScrollToSeq(start.seq);
-    }
+    if (!op) return;
     const next = new URLSearchParams(searchParams);
     next.delete("op");
+    next.set("span", op);
     setSearchParams(next, { replace: true });
-  }, [entries, searchParams, setSearchParams]);
+  }, [searchParams, setSearchParams]);
 
   if (error) {
     return (
@@ -156,15 +128,29 @@ export default function SessionDetail() {
   const largestTripped = turns.some((t) => t.reason === "max_tokens");
 
   return (
-    <>
-      <Link to="/sessions" className="back">
-        ← All sessions
-      </Link>
+    <div className={`session-detail-page ${sessionTab === "story" && session.has_operations ? "waterfall-active" : ""}`}>
+      <div className="session-page-head">
+        <Link to="/sessions" className="session-back" aria-label="All sessions">← Sessions</Link>
+        <h1>
+          <span className="session-heading-label">Session</span> {session.id}
+          {data.session.live && <LiveBadge status={streamStatus} />}
+        </h1>
+        {session.has_operations && (
+          <div className="session-tabs" role="tablist" aria-label="Session view">
+            <button type="button" role="tab" aria-selected={sessionTab === "summary"}
+              className={sessionTab === "summary" ? "active" : ""} onClick={() => setSessionTab("summary")}>
+              Summary
+            </button>
+            <button type="button" role="tab" aria-selected={sessionTab === "story"}
+              className={sessionTab === "story" ? "active" : ""} onClick={() => setSessionTab("story")}>
+              Story
+            </button>
+          </div>
+        )}
+      </div>
 
-      <h1>
-        Session {session.id}
-        {data.session.live && <LiveBadge status={streamStatus} />}
-      </h1>
+      {(!session.has_operations || sessionTab === "summary") && (
+      <>
       <p className="meta">
         Started {formatTime(session.started_at)}
         {" · "}
@@ -312,61 +298,38 @@ export default function SessionDetail() {
           <Sparkline points={usageSeries} max={session.peak_input_tokens} />
         </div>
       )}
-
-      {session.has_operations && (
-        <div className="view-toggle">
-          <button type="button" className={view === "transcript" ? "active" : ""} onClick={() => setView("transcript")}>
-            Transcript
-          </button>
-          <button type="button" className={view === "waterfall" ? "active" : ""} onClick={() => setView("waterfall")}>
-            Waterfall
-          </button>
-        </div>
+      </>
       )}
 
-      <div className="transcript" style={{ display: view === "transcript" ? undefined : "none" }}>
-        <TranscriptEntries
+      {session.has_operations && sessionTab === "story" ? (
+        <SessionStory
+          trace={data.trace}
           entries={entries}
-          snapshot={snapshot}
-          timingSource={session.timing_source}
-          newestSeq={newestSeq}
-          live={session.live}
+          selectedId={searchParams.get("span")}
+          onSelect={(span) => {
+            const next = new URLSearchParams(searchParams);
+            next.set("span", span);
+            setSearchParams(next, { replace: true });
+          }}
           onOpenRequest={setFocusedRequest}
-        />
-      </div>
-
-      {view === "waterfall" && (
-        <Waterfall
-          entries={entries}
-          session={session}
+          contextWindow={snapshot.context_window}
+          maxTurnTokens={snapshot.max_turn_tokens}
           coarse={session.timing_source === "wallclock_coarse"}
-          onJumpToSeq={jumpToSeq}
+          live={session.live}
         />
-      )}
+      ) : !session.has_operations ? (
+        <div className="transcript">
+          <TranscriptEntries entries={entries} snapshot={snapshot} timingSource={session.timing_source}
+            newestSeq={newestSeq} live={session.live} onOpenRequest={setFocusedRequest} />
+        </div>
+      ) : null}
 
       {focusedRequest != null && id && (
         <MessagesSidebar id={id} focusSeq={focusedRequest} onClose={() => setFocusedRequest(null)} />
       )}
-    </>
+    </div>
   );
 }
-
-// A delegated sub-run, as rendered: the task_start that opened it, everything
-// it produced, and the task_end that closed it (absent when the process died
-// mid-delegation — see `open` below).
-type GroupNode = { kind: "group"; start: Entry; end: Entry | null; children: TranscriptNode[] };
-// One unit of work: the operation_start that opened it, everything it
-// CONTAINED, and the operation_end that closed it (null when the process died
-// mid-span). Nested from `parent_operation_id`, which is a recorded fact — the
-// adjacency fold below is a guess, and was wrong in both directions.
-type OpNode = { kind: "op"; start: Entry; end: Entry | null; children: TranscriptNode[] };
-// The work framework code did on the model's behalf. It is not part of the
-// model's narrative and does not belong inline with it. Its children are spans
-// when the log has them, and a flat run of hook calls when it does not.
-type AutoNode = { kind: "auto"; children: TranscriptNode[] };
-type TranscriptNode = { kind: "entry"; entry: Entry } | GroupNode | AutoNode | OpNode;
-// Anything that can hold children and be pushed onto the open stack.
-type OpenNode = GroupNode | OpNode;
 
 function isAutomatic(entry: Entry): boolean {
   return (entry.type === "tool" && entry.initiator === "hook") || entry.type === "local_inference";
@@ -568,7 +531,7 @@ export function buildRollupIndex(entries: Entry[]): RollupIndex {
 export function toolSpanRollup(
   entry: Entry,
   idx: RollupIndex,
-): { durationMs: number | null; rollup: Record<string, number> | null; afterToolOperationId: string | null } | null {
+): ToolRollupInfo | null {
   if (!entry.operation_id) return null;
   const span = idx.startsById.get(entry.operation_id);
   if (!span?.operation?.startsWith("tool.")) return null;
@@ -682,7 +645,8 @@ function TranscriptNodes({ nodes, ...props }: NodeProps & { nodes: TranscriptNod
             {props.markers.has(node.entry.seq) && (
               <IterationMarker
                 iteration={node.entry.iteration}
-                span={props.rollups.iterationSpans.get(node.entry.iteration)}
+                durationMs={props.rollups.iterationSpans.get(node.entry.iteration)?.duration_ms ?? null}
+                mudCalls={props.rollups.iterationSpans.get(node.entry.iteration)?.rollup?.mud_calls}
                 costUsd={props.rollups.iterationCostUsd.get(node.entry.iteration)}
                 coarse={props.coarse}
               />
@@ -700,11 +664,14 @@ function TranscriptNodes({ nodes, ...props }: NodeProps & { nodes: TranscriptNod
                 />
                 <TaskChip task={node.entry.task} />
               </div>
-              <TranscriptEntry
+              <EntryCard
                 entry={node.entry}
-                snapshot={props.snapshot}
+                contextWindow={props.snapshot.context_window}
+                maxTurnTokens={props.snapshot.max_turn_tokens}
                 onOpenRequest={props.onOpenRequest}
-                rollups={props.rollups}
+                toolRollup={node.entry.type === "tool" ? toolSpanRollup(node.entry, props.rollups) : undefined}
+                modelMs={props.rollups.llmLatencyByAssistantSeq.get(node.entry.seq)?.duration_ms ?? null}
+                turnDurationMs={props.rollups.turnSpans.get(node.entry.turn)?.duration_ms ?? null}
                 coarse={props.coarse}
               />
             </div>
@@ -712,38 +679,6 @@ function TranscriptNodes({ nodes, ...props }: NodeProps & { nodes: TranscriptNod
         ),
       )}
     </>
-  );
-}
-
-// The iteration span's summary, replacing the bare "Iteration N" marker: what
-// it cost in every currency the log can say — duration (measured, not
-// dt_ms-inferred), MUD round trips, and the model spend within it. Absent
-// span data (a log written before this plan) degrades to exactly the old
-// bare marker.
-function IterationMarker({
-  iteration,
-  span,
-  costUsd,
-  coarse,
-}: {
-  iteration: number;
-  span: Entry | undefined;
-  costUsd: number | undefined;
-  coarse: boolean;
-}) {
-  const mudCalls = span?.rollup?.mud_calls;
-  return (
-    <div className="iteration-marker">
-      Iteration {iteration}
-      {span?.duration_ms != null && <span className="task-group-meta"> · {fmtDelta(span.duration_ms, coarse)}</span>}
-      {mudCalls ? (
-        <span className="task-group-meta">
-          {" "}
-          · {mudCalls} MUD call{mudCalls === 1 ? "" : "s"}
-        </span>
-      ) : null}
-      {costUsd ? <span className="task-group-meta"> · {fmtCost(costUsd)}</span> : null}
-    </div>
   );
 }
 
@@ -861,53 +796,6 @@ function AutomaticGroup({ node, ...props }: NodeProps & { node: AutoNode }) {
   );
 }
 
-// The collapsed one-line-per-operation view. With spans, each child span is
-// already one operation and contributes one row. Without them (a pre-span log),
-// runs of adjacent calls sharing an `operation` string are folded — which is
-// the approximation spans exist to replace, kept only for those files.
-function AutomaticSummary({ node, coarse, live }: { node: AutoNode; coarse: boolean; live: boolean }) {
-  const rows: { key: string; label: string; entries: Entry[]; incomplete: boolean }[] = [];
-
-  for (const child of node.children) {
-    if (child.kind === "op") {
-      rows.push({
-        key: child.start.operation_id ?? String(child.start.seq),
-        label: operationLabel(child.start.operation),
-        entries: toolsIn(child),
-        incomplete: child.end == null,
-      });
-    } else if (child.kind === "entry") {
-      const key = child.entry.operation ?? "unattributed";
-      const last = rows[rows.length - 1];
-      if (last?.key === key) last.entries.push(child.entry);
-      else rows.push({ key, label: operationLabel(key), entries: [ child.entry ], incomplete: false });
-    }
-  }
-
-  return (
-    <ol className="auto-summary">
-      {rows.map((row, i) => {
-        const ms = row.entries.reduce((sum, e) => sum + (e.duration_ms ?? 0), 0);
-        const empty = row.entries.filter(isEmptyResult).length;
-        return (
-          <li key={`${row.key}-${i}`}>
-            <span className="auto-summary-op">{row.label}</span>
-            <span className="auto-summary-tools">
-              {tallyTools(row.entries)}
-              {/* An empty poll is the expected case, not a fault — say how
-                  many rather than giving each one a row. */}
-              {empty === row.entries.length && row.entries.length > 1 && ", all empty"}
-              {empty === row.entries.length && row.entries.length === 1 && ", empty"}
-            </span>
-            {row.incomplete && (live ? <span className="task-group-meta">running</span> : <span className="task-group-incomplete">incomplete</span>)}
-            {ms > 0 && <span className="auto-summary-ms">{fmtDelta(ms, coarse)}</span>}
-          </li>
-        );
-      })}
-    </ol>
-  );
-}
-
 // One operation span: what it was for, what it contained, and what it spent.
 //
 // The nesting here is read, not inferred — `room survey` renders inside
@@ -999,488 +887,6 @@ function nodeKey(node: TranscriptNode): string {
   if (node.kind === "entry") return `entry-${node.entry.seq}`;
   if (node.kind === "auto") return `auto-${autoKey(node)}`;
   return `${node.kind}-${node.start.seq}`;
-}
-
-// `⛁ wrote 11 · read 6 · 3ms (7 journal lines)`.
-//
-// The two numbers count different things and the gap between them is the
-// interesting part, in either direction. Fewer lines than writes means the
-// journal swallowed no-ops — `jupsert` is change-detecting, so re-writing an
-// unchanged value appends nothing, and that is how you find a survey rewriting
-// values that never change. MORE lines than writes is the ordinary case for
-// `update_player!`, where one UPDATE of six columns is six keyed series.
-function StoreRollup({
-  rollup,
-  operationId,
-  coarse,
-}: {
-  rollup: Record<string, number> | null;
-  operationId?: string | null;
-  coarse: boolean;
-}) {
-  const [showJournal, setShowJournal] = useState(false);
-  if (!rollup) return null;
-
-  const writes = rollup.db_writes ?? 0;
-  const reads = rollup.db_reads ?? 0;
-  const lines = rollup.journal_lines ?? 0;
-  // A span in a session with no store attached reports no db keys at all —
-  // "we did not read" and "we cannot say" are different answers.
-  if (rollup.db_writes == null && rollup.db_reads == null) return null;
-
-  return (
-    <div className="op-rollup">
-      <span className="op-rollup-icon">⛁</span>
-      <span>wrote {writes}</span>
-      <span>· read {reads}</span>
-      {rollup.db_ms != null && <span>· {fmtDelta(rollup.db_ms, coarse)}</span>}
-      {lines > 0 && operationId && (
-        <button type="button" className="op-rollup-journal" onClick={() => setShowJournal(!showJournal)}>
-          ({lines} journal line{lines === 1 ? "" : "s"})
-        </button>
-      )}
-      {lines > 0 && !operationId && (
-        <span className="op-rollup-journal-flat">
-          ({lines} journal line{lines === 1 ? "" : "s"})
-        </span>
-      )}
-      {showJournal && operationId && <JournalDetail operationId={operationId} />}
-    </div>
-  );
-}
-
-// Fetched on expand, never bundled into the session payload: the session view
-// should not grow a second full log inside it. The rows are the same ones the
-// Progression tab shows for this operation — one writer per fact, and the
-// journal keeps the detail.
-function JournalDetail({ operationId }: { operationId: string }) {
-  const [rows, setRows] = useState<JournalRecord[] | null>(null);
-  const [error, setError] = useState<string | null>(null);
-
-  useEffect(() => {
-    let live = true;
-    fetchJournalForOperation(operationId)
-      .then((page) => live && setRows(page.entries))
-      .catch((e: Error) => live && setError(e.message));
-    return () => {
-      live = false;
-    };
-  }, [operationId]);
-
-  if (error) return <div className="op-journal op-journal-error">journal unavailable — {error}</div>;
-  if (rows == null) return <div className="op-journal">loading…</div>;
-  if (rows.length === 0) return <div className="op-journal">no change lines for this operation today</div>;
-
-  return (
-    <ol className="op-journal">
-      {rows.map((r) => (
-        <li key={r.seq}>
-          <span className="op-journal-stream">{r.stream}</span>
-          {r.kind === "change" ? (
-            <span>
-              {r.key}: {String(r.from ?? "—")} → {String(r.to)}
-            </span>
-          ) : (
-            <span>{r.op}</span>
-          )}
-        </li>
-      ))}
-    </ol>
-  );
-}
-
-// `◆ look_candidates · 23 scored → 3 kept · 11ms · local, $0`, or the same row
-// reading `unavailable` when the weights are not installed.
-//
-// That second case is the one that matters: a missing artifact degrades to a
-// null model that warns once and then returns [] forever, so the session used to
-// say nothing at all — and an empty `look_candidates` field read identically
-// whether the model was absent or the room simply had nothing worth looking at.
-function LocalInferenceRow({ entry, coarse }: { entry: Entry; coarse: boolean }) {
-  const unavailable = entry.available === false;
-  return (
-    <div className={unavailable ? "op-inference op-inference-off" : "op-inference"}>
-      <span className="op-rollup-icon">◆</span>
-      <span className="op-inference-model">{entry.model}</span>
-      {unavailable ? (
-        <span className="op-inference-off-label" title={entry.reason ?? undefined}>
-          unavailable{entry.reason ? ` — ${entry.reason}` : ""}
-        </span>
-      ) : (
-        <span>
-          {entry.pool ?? 0} scored → {entry.kept ?? 0} kept
-        </span>
-      )}
-      {entry.duration_ms != null && <span>· {fmtDelta(entry.duration_ms, coarse)}</span>}
-      {/* Stated, not omitted: the cost table had no row for this model at all,
-          which reads as "no cost information" when the truth is "free". */}
-      <span className="op-inference-cost">· {entry.unit ?? "local"}, {fmtCost(entry.cost_usd ?? 0)}</span>
-    </div>
-  );
-}
-
-// `tbamud__check(kind: score)` → `check(score)`. The prefix and the argument
-// noise are constant across a session and earn no space in a summary line.
-export function shortToolName(entry: Entry) {
-  const name = (entry.tool_name ?? "?").replace(/^.*__/, "");
-  const arg = entry.tool_args?.kind ?? entry.tool_args?.target ?? entry.tool_args?.direction;
-  return arg == null ? name : `${name}(${String(arg)})`;
-}
-
-// `poll × 8`, not `poll, poll, poll, poll, poll, poll, poll, poll`. Eight
-// identical calls carry one fact between them and should occupy one line.
-export function tallyTools(entries: Entry[]): string {
-  const counts = new Map<string, number>();
-  for (const entry of entries) {
-    const label = shortToolName(entry);
-    counts.set(label, (counts.get(label) ?? 0) + 1);
-  }
-  return [ ...counts ].map(([ label, n ]) => (n > 1 ? `${label} × ${n}` : label)).join(", ");
-}
-
-// Every Entry inside a node, automatic work and nested spans included — a group
-// header's cost and iteration figures must count the hook's calls too, or a
-// delegation that spent most of its time surveying rooms reports as having done
-// nothing.
-function flatten(node: GroupNode | AutoNode | OpNode): Entry[] {
-  // The `auto` heading is a rendering device with no event of its own; a group
-  // and a span each open with a real one.
-  const own = node.kind === "auto" ? [] : [ node.start ];
-  return [
-    ...own,
-    ...node.children.flatMap((child) => (child.kind === "entry" ? [ child.entry ] : flatten(child))),
-  ];
-}
-
-// The tool calls a node contains, excluding the span brackets themselves —
-// what "4 calls, 2.4s" is counted over.
-function toolsIn(node: GroupNode | AutoNode | OpNode): Entry[] {
-  return flatten(node).filter((e) => e.type === "tool");
-}
-
-function TranscriptEntry({
-  entry,
-  snapshot,
-  onOpenRequest,
-  rollups,
-  coarse,
-}: {
-  entry: Entry;
-  snapshot: SessionDetailData["snapshot"];
-  onOpenRequest: (requestSeq: number) => void;
-  rollups: RollupIndex;
-  coarse: boolean;
-}) {
-  switch (entry.type) {
-    case "user":
-      return (
-        <div className="msg msg-user">
-          <div className="msg-role">
-            <span>User</span>
-          </div>
-          <div className="msg-body">{entry.text}</div>
-        </div>
-      );
-
-    case "compaction":
-      return (
-        <div className="divider divider-compaction">
-          ↻ context compacted — {entry.dropped} message{entry.dropped === 1 ? "" : "s"} dropped
-        </div>
-      );
-
-    case "clear":
-      return (
-        <div className="divider divider-compaction">
-          ⌫ conversation cleared — {entry.dropped} message{entry.dropped === 1 ? "" : "s"} dropped
-        </div>
-      );
-
-    case "request":
-      // The point a model call was made. The button opens the sidebar on THIS
-      // request's payload (system + tools + wire messages) — kept out of the
-      // transcript body so the narrative stays readable.
-      return (
-        <div className="request-marker">
-          <button
-            type="button"
-            className="request-btn"
-            onClick={() => entry.request_seq != null && onOpenRequest(entry.request_seq)}
-            title="View the exact payload sent to the model on this call"
-          >
-            🧠 view request
-            {entry.message_count != null && (
-              <span className="request-btn-count">{entry.message_count} msg{entry.message_count === 1 ? "" : "s"}</span>
-            )}
-          </button>
-        </div>
-      );
-
-    case "turn_end": {
-      const tripped = entry.reason != null && entry.reason !== "completed";
-      const hasBar = (snapshot.max_turn_tokens ?? 0) > 0 && entry.tokens != null;
-      // The `turn` span's own measured wall time — distinct from
-      // `entry.duration_ms` (the parser's turn_started→turn_end gap, which
-      // does not include the final wrap_up call when the turn hit a limit).
-      const turnSpan = rollups.turnSpans.get(entry.turn);
-      return (
-        <div className={tripped ? "turn-strip danger" : "turn-strip"}>
-          <div className="turn-strip-text">
-            {tripped ? "⚠" : "✓"} Turn {entry.turn} · {entry.iterations} iteration
-            {entry.iterations === 1 ? "" : "s"}
-            {entry.tokens != null && <> · {fmtTokens(entry.tokens)} tok</>}
-            {turnSpan?.duration_ms != null && <> · {fmtDelta(turnSpan.duration_ms, coarse)}</>}
-            {tripped && <> · {entry.reason}</>}
-          </div>
-          {hasBar && (
-            <>
-              <div className="bar">
-                <div
-                  className={tripped ? "bar-fill danger" : "bar-fill"}
-                  style={{ width: `${pct(entry.tokens, snapshot.max_turn_tokens)}%` }}
-                />
-              </div>
-              <div className="turn-strip-pct">{pctRaw(entry.tokens, snapshot.max_turn_tokens)}%</div>
-            </>
-          )}
-        </div>
-      );
-    }
-
-    case "plan":
-      return (
-        <div className="msg msg-assistant msg-preamble">
-          <div className="msg-role">
-            <span>Plan</span>
-            <span className="usage">before tool call</span>
-          </div>
-          <div className="msg-body">{entry.text}</div>
-        </div>
-      );
-
-    case "assistant": {
-      // The `llm.generate` span measured ONLY `@client.call` — not our own
-      // request/response serialization either side of it, which is what
-      // `dt_ms` used to charge the model for (work_attribution.md §2).
-      const modelMs = rollups.llmLatencyByAssistantSeq.get(entry.seq)?.duration_ms ?? null;
-      if (entry.text?.startsWith("(tool use")) {
-        return (
-          <div className="tool-marker">
-            <span>{entry.text}</span>
-            <CtxChip
-              usage={entry.usage}
-              running={entry.running_turn_tokens}
-              contextWindow={snapshot.context_window}
-              maxTurnTokens={snapshot.max_turn_tokens}
-              provider={entry.provider}
-              model={entry.model}
-              costUsd={entry.cost_usd}
-              modelMs={modelMs}
-              coarse={coarse}
-            />
-          </div>
-        );
-      }
-      return (
-        <div className="msg msg-assistant">
-          <div className="msg-role">
-            <span>Assistant</span>
-            <span className="usage">{entry.stop_reason && <>stop: {entry.stop_reason}</>}</span>
-          </div>
-          <div className="msg-body">{entry.text}</div>
-          {entry.usage && (
-            <div className="msg-foot">
-              <CtxChip
-                usage={entry.usage}
-                running={entry.running_turn_tokens}
-                contextWindow={snapshot.context_window}
-                maxTurnTokens={snapshot.max_turn_tokens}
-                provider={entry.provider}
-                model={entry.model}
-                costUsd={entry.cost_usd}
-                modelMs={modelMs}
-                coarse={coarse}
-              />
-            </div>
-          )}
-        </div>
-      );
-    }
-
-    case "reasoning":
-      return (
-        <div className="msg msg-assistant msg-reasoning">
-          <div className="msg-role">
-            <span>Reasoning</span>
-          </div>
-          <div className="msg-body">
-            {entry.redacted || !entry.text?.trim() ? (
-              <span className="muted">(reasoning hidden)</span>
-            ) : (
-              entry.text
-            )}
-          </div>
-        </div>
-      );
-
-    case "tool":
-      // A hook-initiated call reaches here via AutomaticCall separately; a
-      // model-chosen one carries the id of its own `tool.<name>` span, whose
-      // rollup (mud_calls/mud_ms plus whatever after_tool wrote downstream)
-      // becomes this card's footer.
-      return <ToolCard entry={entry} rollup={toolSpanRollup(entry, rollups)} coarse={coarse} />;
-
-    case "injected_context":
-      return <InjectedContext entry={entry} />;
-
-    case "context_transform":
-      // Only reachable when the log lost the call this belongs to; the normal
-      // path folds it into the tool card.
-      return (
-        <div className="injected-card">
-          <div className="injected-head">↪ model received (call {entry.call_id ?? "?"})</div>
-          <pre className="injected-body">{entry.content}</pre>
-        </div>
-      );
-
-    case "unknown":
-      return (
-        <div className="msg msg-unknown">
-          <div className="msg-role">
-            <span>{String(entry.raw?.phase ?? "unknown")}</span>
-          </div>
-          <div className="msg-body">
-            <pre>{JSON.stringify(entry.raw, null, 2)}</pre>
-          </div>
-        </div>
-      );
-
-    default:
-      return null;
-  }
-}
-
-// One tool call. When a hook replaced the result before it reached the model,
-// the card shows what the MODEL received and offers the MUD's own words on
-// demand — the two used to appear as an unexplained contradiction between the
-// transcript (full room dump) and the request drawer (`moved west → …`).
-//
-// The raw text is never discarded: it is what debugs the parser and the
-// transport, while the replacement is what debugs the agent's behaviour.
-function ToolCard({
-  entry,
-  rollup,
-  coarse = false,
-}: {
-  entry: Entry;
-  rollup?: { durationMs: number | null; rollup: Record<string, number> | null; afterToolOperationId: string | null } | null;
-  coarse?: boolean;
-}) {
-  const replaced = entry.model_result != null;
-  const [showRaw, setShowRaw] = useState(false);
-
-  return (
-    <div className={entry.tool_ok === false ? "tool-call tool-error" : "tool-call"}>
-      <div className="tool-name">
-        <span>
-          ⚙ {entry.tool_name}({formatArgs(entry.tool_args)})
-        </span>
-        {entry.tool_ok === false && <span className="tool-badge">error</span>}
-      </div>
-
-      {replaced ? (
-        <>
-          <pre className="tool-result tool-result-model">{entry.model_result}</pre>
-          <button type="button" className="raw-toggle" aria-expanded={showRaw} onClick={() => setShowRaw(!showRaw)}>
-            {showRaw ? "▾" : "▸"} raw MUD response
-            {entry.raw_chars != null && <span className="task-group-meta"> {entry.raw_chars} chars</span>}
-          </button>
-          {showRaw && (
-            <pre className="tool-result">
-              <Ansi html={entry.result_html ?? ""} />
-            </pre>
-          )}
-        </>
-      ) : (
-        <pre className="tool-result">
-          <Ansi html={entry.result_html ?? ""} />
-        </pre>
-      )}
-
-      {rollup && <ToolSpanRollup rollup={rollup} coarse={coarse} />}
-    </div>
-  );
-}
-
-// The `tool.<name>` span's own summary, folded in with its `after_tool`
-// child's (never a separate box — §10). ⚙ is the MUD round trip the
-// dispatch itself paid for; ⛁ is what `after_tool`'s store/journal writes
-// spent reacting to the result — two different currencies, both real.
-function ToolSpanRollup({
-  rollup,
-  coarse,
-}: {
-  rollup: { durationMs: number | null; rollup: Record<string, number> | null; afterToolOperationId: string | null };
-  coarse: boolean;
-}) {
-  const [showJournal, setShowJournal] = useState(false);
-  const r = rollup.rollup;
-  if (!r) return null;
-
-  const hasMud = r.mud_calls != null;
-  const hasDb = r.db_writes != null || r.db_reads != null;
-  const lines = r.journal_lines ?? 0;
-  if (!hasMud && !hasDb) return null;
-
-  return (
-    <div className="op-rollup">
-      {hasMud && (
-        <span>
-          <span className="op-rollup-icon">⚙</span> {r.mud_calls} MUD call{r.mud_calls === 1 ? "" : "s"}
-          {r.mud_ms != null && <> · {fmtDelta(r.mud_ms, coarse)}</>}
-        </span>
-      )}
-      {hasDb && (
-        <span>
-          <span className="op-rollup-icon">⛁</span> wrote {r.db_writes ?? 0} · read {r.db_reads ?? 0}
-        </span>
-      )}
-      {lines > 0 && rollup.afterToolOperationId && (
-        <button type="button" className="op-rollup-journal" onClick={() => setShowJournal(!showJournal)}>
-          ({lines} journal line{lines === 1 ? "" : "s"})
-        </button>
-      )}
-      {showJournal && rollup.afterToolOperationId && <JournalDetail operationId={rollup.afterToolOperationId} />}
-    </div>
-  );
-}
-
-// State a hook appended to the conversation on the model's behalf — the
-// `[here]` block, in the MUD deployment. It sits immediately before the request
-// that carried it, which is what makes an assistant thanking us "for the
-// context" traceable without opening the request drawer.
-//
-// Collapsed to its first line by default: the block is re-rendered every
-// iteration and is usually identical to the last one, and `changed` is how the
-// server says which is which.
-function InjectedContext({ entry }: { entry: Entry }) {
-  const [open, setOpen] = useState(false);
-  const lines = (entry.content ?? "").split("\n");
-  const unchanged = entry.changed === false;
-
-  return (
-    <div className={unchanged ? "injected-card injected-unchanged" : "injected-card"}>
-      <button type="button" className="injected-head" aria-expanded={open} onClick={() => setOpen(!open)}>
-        <span className="task-group-caret">{open ? "▾" : "▸"}</span>
-        <span className="injected-label">Context injected</span>
-        {entry.source && <span className="task-group-meta">{entry.source}</span>}
-        {unchanged && <span className="task-group-meta">unchanged</span>}
-        <span className="task-group-spacer" />
-        <span className="injected-peek">{lines[0]}</span>
-      </button>
-      {open && <pre className="injected-body">{entry.content}</pre>}
-    </div>
-  );
 }
 
 // Where the automatic time actually went, by operation. This is the table that
