@@ -228,7 +228,28 @@ module BoukenshaLoader
 
         store.set_player_identity!(**cfg.player_identity)
 
-        hooks Boukensha::Mud::Hooks.new(
+        # Read-only: plans a route over the room graph already in `store`,
+        # never moves the character and never touches the MUD. Registered as
+        # a plain native tool (RunDSL#tool) so it is gated by
+        # tasks.player.allow exactly like any MCP tool — see
+        # docs/plans/week_2/plan_route.md §8.
+        tool "plan_route",
+             description: "Plan a route to a known place, landmark, or thing using only what you " \
+                          "have already explored. Never moves you and performs no MUD actions.",
+             parameters: { destination: { type: "string",
+               description: "Place, landmark, or thing to find, e.g. 'bakery' or 'Temple Square'." } } do |destination:|
+          Boukensha::Mud::Navigation::PlanRouteTool.call(store: store, destination: destination)
+        end
+
+        # `call_tool` is already bound above to the HOOK's own room-survey-
+        # scoped dispatcher (poll/look/check/consider/examine — no `move`).
+        # execute_route must dispatch under the PLAYER's own permissions
+        # instead, which is RunDSL#call_tool — reached here with an explicit
+        # `self.` receiver so it is not shadowed by the local variable of the
+        # same name.
+        player_call_tool = ->(name, args) { self.call_tool(name, **args) }
+
+        mud_hooks = Boukensha::Mud::Hooks.new(
           store: store,
           call_tool: call_tool,
           look_candidates: candidates,
@@ -239,6 +260,21 @@ module BoukenshaLoader
           # line, and a mitigation deserves to be watched before it is trusted.
           turn_policy: cfg.dig(:memory, :turn_policy) == true
         )
+        hooks mud_hooks
+
+        # Batched movement over a route `plan_route` already confirmed
+        # `known` — collapses N model round-trips into one while still
+        # reconciling position and polling for interrupting events between
+        # every internal step (Mud::Hooks#reconcile_move!, Mud::EventClassifier).
+        tool "execute_route",
+             description: "Walk a sequence of directions already returned by plan_route's " \
+                          "`known` result, one MUD move per step inside a single call. Stops " \
+                          "early if a move fails or something worth reacting to happens.",
+             parameters: { steps: { type: "array",
+               items: { type: "string", enum: Boukensha::Mud::RoomParser::DIRECTIONS.values },
+               description: "Directions to walk in order, e.g. [\"west\", \"north\"]." } } do |steps:|
+          Boukensha::Mud::Navigation::ExecuteRouteTool.call(steps: steps, call_tool: player_call_tool, hooks: mud_hooks)
+        end
       rescue Boukensha::Mud::Memory::Store::Unavailable => e
         Boukensha.error_log.record(e, component: "mud_hooks_setup", boundary: "memory_store")
         # No memory is a degraded agent, not a dead one: it explores exactly as

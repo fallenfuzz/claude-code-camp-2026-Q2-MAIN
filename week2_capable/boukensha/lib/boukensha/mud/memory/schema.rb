@@ -262,7 +262,23 @@ module Boukensha
           ALTER TABLE player_state_v3 RENAME TO player_state;
         SQL
 
-        MIGRATIONS = [V1, V2, V3].freeze
+        # frontier_attempts records what plan_route.md §6.3 calls the missing
+        # memory: which unexplored exits have already been tried and failed
+        # ("Alas, you cannot go that way."), so repeated route planning fans
+        # outward instead of retrying the same blocked door. Successes are
+        # recorded too (outcome: 'succeeded') so a direction's full history is
+        # in one table, even though only failures currently feed ranking.
+        V4 = <<~SQL.freeze
+          CREATE TABLE frontier_attempts (
+            room_id      INTEGER NOT NULL REFERENCES rooms(id) ON DELETE CASCADE,
+            direction    TEXT NOT NULL,
+            outcome      TEXT NOT NULL CHECK (outcome IN ('failed','succeeded')),
+            attempted_at TEXT NOT NULL
+          );
+          CREATE INDEX idx_frontier_attempts_room ON frontier_attempts(room_id, direction);
+        SQL
+
+        MIGRATIONS = [V1, V2, V3, V4].freeze
 
         LATEST_VERSION = MIGRATIONS.size
 

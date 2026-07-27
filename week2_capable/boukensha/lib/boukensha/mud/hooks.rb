@@ -218,6 +218,48 @@ module Boukensha
         nil
       end
 
+      # ---------- reconcile_move! --------------------------------------------
+
+      # Reconcile one MUD move result as a movement step, IMMEDIATELY rather
+      # than deferring to the next before_model. For `execute_route`, which
+      # performs several moves inside one tool call and needs per-step state
+      # refresh — not just per-iteration — so a fight starting mid-route is
+      # attributed to the step it started on rather than discovered only on
+      # arrival (move_around.md §6).
+      #
+      # Reuses the exact same `resolve_position` every ordinary move eventually
+      # runs through — this is not a second copy of that logic, only an
+      # earlier call to it. It leaves `@arrival` untouched (nil), so the NEXT
+      # `before_model` finds nothing to redo: `arrival_look` sees no pending
+      # arrival, `cold_look` sees `@current_room_id` already set, and
+      # `before_model` spends nothing beyond re-rendering the state block.
+      #
+      # Returns { ok: true, room_id:, room_name: } on a genuine arrival,
+      # { ok: false, text: } on a rejected move (and records the failed
+      # frontier attempt, exactly as `movement_outcome` does for a single
+      # model-issued move), or nil if something in reconciliation itself
+      # raised — `execute_route` should treat that the same as `ok: false`.
+      def reconcile_move!(direction:, text:)
+        guard do
+          absorb_mud_text(text)
+          look = RoomParser.parse_look(text)
+
+          unless look.complete?
+            if @current_room_id
+              @store.record_frontier_attempt!(room_id: @current_room_id, direction: direction, outcome: "failed")
+            end
+            next { ok: false, text: text }
+          end
+
+          from_id = @current_room_id
+          @pending_arrival_edge = { from: from_id, direction: direction.to_s }
+          @look_is_fresh = false
+          resolve_position(look)
+          @store.record_frontier_attempt!(room_id: from_id, direction: direction, outcome: "succeeded") if from_id
+          { ok: true, room_id: @current_room_id, room_name: @store.room(@current_room_id)&.[](:name) }
+        end
+      end
+
       private
 
       # =========================== position =================================
@@ -568,11 +610,24 @@ module Boukensha
       # wrongly swallowed failure costs an agent that retries a wall forever.
       def movement_outcome(local, args, text)
         look = RoomParser.parse_look(text)
-        return nil unless look.complete?
-
         direction = args && (args["direction"] || args[:direction])
-        @arrival  = { look: look, direction: direction&.to_s, from_room_id: @current_room_id }
-        verb      = local == "flee" ? "fled" : "moved"
+
+        unless look.complete?
+          # plan_route.md §6.3's missing memory: a rejected `move` ("Alas, you
+          # cannot go that way.") is the frontier-planner's evidence that this
+          # exit is currently blocked. Only `move` carries a fixed, walkable
+          # direction — `flee`/`track` do not name one the same way.
+          if local == "move" && direction && @current_room_id
+            @store.record_frontier_attempt!(room_id: @current_room_id, direction: direction, outcome: "failed")
+          end
+          return nil
+        end
+
+        @arrival = { look: look, direction: direction&.to_s, from_room_id: @current_room_id }
+        if local == "move" && direction && @current_room_id
+          @store.record_frontier_attempt!(room_id: @current_room_id, direction: direction, outcome: "succeeded")
+        end
+        verb = local == "flee" ? "fled" : "moved"
         direction ? "#{verb} #{direction} → #{look.name}" : "#{verb} → #{look.name}"
       end
 

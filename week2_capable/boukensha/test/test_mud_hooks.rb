@@ -194,6 +194,28 @@ class TestMudHooks < Minitest::Test
     end
   end
 
+  # plan_route.md §6.3's missing memory: a rejected move is recorded so the
+  # frontier ranker can fan outward instead of retrying the same blocked door.
+  def test_a_rejected_move_records_a_failed_frontier_attempt
+    h, = hooks_for(MARKET_SQUARE)
+    c = ctx
+    h.before_model(context: c) # establishes current_room_id = 1 (Market Square)
+
+    h.after_tool(name: "tbamud__move", args: { "direction" => "north" },
+                 result: "Alas, you cannot go that way.\r\n\r\n20H 100M 81V > ", context: c)
+
+    assert_equal 1, @store.frontier_attempt_counts[[1, "north"]]
+  end
+
+  def test_a_successful_move_records_a_succeeded_frontier_attempt
+    h, fake = hooks_for(MARKET_SQUARE)
+    c = ctx
+    h.before_model(context: c)
+    walk(h, fake, c, "south", COMMON_SQUARE)
+
+    assert_nil @store.frontier_attempt_counts[[1, "south"]], "a success is not a failure count"
+  end
+
   # Only the movement family. `shop`, `check`, `say` and the rest are read by
   # the model and must stay verbatim.
   def test_non_movement_tools_are_never_substituted
@@ -307,6 +329,65 @@ class TestMudHooks < Minitest::Test
     assert_equal 1, @store.stats[:rooms]
     assert_equal 2, @store.room(1)[:visit_count]
     assert_includes c.state_block, "(visit 2)"
+  end
+
+  # --- reconcile_move! (execute_route's per-step reconciliation) -----------
+  #
+  # execute_route performs several moves inside ONE tool call, so it cannot
+  # wait for the next before_model to learn where each step landed. These
+  # tests cover the same three outcomes ordinary movement handles — a brand
+  # new room, a familiar one, and a rejected move — but reconciled
+  # immediately, synchronously, mid-batch.
+
+  def test_reconcile_move_resolves_a_new_room_immediately_not_deferred
+    h, fake = hooks_for(MARKET_SQUARE)
+    c = ctx
+    h.before_model(context: c) # establishes Market Square as room 1
+
+    fake.responses = COMMON_SQUARE
+    outcome = h.reconcile_move!(direction: "south", text: COMMON_SQUARE.fetch("look"))
+
+    assert outcome[:ok]
+    assert_equal "The Common Square", outcome[:room_name]
+    edge = @store.exit_at(1, "south")
+    assert_equal outcome[:room_id], edge[:target_room_id], "the edge is linked immediately, not deferred"
+    assert_equal 1, edge[:traversals]
+
+    # The next before_model must find nothing left to redo: no pending
+    # arrival, and @current_room_id already set, so it only re-renders state.
+    fake.calls.clear
+    h.before_model(context: c)
+    assert_empty fake.tools_called, "before_model must spend nothing after reconcile_move! already settled it"
+    assert_includes c.state_block, "The Common Square"
+  end
+
+  def test_reconcile_move_on_a_revisit_spends_nothing_extra
+    h, fake = hooks_for(MARKET_SQUARE)
+    c = ctx
+    h.before_model(context: c)
+    fake.responses = COMMON_SQUARE
+    h.reconcile_move!(direction: "south", text: COMMON_SQUARE.fetch("look"))
+
+    fake.responses = MARKET_SQUARE
+    fake.calls.clear
+    outcome = h.reconcile_move!(direction: "north", text: MARKET_SQUARE_MOVE)
+
+    assert outcome[:ok]
+    assert_equal 1, outcome[:room_id]
+    assert_empty fake.tools_called, "a revisit needs no survey round trip, immediate or deferred"
+    assert_equal 2, @store.room(1)[:visit_count]
+  end
+
+  def test_reconcile_move_on_a_rejected_move_records_failure_and_does_not_move
+    h, = hooks_for(MARKET_SQUARE)
+    c = ctx
+    h.before_model(context: c)
+
+    outcome = h.reconcile_move!(direction: "up", text: "Alas, you cannot go that way.\r\n\r\n20H 100M 81V > ")
+
+    refute outcome[:ok]
+    assert_equal 1, @store.frontier_attempt_counts[[1, "up"]]
+    assert_equal 1, @store.player[:current_room_id], "a rejected move must not change position"
   end
 
   # The prose is the largest field in the record and the agent has already read

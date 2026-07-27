@@ -128,6 +128,47 @@ class TestMemoryStore < Minitest::Test
     assert_equal "Main Street", @store.exit_at(here, "north")[:target_name]
   end
 
+  # --- navigation snapshot: plan_route's batched reads -----------------------
+
+  def test_rooms_and_all_exits_return_every_row_in_one_query
+    a = new_room(name: "A")
+    b = new_room(name: "B")
+    @store.record_exits!(a, dirs: %w[north east], targets: { "north" => "B" })
+    @store.link_exit!(a, "north", b)
+
+    ids = @store.rooms.map { |r| r[:id] }
+    assert_equal [a, b].sort, ids.sort
+
+    exits = @store.all_exits
+    assert_equal 2, exits.size
+    linked = exits.find { |e| e[:direction] == "north" }
+    assert_equal b, linked[:target_room_id]
+    frontier = exits.find { |e| e[:direction] == "east" }
+    assert_nil frontier[:target_room_id]
+  end
+
+  def test_entities_by_room_batches_the_sighting_join
+    a = new_room(name: "A")
+    b = new_room(name: "B")
+    id = @store.remember_entity(kind: "mob", descr: "a cityguard", keyword: "guard")
+    @store.record_sighting!(entity_id: id, room_id: a)
+
+    grouped = @store.entities_by_room
+    assert_equal [{ descr: "a cityguard", keyword: "guard", kind: "mob" }], grouped[a]
+    assert_equal [], grouped[b], "a room with no sightings still answers with an empty array"
+  end
+
+  def test_frontier_attempt_counts_only_tallies_failures
+    a = new_room(name: "A")
+    @store.record_frontier_attempt!(room_id: a, direction: "north", outcome: "failed")
+    @store.record_frontier_attempt!(room_id: a, direction: "north", outcome: "failed")
+    @store.record_frontier_attempt!(room_id: a, direction: "east", outcome: "succeeded")
+
+    counts = @store.frontier_attempt_counts
+    assert_equal 2, counts[[a, "north"]]
+    assert_nil counts[[a, "east"]], "a succeeded attempt is not a failure count"
+  end
+
   # --- entities: world-level, so the appraisal is reusable ------------------
 
   def test_an_entity_is_stored_once_for_the_whole_world
@@ -217,9 +258,9 @@ class TestMemoryStore < Minitest::Test
     old.record_exits!(id, dirs: %w[north])
     old.update_player!(current_room_id: id, hp: 19, level: 10)
 
-    assert_equal 3, M::Schema::LATEST_VERSION, "migrations are appended, never edited into V1"
-    assert_equal 3, M::Schema.migrate!(db)
-    assert_equal 3, db.get_first_value("PRAGMA user_version")
+    assert_equal 4, M::Schema::LATEST_VERSION, "migrations are appended, never edited into V1"
+    assert_equal 4, M::Schema.migrate!(db)
+    assert_equal 4, db.get_first_value("PRAGMA user_version")
 
     # Every V1 row survived.
     assert_equal "Market Square", old.room(id)[:name]
@@ -264,7 +305,7 @@ class TestMemoryStore < Minitest::Test
     db.execute("INSERT INTO player_state (id, current_room_id, hp, title, char_class, race, updated_at) " \
                "VALUES (1, 7, 19, 'Old Title', 'thief', 'elf', 't')")
 
-    assert_equal 3, M::Schema.migrate!(db)
+    assert_equal 4, M::Schema.migrate!(db)
     row = db.execute("SELECT * FROM player_state WHERE id = 1").first
     assert_equal [7, 19, "Old Title", "thief"], row.values_at("current_room_id", "hp", "title", "player_class")
     assert_equal "Old Room", db.get_first_value("SELECT name FROM rooms WHERE id = 7")

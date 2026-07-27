@@ -262,6 +262,13 @@ module Boukensha
           row(@db.execute("SELECT * FROM rooms WHERE id = ?", [id]).first)
         end
 
+        # Every room the agent has ever stood in, one query. The snapshot
+        # `plan_route` needs: destination search and BFS both run over this
+        # in memory rather than issuing a query per room.
+        def rooms
+          @db.execute("SELECT * FROM rooms ORDER BY id").map { |r| row(r) }
+        end
+
         def create_room(name:, description:, weak_fingerprint:, strong_fingerprint: nil,
                         look_candidates: nil, confidence: "confirmed", surveyed: false)
           t = now
@@ -306,6 +313,14 @@ module Boukensha
 
           row(@db.execute("SELECT * FROM room_exits WHERE room_id = ? AND direction = ?",
                           [room_id, direction.to_s]).first)
+        end
+
+        # Every exit the agent has ever recorded, one query — `plan_route`'s
+        # other half of the graph snapshot. Linked rows (target_room_id set)
+        # are traversable edges; rows with a null target_room_id are the
+        # exploration frontier. Ordered for determinism, matching #exits_for.
+        def all_exits
+          @db.execute("SELECT * FROM room_exits ORDER BY room_id, direction").map { |r| row(r) }
         end
 
         # Record what the room says its exits are. `dirs` is the free autoexit
@@ -429,6 +444,46 @@ module Boukensha
             [entity_id, room_id, count, t, t]
           )
           jupsert("sighting", "#{entity_id}:#{room_id}:count", count)
+        end
+
+        # One batched join for every room's remembered entities, keyed by
+        # room_id — `plan_route`'s destination search needs "which rooms has
+        # this mob/object been seen in" without an N+1 query per room.
+        # Sighting evidence, not presence: this says where a type has EVER
+        # been seen, not where it is right now (see entity_sightings' own
+        # comment in the schema).
+        def entities_by_room
+          @db.execute(
+            "SELECT s.room_id AS room_id, e.descr AS descr, e.keyword AS keyword, e.kind AS kind " \
+            "FROM entity_sightings s JOIN entities e ON e.id = s.entity_id " \
+            "ORDER BY s.room_id"
+          ).each_with_object(Hash.new { |h, k| h[k] = [] }) do |r, out|
+            out[r["room_id"]] << { descr: r["descr"], keyword: r["keyword"], kind: r["kind"] }
+          end
+        end
+
+        # ---------- frontier attempts ---------------------------------------
+        # plan_route.md §6.3's follow-up: what has already been tried at an
+        # unexplored exit, so repeated planning fans outward instead of
+        # retrying the same blocked door.
+
+        def record_frontier_attempt!(room_id:, direction:, outcome:)
+          return unless room_id && direction
+
+          @db.execute(
+            "INSERT INTO frontier_attempts (room_id, direction, outcome, attempted_at) VALUES (?, ?, ?, ?)",
+            [room_id, direction.to_s, outcome.to_s, now]
+          )
+          jevent("frontier_attempt", outcome.to_s, room_id: room_id, direction: direction.to_s)
+        end
+
+        # { [room_id, direction] => failed_count }, one query — RoutePlanner's
+        # frontier ranking tie-break (fewer prior failures wins).
+        def frontier_attempt_counts
+          @db.execute(
+            "SELECT room_id, direction, COUNT(*) AS n FROM frontier_attempts " \
+            "WHERE outcome = 'failed' GROUP BY room_id, direction"
+          ).each_with_object({}) { |r, h| h[[r["room_id"], r["direction"]]] = r["n"].to_i }
         end
 
         # ---------- encounters --------------------------------------------
