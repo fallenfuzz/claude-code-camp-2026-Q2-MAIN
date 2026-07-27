@@ -217,9 +217,9 @@ class TestMemoryStore < Minitest::Test
     old.record_exits!(id, dirs: %w[north])
     old.update_player!(current_room_id: id, hp: 19, level: 10)
 
-    assert_equal 2, M::Schema::LATEST_VERSION, "V2 is appended, never edited into V1"
-    assert_equal 2, M::Schema.migrate!(db)
-    assert_equal 2, db.get_first_value("PRAGMA user_version")
+    assert_equal 3, M::Schema::LATEST_VERSION, "migrations are appended, never edited into V1"
+    assert_equal 3, M::Schema.migrate!(db)
+    assert_equal 3, db.get_first_value("PRAGMA user_version")
 
     # Every V1 row survived.
     assert_equal "Market Square", old.room(id)[:name]
@@ -229,6 +229,45 @@ class TestMemoryStore < Minitest::Test
     # is nil, never a zero that would render as a real value.
     assert_nil old.player[:max_mana]
     assert_equal({ skills: 0, items: 0 }, old.stats.slice(:skills, :items))
+    db.close
+  end
+
+  def test_v3_replaces_reserved_identity_columns_and_constrains_values
+    columns = @store.db.execute("PRAGMA table_info(player_state)").map { |row| row["name"] }
+    assert_includes columns, "player_class"
+    assert_includes columns, "gender"
+    refute_includes columns, "char_class"
+    refute_includes columns, "race"
+
+    @store.set_player_identity!(player_class: "warrior", gender: "m")
+    @store.set_player_identity!(player_class: "cleric", gender: "f")
+    assert_equal 1, @store.db.get_first_value("SELECT COUNT(*) FROM player_state")
+    assert_equal({ player_class: "cleric", gender: "f" },
+                 @store.player.slice(:player_class, :gender))
+
+    assert_raises(SQLite3::ConstraintException) do
+      @store.set_player_identity!(player_class: "paladin", gender: "m")
+    end
+    assert_raises(SQLite3::ConstraintException) do
+      @store.set_player_identity!(player_class: "warrior", gender: "x")
+    end
+  end
+
+  def test_a_v2_file_migrates_identity_and_preserves_room_and_player_data
+    db = SQLite3::Database.new(":memory:")
+    db.results_as_hash = true
+    db.execute_batch(M::Schema::V1)
+    db.execute_batch(M::Schema::V2)
+    db.execute("PRAGMA user_version = 2")
+    db.execute("INSERT INTO rooms (id, weak_fingerprint, confidence, name, description, first_seen_at, last_seen_at) " \
+               "VALUES (7, 'weak', 'confirmed', 'Old Room', 'Still here.', 't', 't')")
+    db.execute("INSERT INTO player_state (id, current_room_id, hp, title, char_class, race, updated_at) " \
+               "VALUES (1, 7, 19, 'Old Title', 'thief', 'elf', 't')")
+
+    assert_equal 3, M::Schema.migrate!(db)
+    row = db.execute("SELECT * FROM player_state WHERE id = 1").first
+    assert_equal [7, 19, "Old Title", "thief"], row.values_at("current_room_id", "hp", "title", "player_class")
+    assert_equal "Old Room", db.get_first_value("SELECT name FROM rooms WHERE id = 7")
     db.close
   end
 

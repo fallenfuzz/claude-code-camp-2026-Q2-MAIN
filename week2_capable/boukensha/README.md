@@ -21,6 +21,8 @@ player:
   name: Dummy
   password_env: MUD_PASSWORD_DUMMY
   persona: cautious-explorer
+  gender: n
+  class: warrior
 
 overrides:
   task:

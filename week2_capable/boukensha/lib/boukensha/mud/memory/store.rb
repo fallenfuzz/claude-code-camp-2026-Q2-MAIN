@@ -159,6 +159,10 @@ module Boukensha
           capture_player!(fields)
         end
 
+        def set_player_identity!(player_class:, gender:)
+          update_player!(player_class: player_class, gender: gender)
+        end
+
         def level = player[:level]
 
         # ---------- skills (EARNED) ---------------------------------------

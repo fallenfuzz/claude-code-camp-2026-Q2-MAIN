@@ -23,7 +23,7 @@ module Knowledge
     # anyway — memory/schema.rb migrations are additive by construction ("append
     # to MIGRATIONS, never edit an applied one") — but the number is reported so
     # a surprise is visible rather than silent.
-    KNOWN_SCHEMA_VERSION = 2
+    KNOWN_SCHEMA_VERSION = 3
 
     # V2 added the player half — the score sheet's other two thirds, plus
     # `player_skills` and `player_items`. Additive DDL means a NEWER file is
@@ -156,7 +156,10 @@ module Knowledge
                         "ps.hp, ps.max_hp, ps.mana, ps.move, ps.level, ps.gold, ps.exp, " \
                         "ps.position, ps.session_id, ps.updated_at".freeze
     PLAYER_V2_COLUMNS = "ps.max_mana, ps.max_move, ps.exp_to_next, ps.armor_class, ps.alignment, " \
-                        "ps.age_years, ps.title, ps.char_class, ps.race, ps.gold_bank, " \
+                        "ps.age_years, ps.title, ps.char_class AS player_class, ps.gold_bank, " \
+                        "ps.conditions, ps.practices_left, ps.items_updated_at".freeze
+    PLAYER_V3_COLUMNS = "ps.max_mana, ps.max_move, ps.exp_to_next, ps.armor_class, ps.alignment, " \
+                        "ps.age_years, ps.title, ps.player_class, ps.gender, ps.gold_bank, " \
                         "ps.conditions, ps.practices_left, ps.items_updated_at".freeze
 
     SKILL_COLUMNS = "name, proficiency, learned, kind, learned_level, first_seen_at, last_seen_at".freeze
@@ -169,7 +172,12 @@ module Knowledge
     def player
       return nil unless attached?
 
-      cols = player_half? ? "#{PLAYER_V1_COLUMNS}, #{PLAYER_V2_COLUMNS}" : PLAYER_V1_COLUMNS
+      extra_cols =
+        case schema_version
+        when 3.. then PLAYER_V3_COLUMNS
+        when 2 then PLAYER_V2_COLUMNS
+        end
+      cols = extra_cols ? "#{PLAYER_V1_COLUMNS}, #{extra_cols}" : PLAYER_V1_COLUMNS
       row  = query_one(<<~SQL)
         SELECT #{cols},
                cr.name AS current_room_name, pr.name AS prev_room_name
@@ -192,8 +200,7 @@ module Knowledge
         position: row["position"],
         last_direction: row["last_direction"],
         title: row["title"],
-        # Reserved columns. NULL until a capture proves this build prints them.
-        char_class: row["char_class"], race: row["race"],
+        player_class: row["player_class"], gender: row["gender"],
         armor_class: row["armor_class"], alignment: row["alignment"],
         age_years: row["age_years"], practices_left: row["practices_left"],
         # Stored joined because it is short and low-cardinality; split here so

@@ -226,6 +226,8 @@ module BoukenshaLoader
           nil
         end
 
+        store.set_player_identity!(**cfg.player_identity)
+
         hooks Boukensha::Mud::Hooks.new(
           store: store,
           call_tool: call_tool,

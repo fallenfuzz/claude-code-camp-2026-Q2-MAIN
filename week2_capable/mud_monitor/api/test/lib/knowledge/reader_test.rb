@@ -108,7 +108,7 @@ module Knowledge
 
       r = reader
       error = assert_raises(Reader::SchemaMismatch) { r.rooms }
-      assert_equal 2, error.schema_version
+      assert_equal 3, error.schema_version
     ensure
       r&.close
     end
@@ -317,14 +317,14 @@ module Knowledge
       r&.close
     end
 
-    # Reserved columns, written the day a capture proves this build prints them
-    # and not before. nil here is the honest answer, not a gap to be filled.
-    test "class and race are nil because no capture proves the mud prints them" do
+    test "profile identity is exposed without legacy class or race keys" do
       use_knowledge_db
       r = reader
 
-      assert_nil r.player[:char_class]
-      assert_nil r.player[:race]
+      assert_equal "cleric", r.player[:player_class]
+      assert_equal "m", r.player[:gender]
+      refute r.player.key?(:char_class)
+      refute r.player.key?(:race)
     ensure
       r&.close
     end
@@ -420,12 +420,37 @@ module Knowledge
       # what these fields say on a V2 file the agent has not scored on yet.
       assert_nil player[:max_mana]
       assert_nil player[:title]
+      assert_nil player[:player_class]
+      assert_nil player[:gender]
+      refute player.key?(:race)
+      refute player.key?(:char_class)
       assert_nil player[:items_updated_at]
       assert_equal [], player[:conditions]
       assert_equal [], r.player_skills
       assert_equal [], r.player_items
       assert_equal({ skills: 0, items: 0 }, r.stats.slice(:skills, :items))
       assert_equal 5, r.stats[:rooms], "the map half is unaffected"
+    ensure
+      r&.close
+    end
+
+    test "a v2 file maps legacy class and hides legacy race" do
+      sql = File.read(KnowledgeFixtures::SEED_SQL)
+                .sub("player_class     TEXT CHECK (player_class IN ('magic_user','cleric','thief','warrior')),",
+                     "char_class       TEXT,")
+                .sub("gender           TEXT CHECK (gender IN ('m','f','n')),", "race             TEXT,")
+                .sub("PRAGMA user_version = 3;", "PRAGMA user_version = 2;")
+                .sub("title, player_class, gender, gold_bank", "title, char_class, race, gold_bank")
+                .sub("'Derrano the Minister', 'cleric', 'm', NULL",
+                     "'Derrano the Minister', 'thief', 'elf', NULL")
+      use_knowledge_db(sql: sql, name: "v2.sqlite3")
+      r = reader
+
+      assert_equal 2, r.schema_version
+      assert_equal "thief", r.player[:player_class]
+      assert_nil r.player[:gender]
+      refute r.player.key?(:char_class)
+      refute r.player.key?(:race)
     ensure
       r&.close
     end

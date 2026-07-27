@@ -463,10 +463,16 @@ I want it to go back and fix my old view and remove the traces.
  docs/plans/week_2/restore_transcript_view.md.
 
 ## Technical Conclusions
-Reflecting back your education guesses from the technical uncertainty section what was the technical outcomes. Is there any new technical uncertainty that has been put aside for future exploration. Are there any next steps or technical considerations worth noting?
+There is clearly a considerable amount of observability that needs to be implemented before implementing our custom capable loop. We couldn't anwser our hypothises because of this detour.
+
+OTEL was a very cheap layers of observability, however at this time I dont find having otel of any advantage with could native tooling since it doesn't anwser questions on what happening in the loop but more so about performance. This could be valuable for production use case.
+
+OTEL is not standardized for AI Agent and there is no AI Agent observability tool that will really help us for our specialized agent.
+
+Hooks are obviously integral to getting the agent what you want to do.
 
 ## Key Takeaway
-In one sentence. State the most important lesson from the week.
+If you want to know what you agent is doing, you need to build a bespoke loop story eg. Sessions Show page. that you can walk the entire scope of the agent is doing to help reason what it does, there' no off the self solution
 
 
 # AI Journal Rollup

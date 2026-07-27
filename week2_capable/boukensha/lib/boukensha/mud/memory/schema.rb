@@ -215,7 +215,54 @@ module Boukensha
           CREATE INDEX idx_items_location ON player_items(location);
         SQL
 
-        MIGRATIONS = [V1, V2].freeze
+        V3 = <<~SQL.freeze
+          CREATE TABLE player_state_v3 (
+            id              INTEGER PRIMARY KEY CHECK (id = 1),
+            current_room_id INTEGER REFERENCES rooms(id),
+            prev_room_id    INTEGER REFERENCES rooms(id),
+            last_direction  TEXT,
+            hp INTEGER, max_hp INTEGER,
+            mana INTEGER, move INTEGER,
+            level INTEGER, gold INTEGER, exp INTEGER,
+            position        TEXT,
+            session_id      TEXT,
+            updated_at      TEXT NOT NULL,
+            max_mana         INTEGER,
+            max_move         INTEGER,
+            exp_to_next      INTEGER,
+            armor_class      TEXT,
+            alignment        INTEGER,
+            age_years        INTEGER,
+            title            TEXT,
+            player_class     TEXT CHECK (player_class IN ('magic_user','cleric','thief','warrior')),
+            gender           TEXT CHECK (gender IN ('m','f','n')),
+            gold_bank        INTEGER,
+            conditions       TEXT,
+            practices_left   INTEGER,
+            items_updated_at TEXT
+          );
+
+          INSERT INTO player_state_v3 (
+            id, current_room_id, prev_room_id, last_direction,
+            hp, max_hp, mana, move, level, gold, exp, position,
+            session_id, updated_at, max_mana, max_move, exp_to_next,
+            armor_class, alignment, age_years, title, player_class,
+            gold_bank, conditions, practices_left, items_updated_at
+          )
+          SELECT
+            id, current_room_id, prev_room_id, last_direction,
+            hp, max_hp, mana, move, level, gold, exp, position,
+            session_id, updated_at, max_mana, max_move, exp_to_next,
+            armor_class, alignment, age_years, title,
+            CASE WHEN char_class IN ('magic_user','cleric','thief','warrior') THEN char_class END,
+            gold_bank, conditions, practices_left, items_updated_at
+          FROM player_state;
+
+          DROP TABLE player_state;
+          ALTER TABLE player_state_v3 RENAME TO player_state;
+        SQL
+
+        MIGRATIONS = [V1, V2, V3].freeze
 
         LATEST_VERSION = MIGRATIONS.size
 

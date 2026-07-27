@@ -496,9 +496,8 @@ export interface KnowledgePlayer {
   position: string | null;
   last_direction: string | null;
   title: string | null;
-  /** Reserved. Null until a capture proves this build's `score` prints them. */
-  char_class: string | null;
-  race: string | null;
+  player_class: "magic_user" | "cleric" | "thief" | "warrior" | null;
+  gender: "m" | "f" | "n" | null;
   /** Verbatim "94/10" — two numbers, and deciding which is which is a guess. */
   armor_class: string | null;
   alignment: number | null;

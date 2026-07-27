@@ -1,3 +1,5 @@
 player:
   name: Dummy
   password_env: MUD_PASSWORD_DUMMY
+  gender: m
+  class: warrior

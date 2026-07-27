@@ -1,3 +1,5 @@
 player:
   name: Admin
   password_env: MUD_PASSWORD_ADMIN
+  gender: n
+  class: warrior

@@ -15,7 +15,7 @@ module Api
         body = response.parsed_body
         assert body["attached"]
         assert body["live"], "a just-written fixture is inside the live window"
-        assert_equal 2, body["schema_version"]
+        assert_equal 3, body["schema_version"]
         assert body["last_write_at"].present?
       end
 
@@ -63,6 +63,10 @@ module Api
         player = body["player"]
         assert_equal 18, player["hp"]
         assert_equal "20260723T225532Z-7ed8c53a", player["session_id"]
+        assert_equal "cleric", player["player_class"]
+        assert_equal "m", player["gender"]
+        assert_not player.key?("race")
+        assert_not player.key?("char_class")
         assert_equal 5, player["current_room"]["id"]
         assert_equal "The Common Square", player["current_room"]["name"]
       end
@@ -265,7 +269,7 @@ module Api
         assert_response :service_unavailable
         error = response.parsed_body["error"]
         assert_equal "knowledge_schema_mismatch", error["code"]
-        assert_equal 2, error["schema_version"]
+        assert_equal 3, error["schema_version"]
       end
     end
   end

@@ -5,6 +5,8 @@ require "pathname"
 module Boukensha
   class Config
     OTEL_ENV_NAME = /\AOTEL_[A-Z0-9_]+\z/.freeze
+    PLAYER_GENDERS = %w[m f n].freeze
+    PLAYER_CLASSES = %w[magic_user cleric thief warrior].freeze
     # The .boukensha config directory is resolved in this order:
     #   1. BOUKENSHA_DIR environment variable (set before loading .env)
     #   2. ~/.boukensha  (default)
@@ -176,6 +178,13 @@ module Boukensha
       end
     end
 
+    def player_identity
+      {
+        gender: profile_dig(:player, :gender),
+        player_class: profile_dig(:player, :class)
+      }
+    end
+
     def to_s
       "#<Boukensha::Config root_dir=#{@root_dir} profile_dir=#{@profile_dir} provider=#{provider_type} model=#{model}>"
     end
@@ -226,7 +235,24 @@ module Boukensha
 
       value = YAML.safe_load(File.read(path), permitted_classes: [], aliases: false) || {}
       raise ArgumentError, "#{path} must contain a YAML mapping" unless value.is_a?(Hash)
+      validate_player_identity!(value, path)
       value
+    end
+
+    def validate_player_identity!(profile, path)
+      player = profile["player"] || profile[:player]
+      raise ArgumentError, "#{path}: player must be a mapping; received #{player.inspect}" unless player.is_a?(Hash)
+
+      validate_player_field!(player, path, "gender", PLAYER_GENDERS)
+      validate_player_field!(player, path, "class", PLAYER_CLASSES)
+    end
+
+    def validate_player_field!(player, path, field, allowed)
+      value = player.key?(field) ? player[field] : player[field.to_sym]
+      return if value.is_a?(String) && allowed.include?(value)
+
+      raise ArgumentError,
+            "#{path}: player.#{field} received #{value.inspect}; allowed values: #{allowed.join(', ')}"
     end
 
     def apply_profile_mud_env!(env)

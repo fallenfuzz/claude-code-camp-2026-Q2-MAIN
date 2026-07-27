@@ -94,30 +94,30 @@ tasks:
     # the state block replaced it, and the tool surface shrank by one.
     allow:
       - tbamud__move
-      - tbamud__flee
-      - tbamud__set_position
-      - tbamud__track
-      - tbamud__attack
-      - tbamud__skill_strike
       - tbamud__consider
       - tbamud__examine
-      - "tbamud__check(kind: inventory|equipment|gold|time|weather|levels|wimpy|toggle|where)"
-      - tbamud__say
-      - tbamud__tell
+      #- tbamud__flee
+      #- tbamud__set_position
+      #- tbamud__track
+      #- tbamud__attack
+      #- tbamud__skill_strike
+      #- "tbamud__check(kind: inventory|equipment|gold|time|weather|levels|wimpy|toggle|where)"
+      #- tbamud__say
+      #- tbamud__tell
       # - tbamud__channel_say
-      - tbamud__get_item
-      - tbamud__drop_item
-      - tbamud__put_item
-      - tbamud__equip_item
-      - tbamud__consume_item
-      - tbamud__use_magic_item
-      - tbamud__cast_spell
-      - tbamud__shop
-      - tbamud__practice
+      #- tbamud__get_item
+      #- tbamud__drop_item
+      #- tbamud__put_item
+      #- tbamud__equip_item
+      #- tbamud__consume_item
+      #- tbamud__use_magic_item
+      #- tbamud__cast_spell
+      #- tbamud__shop
+      #- tbamud__practice
       #- tbamud__save_character
       #- tbamud__send_raw
       - tbamud__poll
-      - tbamud__mud_status
+      #- tbamud__mud_status - agent should never need to do this, it should be in hook.
 # EVERY tool the agent has comes from this block. boukensha ships none of its
 # own — it is an MCP host, and an empty mcp_servers means an agent that can
 # only talk. Each entry is one server process: command + args + env, the same

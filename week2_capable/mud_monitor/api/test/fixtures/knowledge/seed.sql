@@ -2,8 +2,8 @@
 --
 -- SQL, not a committed .sqlite3 binary: a binary fixture cannot be reviewed in
 -- a diff and rots silently the first time boukensha's schema moves. The DDL
--- below is a verbatim copy of Boukensha::Mud::Memory::Schema V1 + V2 (comments
--- stripped, and with V2's ALTERs folded into the player_state CREATE, which is
+-- below is a verbatim copy of Boukensha::Mud::Memory::Schema V1 + V2 + V3 (comments
+-- stripped, and with the migrations folded into the player_state CREATE, which is
 -- the shape a migrated file ends up in) — if a test starts failing because a
 -- column moved, THAT is the signal, and this file is where the drift is
 -- recorded. seed_v1.sql is the frozen pre-V2 copy, kept so the reader can be
@@ -19,8 +19,7 @@
 --   entity 4  has a threat verdict but NO threat_level (unmeasured level),
 --             and equipment, which is a JSON array string like look_candidates
 --   encounters  one row — the live DB has zero, so this is otherwise untested
---   player_state   the full V2 sheet, with char_class/race NULL because no
---             capture proves this build prints them
+--   player_state   the full V3 sheet, including profile-sourced identity
 --   player_skills  a learned one, an unlearned one, and one with no grade at
 --             all — proficiency is a WORD in this build, never a percent
 --   player_items   both locations, a stacked row, and an equipped row whose
@@ -97,8 +96,8 @@ CREATE TABLE player_state (
   alignment        INTEGER,
   age_years        INTEGER,
   title            TEXT,
-  char_class       TEXT,
-  race             TEXT,
+  player_class     TEXT CHECK (player_class IN ('magic_user','cleric','thief','warrior')),
+  gender           TEXT CHECK (gender IN ('m','f','n')),
   gold_bank        INTEGER,
   conditions       TEXT,
   practices_left   INTEGER,
@@ -137,7 +136,7 @@ CREATE TABLE encounters (
 );
 CREATE INDEX idx_encounters_entity ON encounters(entity_id);
 
-PRAGMA user_version = 2;
+PRAGMA user_version = 3;
 
 INSERT INTO rooms (id, weak_fingerprint, strong_fingerprint, confidence, name, description,
                    look_candidates, first_seen_at, last_seen_at, visit_count, surveyed_at) VALUES
@@ -189,16 +188,12 @@ INSERT INTO player_state (id, current_room_id, prev_room_id, last_direction,
                           hp, max_hp, mana, move, level, gold, exp, position,
                           session_id, updated_at,
                           max_mana, max_move, exp_to_next, armor_class, alignment, age_years,
-                          title, char_class, race, gold_bank, conditions, practices_left,
+                          title, player_class, gender, gold_bank, conditions, practices_left,
                           items_updated_at) VALUES
   (1, 5, 4, 'up', 18, 20, 100, 72, 2, 15, 900, 'Standing',
    '20260723T225532Z-7ed8c53a', '2026-07-23T22:56:01Z',
    162, 94, 1099, '94/10', 0, 17,
-   -- char_class and race are NULL because no capture proves this build's
-   -- `score` prints them. The columns are reserved, the values are not guessed.
-   -- (No semicolons in this block: reader_test strips the whole INSERT with a
-   --  regex that stops at the first one.)
-   'Derrano the Minister', NULL, NULL, NULL, 'hungry,thirsty', 30,
+   'Derrano the Minister', 'cleric', 'm', NULL, 'hungry,thirsty', 30,
    -- Deliberately OLDER than updated_at: the bag is a snapshot the agent has
    -- not refreshed since, and the UI has to say so rather than imply freshness.
    '2026-07-23T22:55:58Z');

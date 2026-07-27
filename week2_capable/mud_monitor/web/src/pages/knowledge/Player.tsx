@@ -120,11 +120,8 @@ export default function Player() {
       <h2>Score sheet</h2>
       <dl className="knowledge-facts">
         <Fact label="Title" value={player.title} />
-        {/* Reserved columns. They stay blank until a capture proves this build
-            prints class and race — `score` does not, and a guess here would be
-            the one thing this whole design refuses to do. */}
-        <Fact label="Class" value={player.char_class} />
-        <Fact label="Race" value={player.race} />
+        <Fact label="Class" value={player.player_class} />
+        <Fact label="Gender" value={player.gender} />
         <Fact label="Experience" value={player.exp} />
         <Fact
           label="Gold"
