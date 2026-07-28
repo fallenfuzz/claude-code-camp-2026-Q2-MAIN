@@ -1,0 +1,48 @@
+# A complete character reset.
+#
+# The seeder DELETES and RECREATES the character
+# (mud_manager/lib/mud_manager/character_seeder.rb), so this file is the whole
+# truth about the player — there is no "leftover from the last run" to reason
+# about. That is why there is no `purge` primitive: recreation IS the reset.
+
+description: "Level 10 cleric, banked, armed, standing in the Temple."
+
+# Guardrail, not configuration. The seeder's own comment warns that a dagger is
+# rejected by class restrictions; a cleric state applied to a warrior profile
+# fails as a refusal deep inside a telnet exchange. Declared here, it fails at
+# load time with a sentence instead.
+requires_class: cleric
+
+# Room vnum. 3001 is The Temple of Midgaard — tbaMUD's mortal start room, and
+# the same constant MudManager::Primitives::START_ROOM already names.
+location: 3001
+
+level: 10
+money:
+  gold: 5000
+  bank: 10000
+stats:
+  align: 0
+
+# MUD spellings, not YAML-ish ones. These strings are passed verbatim to
+# `skillset` — "cure light" is two words in tbaMUD, and `cure_light` is a typo
+# that costs you a run. Quote them.
+skills:
+  "armor": 75
+  "cure light": 75
+
+inventory:
+  - vnum: 3001
+    keyword: bottle
+    quantity: 2
+
+equipment:
+  # Clerics use blunt weapons; a dagger is rejected by class restrictions.
+  - vnum: 3023
+    keyword: club
+    quantity: 1
+    wear: wield
+  - vnum: 3043
+    keyword: jacket
+    quantity: 1
+    wear: wear

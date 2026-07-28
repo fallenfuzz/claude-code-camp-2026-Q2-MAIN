@@ -12,6 +12,7 @@ export default function Layout() {
         <nav>
           <Link to="/">Dashboard</Link>
           <Link to="/sessions">Sessions</Link>
+          <Link to="/reports">Reports</Link>
           <Link to="/manager">Manager</Link>
           <Link to="/telnet">Telnet</Link>
           <Link to="/errors">Errors</Link>

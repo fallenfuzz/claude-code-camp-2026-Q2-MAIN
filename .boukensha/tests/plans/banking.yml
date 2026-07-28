@@ -1,0 +1,26 @@
+name: banking
+description: "Everything the agent has to get right around money."
+
+defaults:                    # applied to every case below
+  player_profile: Derrano
+  map_memory: none
+
+cases:
+  - scenario: withdraw_money
+    batch: 5
+    session_name: withdraw_money
+
+  - scenario: withdraw_money
+    batch: 5
+    session_name: withdraw_money (rich, cold map)
+    base_initial_state: wealthy        # REPLACES the scenario's state file
+    initial_state_overrides:           # deep-merged on top of it
+      money: { gold: 0 }
+
+  - scenario: find_bakery
+    batch: 1
+    player_profile: Dummy              # overrides the plan default
+    # Dummy is a warrior, and `cleric` declares `requires_class: cleric`, so the
+    # state has to change with the profile. This is the guardrail earning its
+    # keep at plan-authoring time instead of twenty minutes into a batch.
+    base_initial_state: warrior

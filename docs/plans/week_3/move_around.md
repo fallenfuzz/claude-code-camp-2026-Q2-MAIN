@@ -370,3 +370,123 @@ Two constraints on how it could be built:
 5. **`frontier_attempts`** — the 5% failed-move rate, `plan_route.md` §6.3.
 6. **Budget** — resolve caching-vs-`turn_policy`, drop the dead
    `max_iterations`, and only then look at transcript compaction (the 20%).
+
+
+Here's a concrete trace of what §11's acceptance scenario ("bakery already mapped") looks like turn-by-turn, using the real data from the doc — Bakery is room #12, reachable from Market Square via west → north — plus the v1 tool contract from plan_route.md. This merges two documents: the shipped v1 spec (no execute_route) and the week_3 doc's proposed extension (batched execute_route), which is explicitly an open decision, not something built. I've labeled which is which.
+
+Trace A — v1 as specced (one move per iteration)
+
+Iteration 0
+- Sees: [here] Market Square (visit 15) / exits: east→Main Street ✓ | north→The Temple Square ✓ | south→The Common Square ✓ | west→Main Street ✓ + user goal "find the bakery and list the menu"
+- Reasons: system prompt (§7) says: "For any goal to find or travel to a place, call plan_route first."
+- Calls: plan_route(destination: "bakery")
+- Returns (per §3.2, known format, computed by BFS ov
+[route] bakery — known
+to: The Bakery (#12)
+path: west → north
+2 moves: Market Square → Main Street → The Bakery
+
+Iteration 1
+- Sees: the route result above; [here] still Market Square (plan_route did no MUD I/O)
+- Reasons: follow step 1 of the returned path
+- Calls: tbamud__move(direction: "west")
+- Returns: raw MUD text ("You walk west.\n[Main Stree moved west → Main Street per the raw/model-receivedsplit in §1. Hook rebuilds [here] for next turn.
+
+Iteration 2
+- Sees: [here] Main Street ... (no new user message — this is the "does the agent have to reason every turn" question from
+move_around.md; under v1, yes, one call per iteration
+- Reasons: follow step 2
+- Calls: tbamud__move(direction: "north")
+- Returns: moved north → The Bakery
+
+Iteration 3
+- Sees: [here] The Bakery ... — arrival confirmed by y an extra look (§11 explicitly requires this)
+- Reasons: destination reached; task also needs the menu, so a model-selected look/examine here is legitimate (the forbidden case is only pre-context look before iteration 0)
+- Calls: tbamud__look(target: "menu") (or whatever thspecified in either doc)
+- Returns: menu text → model writes the final answer.
+
+Result: 1 plan_route + 2 move + 1 look = 4 tool calls6k-token session that never arrived.
+
+Trace B — with the proposed execute_route (week_3 doc §6, undecided)
+
+Iteration 0 is identical. Then:
+
+Iteration 1
+- Sees: the same known route result
+- Reasons: route is fully known, so hand off the wholon at a time
+- Calls: execute_route(steps: ["west", "north"]) — internally this is N sequential MUD sends inside one tool call, polling and
+reconciling between each step (not a raw ;-joined commmand support is unverified)
+- Returns:
+[route] executed 2/2
+step 1: west → Main Street (ok)
+step 2: north → The Bakery (ok)
+arrived: The Bakery (#12)
+unless an interrupting-classified poll event fires mi, in which case it returns early:
+[route] executed 1/2 — stopped
+step 1: west → Main Street (ok)
+stopped: combat detected ("The creepy crawler misses
+remaining: north
+
+Iteration 2 — the menu lookup, same as Trace A's iteration 3.
+
+Result: 1 plan_route + 1 execute_route + 1 look = 3 travel iterations into 1. This is the 5× leverage claimin §6, but it's the part of the plan that isn't built and isn't agreed — it needs the event classifier
+(informational/notable/interrupting) built first, or in progress becomes invisible until arrival.
+
+The unmapped-destination case (briefer, since neitherrace)
+
+Same iteration 0 shape, but plan_route returns explore:
+[route] bakery — explore
+clue: Market Street (#18) mentions shops and food
+frontier: east from Market Street
+path: north → east
+2 known moves, then explore east
+The model walks the two known moves as normal move calls, then issues one more move in the frontier direction — which is just an ordinary tbamud__move, not a special tool. Whatever room that reveals, Hooks#before_model's survey logic writes it into rooms/room_exits, and the
+next plan_route call sees it. If it's not the bakery,an continuing to explore blind — that re-plan is themechanism answering move_around.md's "does it move randomly X times and reformulate" question: no, it re-plans after every unmatched
+frontier step, not after a fixed count.
+-----
+What's actually undecided, per the doc's own §6 and §cute_route gets built at all, and whether the eventclassifier needed to make it safe gets built first or after.
+
+Pulling directly from what both docs flag as open (not settled by the doc itself), here are the real decisions, ordered by how much they block everything else:
+
+1. Build execute_route (batched movement) or not? — the one the doc calls out explicitly as your call
+
+- A — Stay v1-only: one move per model turn, forever. Safest, fully observable, but the ~98%-of-cost-is-model-reasoning problem stays.
+- B — Add execute_route now: collapses a known route into one tool call (~5× fewer iterations on travel). But it's unsafe without the event classifier (decision below) — a fight starting mid-route is invisible until arrival.
+- C — Build plan_route now, gate execute_route behind the classifier: what the doc leans toward without quite saying so.
+[Decision] B: An event classified should be built but at this stage? Yes but lets keep it simple with the regex first.
+
+2. Prompt caching vs. per-turn tool narrowing (memory.turn_policy) — mutually exclusive, not just a tradeoff
+
+turn_policy rewrites the advertised tool list every iteration (pinning move to the current room's real exits). Caching requires the tool list to stay identical across calls. You cannot have both.
+- A — Leave turn_policy off (its current state), get caching once the prefix crosses the 4,096-token minimum.
+- B — Turn turn_policy on, accept 0% cache hit rate permanently.
+[Decision] I have currently just commented out most tools, to defer this decision for later. I am going to add tools back when I explore different scenarios to best figure out if they even need to be honestly cached or another conditional system can be built.
+
+3. How to actually get caching working
+
+The fixed prefix (~3,270 tokens) is currently under haiku's 4,096-token minimum, so cache_control today would silently do nothing.
+- A — Do nothing: adding plan_route + its prompt section pushes the prefix over 4,096 as a side effect.
+- B — Switch the player model to sonnet/opus (lower minimums: 1,024 / 512).
+- C — Accept ~$0.06/turn and treat token budget as a capability limit, not a cost problem.
+[Decision] No change to caching right now.
+
+4. Ambiguous-destination policy
+
+When plan_route's search returns several close-scoring rooms (e.g. "square" matching 4 rooms) — always surface alternatives and make the model ask the user, or allow picking-nearest when the task context makes that safe? plan_route.md leans toward always surfacing, but explicitly leaves the exception open.
+[Decision] the human user never decides. The player agent does. The agent would reason a turn to choose the path to execute
+
+5. max_iterations vs max_turn_tokens
+
+max_iterations (25) has never fired in any measured session; max_turn_tokens (60,000) is the real limiter. Two ceilings, one dead.
+- A — Delete max_iterations, document token budget as the only limit.
+- B — Lower it to something that actually binds, as a genuine second guardrail.
+[Decision] its true that max_iterations is useless right now. We will leave it alone and revisit later.
+
+
+6. Does the state block ever hint at known destinations?
+
+Both docs lean toward "no — keep [here] minimal, put the map behind plan_route" — but that's why the bakery session failed: the agent never thought to call the tool. Confirming "prompt wording alone fixes this" vs. adding some lightweight nudge is a real call, not just a formality.
+[Decision] We dont know how the model with act, so we will need to ship the simple rule in the system prompt
+
+---
+Not open — already settled by the docs, no action needed: plan_route as a native tool (not a subagent), BFS over Dijkstra, lexical search before FTS5/embeddings.

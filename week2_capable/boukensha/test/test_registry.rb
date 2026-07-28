@@ -56,4 +56,49 @@ class TestRegistry < Minitest::Test
     refute_includes reg.tool_names, "native_probe"
     assert_raises(Boukensha::UnknownToolError) { reg.dispatch("native_probe") }
   end
+
+  # Tool-name resolution: a model that drops the `tbamud__` prefix (which it
+  # was never supposed to need to parse) should still reach the tool, as long
+  # as there's exactly one registered tool ending in `__<bare name>`.
+  def test_dispatch_resolves_a_bare_call_to_its_one_prefixed_tool
+    ctx = Boukensha::Context.new(system: "t")
+    reg = Boukensha::Registry.new(ctx)
+    reg.tool("tbamud__examine", description: "d") { |**kwargs| "examined:#{kwargs[:target]}" }
+
+    assert_equal reg.dispatch("tbamud__examine", target: "baker"),
+                 reg.dispatch("examine", target: "baker")
+  end
+
+  def test_dispatch_raises_unknown_tool_when_bare_call_is_ambiguous
+    ctx = Boukensha::Context.new(system: "t")
+    reg = Boukensha::Registry.new(ctx)
+    reg.tool("tbamud__examine", description: "d") { |**_| "a" }
+    reg.tool("other__examine", description: "d") { |**_| "b" }
+
+    assert_raises(Boukensha::UnknownToolError) { reg.dispatch("examine") }
+    assert_equal "a", reg.dispatch("tbamud__examine")
+    assert_equal "b", reg.dispatch("other__examine")
+  end
+
+  def test_dispatch_prefers_a_directly_registered_bare_tool_over_resolution
+    ctx = Boukensha::Context.new(system: "t")
+    reg = Boukensha::Registry.new(ctx)
+    reg.tool("examine", description: "d") { |**_| "bare" }
+    reg.tool("tbamud__examine", description: "d") { |**_| "prefixed" }
+
+    assert_equal "bare", reg.dispatch("examine")
+  end
+
+  def test_dispatch_raises_unauthorized_not_unknown_for_a_denied_bare_call
+    ctx = Boukensha::Context.new(system: "t")
+    perms = Boukensha::Permissions.deny_all
+    reg = Boukensha::Registry.new(ctx, permissions: perms)
+
+    # deny_all means `tool` never registers it in the first place, so exercise
+    # the permission gate directly at the dispatch layer instead.
+    ctx.register_tool(Boukensha::Tool.new("tbamud__examine", "d", {}, proc { |**_| "ok" }))
+
+    err = assert_raises(Boukensha::UnauthorizedToolError) { reg.dispatch("examine") }
+    assert_match(/not permitted/, err.message)
+  end
 end

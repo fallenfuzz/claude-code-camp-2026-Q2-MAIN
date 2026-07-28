@@ -1,0 +1,34 @@
+# The other end of the money axis from `cleric`: nothing banked, everything in
+# hand. Same character, so `requires_class` matches.
+
+description: "Level 10 cleric, carrying a fortune and banking none of it."
+
+requires_class: cleric
+
+location: 3001
+
+level: 10
+money:
+  gold: 25000
+  bank: 0
+stats:
+  align: 0
+
+skills:
+  "armor": 75
+  "cure light": 75
+
+inventory:
+  - vnum: 3001
+    keyword: bottle
+    quantity: 2
+
+equipment:
+  - vnum: 3023
+    keyword: club
+    quantity: 1
+    wear: wield
+  - vnum: 3043
+    keyword: jacket
+    quantity: 1
+    wear: wear

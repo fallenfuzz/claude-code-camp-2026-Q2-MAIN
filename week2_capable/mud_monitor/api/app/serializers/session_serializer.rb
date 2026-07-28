@@ -12,6 +12,12 @@ class SessionSerializer
     timing  = SessionLog::Timing.new(p).summary
     {
       id: p.id,
+      # Provenance and naming (batch_sesssion_testing.md §1). `launch` is nil on
+      # a log written before the contract existed, which the UI reads as
+      # "legacy / unknown" rather than guessing.
+      name: p.name,
+      launch: p.launch,
+      mode: p.launch_mode,
       started_at: p.started_at,
       ended_at: p.ended_at,
       duration_ms: timing[:wall_ms],

@@ -60,8 +60,34 @@ tools:
       - tbamud__examine
 
 tasks:
+  # Tier 2 of the batch test harness (docs/plans/week_3/batch_sesssion_testing.md
+  # §6.1): reads a trace digest of one case and answers whether the agent did
+  # what the scenario's rubric asked. It is a task like any other, so swapping
+  # its model is config-only — which matters, because "how strong must a judge
+  # be" is settled by the cost attribution in the report, not by an argument.
+  #
+  # Starting position: Sonnet judging Haiku. A judge weaker than the player is
+  # not credible; a judge as strong as the player is most of the run's cost.
+  #
+  # No `allow:` block, and none is wanted: the judge reads text and answers
+  # JSON. The harness runs it with `tools: false` so it never opens a second
+  # telnet login for tools it cannot use.
+  judge:
+    provider: anthropic
+    # Must be one the backend actually knows — `Backends::Anthropic::MODELS`
+    # is an allowlist with a price row per entry, not a passthrough, so a model
+    # it has never heard of fails at construction with no cost attribution
+    # possible. Today that list is: claude-haiku-4-5, claude-opus-4-8,
+    # claude-sonnet-4-6.
+    model: claude-sonnet-4-6
+    max_iterations: 1
+    # Enough for the verdict object with one entry per rubric line. A judge
+    # that runs out of tokens mid-JSON is recorded as an error, never as a
+    # silent pass — but it is cheaper to give it room than to retry it.
+    max_output_tokens: 2048
+
   player:
-    provider: anthropic 
+    provider: anthropic
     model: claude-haiku-4-5
     #provider: gemini 
     #model: gemini-3.5-flash
@@ -93,6 +119,8 @@ tasks:
     # There are no native tools here any more. `inspect_room` used to be one;
     # the state block replaced it, and the tool surface shrank by one.
     allow:
+      - plan_route
+      - execute_route
       - tbamud__move
       - tbamud__consider
       - tbamud__examine
@@ -112,7 +140,7 @@ tasks:
       #- tbamud__consume_item
       #- tbamud__use_magic_item
       #- tbamud__cast_spell
-      #- tbamud__shop
+      - tbamud__shop
       #- tbamud__practice
       #- tbamud__save_character
       #- tbamud__send_raw

@@ -65,6 +65,7 @@ module Boukensha
     max_output_tokens: nil,
     working_dir:      Dir.pwd,
     hooks:            nil,
+    launch:           nil,
     &block
   )
     cfg           = config                           # loads .env; populates ENV
@@ -93,7 +94,7 @@ module Boukensha
       context_window:    context_window,
       model:             model,
       provider:          backend
-    })
+    }.merge(launch || {}))
 
     dsl = RunDSL.new(registry, logger: logger)
     dsl.instance_eval(&block) if block
@@ -135,6 +136,11 @@ module Boukensha
     working_dir:      Dir.pwd,
     tui:              true,
     hooks:            nil,
+    # The provenance hash from Boukensha::Launch — `{session_name:, launch:}` —
+    # merged into `session_start` through the snapshot the Logger already
+    # takes. One optional keyword rather than a new logger parameter, because
+    # the snapshot is exactly the hook this was designed for.
+    launch:           nil,
     &block
   )
     cfg           = config                           # loads .env; populates ENV
@@ -161,7 +167,7 @@ module Boukensha
       context_window:    context_window,
       model:             model,
       provider:          backend
-    })
+    }.merge(launch || {}))
 
     dsl = RunDSL.new(registry, logger: logger)
     dsl.instance_eval(&block) if block
@@ -189,7 +195,8 @@ module Boukensha
       model:      model,
       version:    VERSION,
       api_key:    api_key,
-      servers:    servers
+      servers:    servers,
+      session_name: (launch || {})[:session_name] || (launch || {})["session_name"]
     )
 
     if tui && defined?(Tui)
@@ -228,7 +235,12 @@ module Boukensha
   # mints its own file as before, which is what standalone callers and tests
   # want. A borrowed logger is never closed here: it belongs to the parent, and
   # closing it would silently truncate the rest of the parent's turn.
-  def self.run_task(task_class, input, log: nil, logger: nil, max_output_tokens: nil, ollama_host: "http://localhost:11434")
+  # `tools:` — false registers NO tools and skips MCP entirely. A task that
+  # reads text and answers text (the judge) would otherwise spawn every
+  # configured server just to register zero of their tools behind a deny-all
+  # allowlist — which for the `mud` server means a second telnet login, taken
+  # out from under whatever else is playing.
+  def self.run_task(task_class, input, log: nil, logger: nil, max_output_tokens: nil, tools: true, ollama_host: "http://localhost:11434")
     cfg            = config
     task_settings  = cfg.tasks(task_class.task_name)
     system         = task_class.system_prompt(task_settings, user_prompts_dir: cfg.user_prompts_dir, default_prompts_dir: Config::PROMPTS_DIR)
@@ -242,8 +254,10 @@ module Boukensha
     perms    = task_permissions(cfg, task_class.task_name)
     ctx      = Context.new(system: system, context_window: context_window, working_dir: Dir.pwd, compaction_threshold: cfg.agent_compaction_threshold)
     registry = Registry.new(ctx, permissions: perms)
-    register_task_tools(registry, cfg, perms)   # shared session, scoped by the task's filter
-    perms.validate_referenced!(registry.tool_names)   # no block/native tools here, so this can run immediately
+    if tools
+      register_task_tools(registry, cfg, perms)   # shared session, scoped by the task's filter
+      perms.validate_referenced!(registry.tool_names)   # no block/native tools here, so this can run immediately
+    end
     be       = build_backend(backend, api_key: api_key, model: model, ollama_host: ollama_host)
     builder  = PromptBuilder.new(ctx, be)
     client   = Client.new(builder)
@@ -477,6 +491,7 @@ require_relative "boukensha/errors"
 require_relative "boukensha/registry"
 require_relative "boukensha/prompt_builder"
 require_relative "boukensha/operation"
+require_relative "boukensha/launch"
 require_relative "boukensha/logger"
 require_relative "boukensha/journal"
 require_relative "boukensha/backends/base"

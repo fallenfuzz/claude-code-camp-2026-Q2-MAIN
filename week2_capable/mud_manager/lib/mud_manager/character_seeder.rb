@@ -169,6 +169,9 @@ module MudManager
         raise Error, "skill name is required" if skill.to_s.strip.empty?
         raise Error, "#{skill} percent must be 0..100" unless percent.is_a?(Integer) && percent.between?(0, 100)
       end
+      if (location = uplift[:location])
+        raise Error, "uplift location must be a positive room vnum" unless location.is_a?(Integer) && location.positive?
+      end
       seed_items.each do |entry|
         raise Error, "item vnum must be positive" unless entry[:vnum].is_a?(Integer) && entry[:vnum].positive?
         raise Error, "item keyword must be one token" unless entry[:keyword].to_s.match?(/\A[[:alnum:]_]+\z/)
@@ -244,7 +247,56 @@ module MudManager
           issue(admin, Primitives.give(entry[:keyword], @config[:player_name]))
         end
       end
+      place_player(admin, uplift[:location]) if uplift[:location]
     end
+
+    # Put the character in a known room.
+    #
+    # `teleport <victim> <location>`, NOT `transfer <player> <vnum>`. The MUD's
+    # own help file is unambiguous about which is which (help.hlp, "GOTO
+    # TRANSFER TRANSPORT TELEPORT"):
+    #
+    #     trans [target]                 pulls target to the room YOU are in
+    #     teleport [target] <location>   sends target to a room vnum
+    #
+    # `trans` takes no destination at all, so the two-argument form the design
+    # sketch reached for would have been parsed as something else entirely —
+    # and this runs last in the uplift, after `goto <player>` has already moved
+    # the immortal, so a `trans` would have "worked" by leaving the player
+    # exactly where they already were. That is the silent-placement-failure
+    # this method exists to make impossible.
+    def place_player(admin, location)
+      banner "Placing #{@config[:player_name]} in room #{location}"
+      issue(admin, Primitives.teleport(@config[:player_name], location))
+      assert_placement!(admin, location)
+    end
+
+    # Read the room back off the MUD rather than trusting the command took.
+    # Silent placement failure means every case in a batch starts somewhere
+    # unintended, and the whole run is garbage that looks like data.
+    #
+    # `at <vnum> look` runs the look in that room without moving the immortal
+    # (help.hlp, "WIZAT AT"), and tbaMUD lists the characters standing there —
+    # so the player's own name appearing in the output is a direct assertion of
+    # "is in this room", with no vnum→name table to keep in sync.
+    def assert_placement!(admin, location)
+      view = issue(admin, Primitives.at_location(location, "look"), allow_refusal: true)
+      # Stripped before matching. tbaMUD colours the character list, and a
+      # colour code ENDS in `m` — a word character — so in
+      # "\e[0;33mDerrano the Minister" there is no word boundary before the
+      # name and `\bDerrano` never matches. Dropping the `\b` instead would
+      # make "Derranos" and "Derrano's corpse" count as a match, which is the
+      # opposite of what an assertion is for.
+      plain = strip_ansi(view)
+      return if plain.match?(/\b#{Regexp.escape(@config[:player_name])}\b/i)
+
+      raise Error, "#{@config[:player_name]} is not in room #{location} after teleport; " \
+                   "`at #{location} look` returned: #{plain.strip.inspect}"
+    end
+
+    ANSI = /\e\[[0-9;]*[A-Za-z]/.freeze
+
+    def strip_ansi(text) = text.to_s.gsub(ANSI, "")
 
     def dress_player(player)
       banner "Equipping player"

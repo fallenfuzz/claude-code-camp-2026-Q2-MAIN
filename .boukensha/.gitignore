@@ -1,0 +1,9 @@
+# Runtime logs. Written on every run, append-only, reproducible only by playing —
+# they bury real changes in the diff. Ignored in git, still kept on disk.
+*.log
+
+# Per-profile append-only jsonl log streams (one file per day / per session).
+profiles/*/sessions/
+profiles/*/journal/
+profiles/*/manager/
+profiles/*/telnet/

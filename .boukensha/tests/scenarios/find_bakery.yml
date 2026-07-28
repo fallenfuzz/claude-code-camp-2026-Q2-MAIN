@@ -1,0 +1,42 @@
+session_name: find_bakery
+player_profile: Derrano        # supplies name/password/gender/class
+goal: "Find the bakery and list the menu."
+
+base_initial_state: cleric     # states/cleric.yml
+initial_state_overrides:
+  money:
+    gold: 0                    # overrides the loaded initial state
+
+map_memory: none               # none | keep | copy:<profile> | snapshot:<name>
+
+limits:                        # per-case ceilings; override settings.yaml
+  max_iterations: 15
+  max_turn_tokens: 40000
+  wall_timeout_s: 180
+
+# ── Deterministic gate ────────────────────────────────────────────────
+# Cheap, non-flaky, and evaluated BEFORE the judge. Everything here is a
+# projection of the session .jsonl; nothing calls a model.
+expect:
+  tool_called:     [plan_route, execute_route, "tbamud__shop(action: list)"]
+  tool_not_called: ["tbamud__examine(target: menu)"]
+  final_room:      "The Bakery"      # from knowledge.sqlite3 player_state
+  max_model_tool_calls: 6
+  max_cost_usd: 0.02
+
+# ── Judge ─────────────────────────────────────────────────────────────
+# Everything `expect` cannot express: sequencing, intent, and whether the
+# reasoning was sane rather than merely lucky.
+evaluation:
+  desired_behaviour: |
+    The agent should plan a route:
+    plan_route(destination: "bakery")
+    The agent should execute the route:
+    execute_route(steps: ["south","south","west","north"])
+    When the agent arrives they should call list and see the menu:
+    tbamud__shop(action: "list", args: "")
+  undesired_behaviour: |
+    The agent should not reason to call examine on the menu:
+    tbamud__examine(target: "menu")
+    The agent should not reason to call examine on the baker to see the menu:
+    tbamud__examine(target: "baker")

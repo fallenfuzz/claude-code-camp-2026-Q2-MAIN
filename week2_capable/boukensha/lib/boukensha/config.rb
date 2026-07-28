@@ -12,8 +12,16 @@ module Boukensha
     #   2. ~/.boukensha  (default)
     DEFAULT_DIR = File.join(Dir.home, ".boukensha").freeze
 
-    # Default prompts shipped alongside this step.
-    PROMPTS_DIR = File.expand_path("../../../prompts", __dir__).freeze
+    # Default prompts shipped alongside this step: `<step>/prompts/`.
+    #
+    # This was `../../../prompts` — one level too far up, resolving to
+    # `week2_capable/prompts`, which has never existed. Every default prompt
+    # lookup therefore returned nil. It went unnoticed because the only task
+    # that existed set `prompt_override: {system: true}` and read from the
+    # user's `.boukensha/prompts/player/system.md` instead, never touching this
+    # path. The judge is the first task to rely on a bundled default, and it
+    # was silently getting no system prompt at all.
+    PROMPTS_DIR = File.expand_path("../../prompts", __dir__).freeze
 
     attr_reader :root_dir, :profile_dir, :profile, :settings
 
@@ -49,6 +57,12 @@ module Boukensha
     def user_prompts_dir
       File.join(@root_dir, "prompts")
     end
+
+    # Test fixtures: states, scenarios, plans, reports. Resolved off the ROOT
+    # dir, not the profile dir — a scenario names the profile it wants, so the
+    # fixtures themselves are shared across profiles and so are the reports
+    # that compare them.
+    def tests_dir = File.join(@root_dir, "tests")
 
     # ---------- provider --------------------------------------------------
 

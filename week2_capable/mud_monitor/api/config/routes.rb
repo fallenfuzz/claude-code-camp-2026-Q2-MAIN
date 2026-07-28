@@ -34,6 +34,11 @@ Rails.application.routes.draw do
 
       get "diffs/dropped", to: "diffs#dropped"
 
+      # Batch test-run reports. A report is written once when a run finishes, so
+      # there is no cursor to follow and no /stream sibling — the same
+      # distinction `knowledge` draws just below, for the same reason.
+      resources :reports, only: %i[index show]
+
       # The agent's world memory. A snapshot, not a log — no /stream sibling,
       # because there is no cursor to follow (see KnowledgeController).
       get "knowledge",           to: "knowledge#show"

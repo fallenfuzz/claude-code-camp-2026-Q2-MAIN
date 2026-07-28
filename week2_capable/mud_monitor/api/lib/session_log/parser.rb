@@ -76,6 +76,8 @@ module SessionLog
       @snapshot            = {}
       @usage_series        = []
       @peak_input_tokens   = 0
+      @name                = nil
+      @launch              = nil
     end
 
     def parse!
@@ -107,6 +109,16 @@ module SessionLog
         when "session_start"
           @started_at = event["at"]
           @snapshot   = event           # carries the limits/model denominators
+          # Provenance. Nil on every log written before §1 existed, which the UI
+          # reads as "legacy / unknown provenance" — the same pattern
+          # `has_provenance?` and `has_operations?` already use.
+          @launch     = event["launch"]
+          @name       = event["session_name"]
+        when "session_rename"
+          # A name is mutable and the log is append-only, so the name is the
+          # LAST one the file mentions. Folded here rather than scanned later so
+          # a crashed rename cannot corrupt the one before it.
+          @name = event["session_name"]
         when "turn"
           current_turn = event["n"]
           pending_user = true
@@ -334,6 +346,21 @@ module SessionLog
     end
 
     # ---- denominators sourced from the session_start snapshot ------------
+    # ---- provenance and naming (batch_sesssion_testing.md §1) --------------
+
+    # The session's name, or nil. Not the id: a list of
+    # `20260728T143241Z-fef86633` is unreadable at twenty rows, and this is the
+    # whole reason naming exists.
+    def name = @name
+
+    # How and by whom this session was started, or nil on a legacy log.
+    def launch = @launch
+
+    # `interactive` | `test` | nil. THE field the session list filters on: a
+    # hand-driven exploration and an automated case are otherwise
+    # indistinguishable, and the moment batch runs exist the list is 95% robot.
+    def launch_mode = @launch && @launch["mode"]
+
     def iteration_max   = @snapshot["max_iterations"]
     def max_turn_tokens = @snapshot["max_turn_tokens"]
     def context_window  = @snapshot["context_window"]

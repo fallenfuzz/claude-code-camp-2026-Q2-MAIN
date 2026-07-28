@@ -1,5 +1,33 @@
+/**
+ * How and by whom a session was started. Null on every log written before the
+ * provenance contract existed, which the UI renders as "legacy / unknown"
+ * rather than guessing — the same discipline `has_provenance` already follows.
+ */
+export interface SessionLaunch {
+  mode: "interactive" | "test";
+  runner: string;
+  profile: string | null;
+  scenario?: string;
+  plan?: string;
+  run_id?: string;
+  case_index?: number;
+  batch_size?: number;
+  state?: string;
+  map_memory?: string;
+  goal?: string;
+  boukensha_version?: string;
+  git_sha?: string;
+  /** SHA-256 over settings.yaml + the system prompt in force. Two sessions that disagree are usually two configurations. */
+  settings_digest?: string;
+}
+
 export interface SessionSummary {
   id: string;
+  /** The session's name, or null. The primary label in the list — a column of raw ids is unreadable at twenty rows. */
+  name: string | null;
+  launch: SessionLaunch | null;
+  /** Convenience projection of launch.mode; null on a legacy log. */
+  mode: "interactive" | "test" | null;
   started_at: string | null;
   ended_at: string | null;
   duration_ms: number | null;
@@ -773,5 +801,104 @@ export interface ErrorPage {
   previous_cursor?: number | null;
   live: boolean;
   available: boolean;
+  profile: string;
+}
+
+// --- Batch test-run reports (batch_sesssion_testing.md §6.2) ----------------
+// A report is a DERIVATION over session logs plus a judge verdict, not a second
+// telemetry channel: every case links back to the session it describes, and
+// `session_id` is the join key rather than duplicated content.
+
+export interface ReportSummary {
+  id: string;
+  kind: "scenario" | "plan" | string;
+  name: string;
+  started_at: string | null;
+  ended_at: string | null;
+  profile: string | null;
+  provider: string | null;
+  model: string | null;
+  /** Runs with differing digests measured different configurations and must not be compared. */
+  settings_digest: string | null;
+  git_sha: string | null;
+  cases: number;
+  passed: number;
+  failed: number;
+  errored: number;
+  pass_rate: number | null;
+  cost_usd: number | null;
+  /** Per-case model tool calls, in case order. Variance IS the measurement. */
+  tool_calls_series: (number | null)[];
+  unreadable?: boolean;
+}
+
+export interface ReportExpectation {
+  kind: string;
+  rule: string;
+  ok: boolean;
+  detail?: string;
+}
+
+export interface ReportJudge {
+  verdict: "pass" | "fail" | "error";
+  confidence?: number | null;
+  reasoning?: string;
+  desired?: { behaviour: string; met: boolean; evidence?: string | null }[];
+  undesired?: { behaviour: string; occurred: boolean; evidence?: string | null }[];
+  /** The judge's OWN session, openable when you distrust a verdict. */
+  session_id?: string | null;
+  error?: string;
+}
+
+export interface ReportCase {
+  index: number;
+  scenario: string;
+  /** The join key back to /sessions/:id. Null when the case died before writing a log. */
+  session_id: string | null;
+  session_name: string | null;
+  profile: string;
+  status: "pass" | "fail" | "error";
+  /** Embedded, not referenced: state files change, and a report naming one is worthless six weeks later. */
+  resolved_state?: Record<string, unknown>;
+  base_initial_state?: string | null;
+  map_memory?: Record<string, unknown>;
+  facts?: Record<string, number | string | boolean | null>;
+  expectations?: ReportExpectation[];
+  judge?: ReportJudge;
+  error?: string;
+  error_kind?: string;
+}
+
+export interface ReportDetailDocument {
+  id: string;
+  schema: number;
+  run_id: string;
+  kind: string;
+  name: string;
+  started_at: string;
+  ended_at: string;
+  environment: Record<string, unknown>;
+  summary: {
+    cases: number;
+    passed: number;
+    failed: number;
+    errored: number;
+    pass_rate: number | null;
+    cost_usd: { agent: number | null; judge: number | null; total: number | null };
+    median: Record<string, number>;
+    p90: Record<string, number>;
+    failure_modes: Record<string, number>;
+  };
+  cases: ReportCase[];
+}
+
+export interface ReportsPage {
+  reports: ReportSummary[];
+  dir: string;
+  profile: string;
+}
+
+export interface ReportPage {
+  report: ReportDetailDocument;
   profile: string;
 }

@@ -38,8 +38,98 @@ for us. Things we will do:
 - conditional tools based on location, situation
 - reitroduce tools when need or force through a new composite tool.
 
+I ended up going down a rabbit hole because if we introduce facts we need to conditionally inject them and also conditionally include tools, so ChatGPT and Claude started dicussing how we conditionally detect changes and we ended up look at building a planner for the goal and subgoal system. This is too much for now so lets keep on task.
+
 ## Step 3 House Cleaning
-- comment out all tools we know we have yet to ever use.
+- comment out all tools we know we have yet to ever use. We will add them we nee them.
+- Added profile.yaml params class and gender so we can get that into our knowledbase
+docs/plans/week_2/add_missing_player_stats
+
+## Step 4 - Moving Around Part 2
+
+So I revisted it asking more questions and it gave me the option to have a planned route and the main agent does turn-per-turn, or the route is planned and once selected its executed, and needs a system to watch common events.
+
+I want the latter obviously because its more effiecent and Claude wanted to use regex to detect common events to break out of that batched movement. But it surfaced an event where an NPC commented you not wearing anything. Tim pointed out talking to them gives a full suit of equiptment, the agent would have totally missed the oppurunity. 
+
+It works very well.
+
+⚙ plan_route(destination: "bakery")
+[route] bakery — known
+to: The Bakery (#12)
+path: south → south → west → north
+4 moves: The Temple Of Midgaard → The Temple Square → Market Square → Main Street → The Bakery
+
+⚙ execute_route(steps: ["south","south","west","north"])
+[route] executed 4/4
+step 1: south → The Temple Square (ok)
+step 2: south → Market Square (ok)
+step 3: west → Main Street (ok)
+step 4: north → The Bakery (ok)
+arrived: The Bakery
+
+I had to add back in `tbamud__shop` tool since the agent had no way to list the menu, and wasted considerable calls using examine.
+
+One unexpected surpise was failing tools: 
+⚙ examine(target: "baker")
+error
+ERROR: Boukensha::UnknownToolError: No tool registered as 'examine'
+⚙ shop(action: "list", args: "")
+error
+ERROR: Boukensha::UnknownToolError: No tool registered as 'shop'
+
+Haiku keeps dropping the prefix, we could amend the system prompt but this might keep failing even told to match the tool name.
+THe fix for now: if a called name isn't registered but exactly one registered tool ends in __<name>, resolve to it.
+
+docs/plans/week_3/toolname_resolve.md
+
+I thought that the agent was running really fast but when I looked at Mud Monitor it would say 15 seconds.
+I used Jaeger to get a breakdown and used my stop watch to track, I guess it is 15s but it just feels faster.
+
+I was able to observe the fallback working
+⚙ examine(target: "baker")
+   A fat, nice looking baker.  But you can see that he has many scars on his
+body.
+The baker is in excellent condition.
+
+The baker is using:
+<wielded> 
+
+Though the agent keeps thinking it needs to examine first the bakery instead of using the shop.
+CircleMud supports more than one shop in a room 
+list baker
+list armorer
+We need to figure a way to force the correct command.
+
+## Step 5 - Correct Context For Commands
+
+Context Commands is about ensuring the correct commands are getting called based on if the agent is in a room, it should have affordance to know that it can buy, sell, and etc. or if in a bank to use the bank commands. 
+
+docs/plans/week_3/context_commands
+
+I developed this plan with Claude but I realize I really need to write out agent scenarios for us to test against.
+
+## Step 6 - Agent Scenarios
+
+Agent scenarios will act like our test suite. 
+We define a start state of the player, we execute said task via a sesssion, the AI will anaylze and determine how it performed against what we expect the agent to do.
+
+I have created a docs/AGENT_SCENARIOS.md
+
+I think I need to add the ability to name a session, so we can programmtically trigger a session run.
+
+docs/plans/week_3/batch_sesssion_tesing.md
+
+We can now run batches of scenarios, currently my find_bakery scenario test is failing because it loads no map as intended when seeding the user. Random movement we overlooked earlier we know it does random fanout movement. 
+
+We need create better logic for random exploration, I think the agent having a sense of boundaries will help with navigation
+
+## Step 7 Boundary Awarneess
+
+
+
+
+
+
 
 ## Technical Conclusions
 Reflecting back your education guesses from the technical uncertainty section what was the technical outcomes. Is there any new technical uncertainty that has been put aside for future exploration. Are there any next steps or technical considerations worth noting?

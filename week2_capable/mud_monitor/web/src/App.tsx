@@ -14,6 +14,8 @@ import Progression from "./pages/knowledge/Progression";
 import RoomDetail from "./pages/knowledge/RoomDetail";
 import Rooms from "./pages/knowledge/Rooms";
 import Manager from "./pages/Manager";
+import ReportDetail from "./pages/ReportDetail";
+import Reports from "./pages/Reports";
 import SessionDetail from "./pages/SessionDetail";
 import Sessions from "./pages/Sessions";
 import Telnet from "./pages/Telnet";
@@ -25,6 +27,10 @@ export default function App() {
         <Route index element={<Dashboard />} />
         <Route path="sessions" element={<Sessions />} />
         <Route path="sessions/:id" element={<SessionDetail />} />
+        {/* Batch test runs. Flat rather than nested under sessions: a report is
+            about a set of sessions, not a view of one. */}
+        <Route path="reports" element={<Reports />} />
+        <Route path="reports/:id" element={<ReportDetail />} />
         <Route path="manager" element={<Manager />} />
         <Route path="telnet" element={<Telnet />} />
         <Route path="errors" element={<Errors />} />

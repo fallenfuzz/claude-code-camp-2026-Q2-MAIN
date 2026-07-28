@@ -161,4 +161,102 @@ class TestCharacterSeeder < Minitest::Test
     end
     assert_match(/keyword/, error.message)
   end
+
+  # ---- placement (batch_sesssion_testing.md §3.2) -------------------------
+
+  def placement_config(location)
+    config.merge(uplift: config[:uplift].merge(location: location))
+  end
+
+  # Sessions scripted for a full run whose player already exists, plus however
+  # many extra admin prompts the placement step consumes.
+  def placement_sessions(placement_reads)
+    # `run` probes twice — once to decide whether to delete, once to verify the
+    # deletion took — so an absent character still consumes two probe sessions.
+    probes = Array.new(2) { ScriptedSession.new(reads: ["Name? ", "Did I get that right (Y/N)?"]) }
+    creating = ScriptedSession.new(
+      reads: [
+        "Name? ", "Did I get that right (Y/N)?", "Give me a password for Andrew:",
+        "Please retype password:", "Sex (M/F)?", "Select a class:", "Main Menu - Enter the game"
+      ],
+      prompts: [
+        "Welcome.\r\n<100hp> ", "Level: 1\r\n<100hp> ", "You are not carrying anything.\r\n<100hp> ",
+        "You can't practice here.\r\n<100hp> ", "You wield a dagger.\r\n<100hp> ",
+        "Level: 10 Gold: 5000\r\n<100hp> ", "a bottle\r\n<100hp> ",
+        "<wielded> a dagger\r\n<100hp> ", "kick 75%\r\n<100hp> "
+      ]
+    )
+    # advance + two fields + skill + goto + two load/give pairs = 9, then placement
+    admin = ScriptedSession.new(prompts: Array.new(9, "Okay.\r\n<100hp> ") + placement_reads)
+    factory = lambda do |id|
+      { "seed-probe" => probes, "seed-player" => [creating], "seed-admin" => [admin] }
+        .fetch(id).shift || raise("unexpected session #{id}")
+    end
+    [factory, admin]
+  end
+
+  # `teleport <victim> <location>`, NOT `transfer` — the MUD's help file is
+  # explicit that `trans` takes no destination and pulls the target to the
+  # immortal instead. Since this step runs after `goto <player>` has already
+  # moved the immortal TO the player, a `trans` here would "succeed" by leaving
+  # the character exactly where it already was.
+  def test_location_teleports_the_player_and_verifies_the_room
+    factory, admin = placement_sessions([
+      "Okay.\r\n<100hp> ",
+      "The Temple\r\nAndrew the Believer is standing here.\r\n<100hp> "
+    ])
+
+    MudManager::CharacterSeeder.new(placement_config(3001), output: StringIO.new,
+                                    session_factory: factory).run
+
+    assert_includes admin.sent.map(&:first), "teleport Andrew 3001"
+    assert_includes admin.sent.map(&:first), "at 3001 look"
+    refute_includes admin.sent.map(&:first), "transfer Andrew 3001"
+  end
+
+  # THE regression the strip exists for. tbaMUD colours the character list, and
+  # a colour code ends in `m` — a word character — so there is no word boundary
+  # before the name in "\e[0;33mAndrew the Believer" and a naive `\bAndrew`
+  # never matches. This is a real seed that failed against a live MUD while the
+  # character was demonstrably standing in the room.
+  def test_placement_matches_through_ansi_colour_codes
+    factory, = placement_sessions([
+      "Okay.\r\n<100hp> ",
+      "\e[0;33mThe Temple\e[0m\r\n\e[0;33mAndrew the Believer is standing here.\r\n\e[0m<100hp> "
+    ])
+
+    MudManager::CharacterSeeder.new(placement_config(3001), output: StringIO.new,
+                                    session_factory: factory).run
+  end
+
+  # Silent placement failure means every case in a batch starts somewhere
+  # unintended and the whole run is garbage that looks like data.
+  def test_a_player_absent_from_the_room_fails_the_seed
+    factory, = placement_sessions([
+      "Okay.\r\n<100hp> ",
+      "The Temple\r\nA newbie dummy mob is here.\r\n<100hp> "
+    ])
+
+    error = assert_raises(MudManager::CharacterSeeder::Error) do
+      MudManager::CharacterSeeder.new(placement_config(3001), output: StringIO.new,
+                                      session_factory: factory).run
+    end
+    assert_match(/not in room 3001/, error.message)
+  end
+
+  def test_a_state_with_no_location_never_teleports
+    factory, admin = placement_sessions([])
+
+    MudManager::CharacterSeeder.new(config, output: StringIO.new, session_factory: factory).run
+
+    refute_includes admin.sent.map(&:first), "at 3001 look"
+    assert_empty admin.sent.map(&:first).grep(/\Ateleport /)
+  end
+
+  def test_a_non_integer_location_is_rejected_before_anything_connects
+    assert_raises(MudManager::CharacterSeeder::Error) do
+      MudManager::CharacterSeeder.new(placement_config("3001"), output: StringIO.new).validate!
+    end
+  end
+
 end

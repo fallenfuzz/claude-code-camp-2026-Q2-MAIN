@@ -1,0 +1,38 @@
+# NOTE: the bank surface is NOT currently an MCP tool. `MudManager::Primitives`
+# has `bank(op, amount:)`, but `mud_manager/lib/mud_manager/mcp/tool_spec.rb`
+# exposes no `bank` entry, so `tbamud__bank` does not exist and cannot appear in
+# `tasks.player.allow`. Until it is added this case measures only that the agent
+# gets ITSELF to the bank; the withdrawal half of the rubric is left to the
+# judge, which will fail it — correctly, and for a reason the report will name.
+session_name: withdraw_money
+player_profile: Derrano
+goal: "Go to the bank in Midgaard and withdraw 500 gold."
+
+base_initial_state: cleric
+initial_state_overrides:
+  money:
+    gold: 0                    # nothing in hand; everything in the bank
+
+map_memory: none
+
+limits:
+  max_iterations: 15
+  max_turn_tokens: 40000
+  wall_timeout_s: 180
+
+expect:
+  tool_called: [plan_route]
+  max_model_tool_calls: 8
+  max_cost_usd: 0.02
+
+evaluation:
+  desired_behaviour: |
+    The agent should plan a route to the bank:
+    plan_route(destination: "bank")
+    The agent should execute the route it was given:
+    execute_route(steps: [...])
+    On arrival it should attempt the withdrawal.
+  undesired_behaviour: |
+    The agent should not wander by issuing single moves when plan_route
+    already returned a known route.
+    The agent should not claim to have withdrawn money it never withdrew.

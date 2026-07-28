@@ -1,0 +1,172 @@
+{
+  "schema": 1,
+  "run_id": "20260728T184439Z-bcd85ea4",
+  "kind": "scenario",
+  "name": "find_bakery",
+  "started_at": "2026-07-28T18:44:39.402Z",
+  "ended_at": "2026-07-28T18:46:21.503Z",
+  "environment": {
+    "profile": "Derrano",
+    "provider": "anthropic",
+    "model": "claude-haiku-4-5",
+    "boukensha_version": "0.13.0",
+    "git_sha": "710e23e",
+    "settings_digest": "sha256:da23cbbef3ecaa4b4bf49a2f8df1013e42c11d2dac067447c5aae5537095e991"
+  },
+  "summary": {
+    "cases": 1,
+    "passed": 0,
+    "failed": 1,
+    "errored": 0,
+    "pass_rate": 0.0,
+    "cost_usd": {
+      "agent": 0.07137,
+      "judge": 0,
+      "total": 0.07137
+    },
+    "median": {
+      "model_tool_calls": 19,
+      "automatic_tool_calls": 58,
+      "iterations": 19,
+      "duration_ms": 44740,
+      "cost_usd": 0.07137
+    },
+    "p90": {
+      "model_tool_calls": 19,
+      "automatic_tool_calls": 58,
+      "iterations": 19,
+      "duration_ms": 44740,
+      "cost_usd": 0.07137
+    },
+    "failure_modes": {
+      "tool_called: execute_route": 1,
+      "tool_called: tbamud__shop(action: list)": 1,
+      "final_room: The Bakery": 1,
+      "max_model_tool_calls: 6": 1,
+      "max_cost_usd: 0.02": 1
+    }
+  },
+  "cases": [
+    {
+      "index": 1,
+      "scenario": "find_bakery",
+      "session_id": "20260728T184508Z-c58c1d9f",
+      "session_name": "find_bakery",
+      "profile": "Derrano",
+      "resolved_state": {
+        "description": "Level 10 cleric, banked, armed, standing in the Temple.",
+        "requires_class": "cleric",
+        "location": 3001,
+        "level": 10,
+        "money": {
+          "gold": 0,
+          "bank": 10000
+        },
+        "stats": {
+          "align": 0
+        },
+        "skills": {
+          "armor": 75,
+          "cure light": 75
+        },
+        "inventory": [
+          {
+            "vnum": 3001,
+            "keyword": "bottle",
+            "quantity": 2
+          }
+        ],
+        "equipment": [
+          {
+            "vnum": 3023,
+            "keyword": "club",
+            "quantity": 1,
+            "wear": "wield"
+          },
+          {
+            "vnum": 3043,
+            "keyword": "jacket",
+            "quantity": 1,
+            "wear": "wear"
+          }
+        ]
+      },
+      "base_initial_state": "cleric",
+      "map_memory": {
+        "mode": "none",
+        "archived_to": "/home/andrew/Sites/omenking/claude-code-camp-2026-Q2/.boukensha/profiles/Derrano/knowledge.archive/20260728T184439Z.sqlite3",
+        "rooms_at_start": 0,
+        "room_exits_at_start": 0,
+        "entities_at_start": 0
+      },
+      "seed_log": "/home/andrew/Sites/omenking/claude-code-camp-2026-Q2/.boukensha/tests/reports/.work/20260728T184439Z-bcd85ea4/case-1-seed.log",
+      "facts": {
+        "model_tool_calls": 19,
+        "automatic_tool_calls": 58,
+        "has_provenance": true,
+        "iterations": 19,
+        "turns": 0,
+        "end_reason": "max_tokens",
+        "duration_ms": 44740,
+        "input_tokens": 63640,
+        "output_tokens": 1546,
+        "cost_usd": 0.07137,
+        "final_room": "The Great Field Of Midgaard",
+        "rooms_known": 14,
+        "rooms_known_delta": 14,
+        "db_reads": 173,
+        "db_writes": 150,
+        "db_ms": 17,
+        "journal_lines": 164,
+        "inference_ms": 142,
+        "mud_ms": 6469,
+        "mud_calls": 77
+      },
+      "errors": [],
+      "expectations": [
+        {
+          "kind": "tool_called",
+          "rule": "plan_route",
+          "ok": true,
+          "detail": "called at call_67f195e7ae42"
+        },
+        {
+          "kind": "tool_called",
+          "rule": "execute_route",
+          "ok": false,
+          "detail": "never called"
+        },
+        {
+          "kind": "tool_called",
+          "rule": "tbamud__shop(action: list)",
+          "ok": false,
+          "detail": "never called"
+        },
+        {
+          "kind": "tool_not_called",
+          "rule": "tbamud__examine(target: menu)",
+          "ok": true
+        },
+        {
+          "kind": "final_room",
+          "rule": "The Bakery",
+          "ok": false,
+          "detail": "The Great Field Of Midgaard"
+        },
+        {
+          "kind": "max_model_tool_calls",
+          "rule": "6",
+          "ok": false,
+          "detail": "19"
+        },
+        {
+          "kind": "max_cost_usd",
+          "rule": "0.02",
+          "ok": false,
+          "detail": "0.07137"
+        }
+      ],
+      "status": "fail"
+    }
+  ]
+}

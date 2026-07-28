@@ -82,8 +82,15 @@ module BoukenshaLoader
     MSG
   end
 
+  # The resolved .boukensha directory. `resolve` has already applied the rc
+  # file to ENV by the time anything below runs, so this is the one expression
+  # every path in this file agrees on.
+  def self.root_dir
+    File.expand_path(ENV["BOUKENSHA_DIR"] || File.join(Dir.home, ".boukensha"))
+  end
+
   def self.profiles
-    root = File.expand_path(ENV["BOUKENSHA_DIR"] || File.join(Dir.home, ".boukensha"))
+    root = root_dir
     base = File.join(root, "profiles")
     return [] unless File.directory?(base)
 
@@ -103,12 +110,25 @@ module BoukenshaLoader
     actual = available.find { |name| name.casecmp?(requested) }
     abort "boukensha: profile #{requested.inspect} not found.\nAvailable profiles: #{available.join(', ')}" unless actual
 
-    root = File.expand_path(ENV["BOUKENSHA_DIR"] || File.join(Dir.home, ".boukensha"))
+    apply_profile!(actual)
+  end
+
+  # Point this process's config at `name`, with the same containment check
+  # `resolve_profile!` performs. Split out because the test harness resolves a
+  # profile from a scenario file rather than from ARGV, and must not have to
+  # reimplement the check to do it.
+  def self.apply_profile!(name)
+    available = profiles
+    actual    = available.find { |candidate| candidate.casecmp?(name.to_s) }
+    abort "boukensha: profile #{name.inspect} not found.\nAvailable profiles: #{available.join(', ')}" unless actual
+
+    root = root_dir
     dir = File.expand_path(File.join(root, "profiles", actual))
     profiles_root = File.expand_path(File.join(root, "profiles")) + File::SEPARATOR
     abort "boukensha: profile resolves outside profiles directory" unless dir.start_with?(profiles_root)
     ENV["BOUKENSHA_PROFILE"] = actual
     ENV["BOUKENSHA_PROFILE_DIR"] = dir
+    actual
   end
 
   def self.extract_profile_argument
@@ -116,15 +136,47 @@ module BoukenshaLoader
       puts profiles
       exit 0
     end
-    index = ARGV.index("--profile")
-    return nil unless index
-    abort "boukensha: --profile requires a name" unless ARGV[index + 1]
-    ARGV.slice!(index, 2).last
+    extract_option("--profile")
+  end
+
+  # Pull `--flag VALUE` out of ARGV and return VALUE, or nil when absent.
+  # Aliases are tried in order, so `-ts` and `--test-scenario` are one call.
+  def self.extract_option(*names)
+    names.each do |flag|
+      index = ARGV.index(flag)
+      next unless index
+      abort "boukensha: #{flag} requires a value" unless ARGV[index + 1]
+      return ARGV.slice!(index, 2).last
+    end
+    nil
+  end
+
+  # Repeatable `--flag KEY=VALUE`, collected in the order given so a later
+  # occurrence wins in the merge downstream.
+  def self.extract_repeated_option(*names)
+    out = []
+    loop do
+      value = extract_option(*names)
+      break unless value
+      out << value
+    end
+    out
+  end
+
+  def self.extract_flag(*names)
+    names.map { |flag| !ARGV.delete(flag).nil? }.any?
   end
 
   def self.load_and_start_repl
     main = resolve
-    resolve_profile!
+
+    # The test harness owns profile resolution (a scenario names the profile it
+    # wants, and a plan can name a different one per case), so `--profile` stops
+    # being mandatory the moment a test flag is present. Parsed before
+    # `resolve_profile!` for exactly that reason.
+    test_options = extract_test_arguments
+
+    resolve_profile! unless test_options
     step_dir = File.dirname(File.dirname(main))
 
     puts "[boukensha] loading from: #{step_dir}" if ENV["BOUKENSHA_DEBUG"]
@@ -141,9 +193,90 @@ module BoukenshaLoader
       MSG
     end
 
+    if test_options
+      # Loaded relative to the RESOLVED implementation, never `require_relative`.
+      # This file may be the installed gem's copy while `main` resolved to a
+      # checkout via `boukensha_path` — the whole point of the rc file. A
+      # `require_relative` here would then pull the GEM's testing tree, whose
+      # own `require_relative "../permissions"` reopens
+      # `Boukensha::Permissions` and `Tasks::Base` on top of the checkout's,
+      # redefining constants and methods from a different version of the
+      # library that is already running. That is the warning storm, and the
+      # half of it that is not warnings is a silently mismatched agent.
+      require File.join(File.dirname(main), "boukensha", "testing")
+      exit Boukensha::Testing::CLI.new(test_options, root_dir: root_dir).run
+    end
+
     # --no-tui falls back to the plain terminal REPL (no charm-ruby).
     no_tui = ARGV.delete("--no-tui")
+    session_name = extract_option("--session-name")
 
+    Boukensha.repl(
+      tui: !no_tui,
+      launch: Boukensha::Launch.interactive(
+        profile: ENV["BOUKENSHA_PROFILE"], session_name: session_name, config: Boukensha.config
+      ),
+      &mud_agent_setup
+    )
+  end
+
+  # Test-mode arguments, or nil when this is an ordinary interactive launch.
+  # Extracted from ARGV before anything is required so the branch is decided
+  # without loading the framework.
+  #
+  #   boukensha -ts find_bakery                  # one case
+  #   boukensha --test-scenario find_bakery
+  #   boukensha -ts find_bakery --batch 20       # same scenario, 20 times
+  #   boukensha -tsp banking                     # a plan
+  def self.extract_test_arguments
+    # Internal: one child process running exactly one case (§5.2). Checked
+    # first because it is the one form that must never be confused with a
+    # user-typed flag.
+    if (payload = extract_option("--test-case"))
+      return { mode: :case, payload: payload }
+    end
+
+    listing = extract_flag("--list-scenarios") ? :scenarios : (extract_flag("--list-plans") ? :plans : nil)
+    return { mode: :list, kind: listing } if listing
+
+    if (name = extract_option("--snapshot-map"))
+      return { mode: :snapshot_map, name: name, profile: extract_option("--profile") }
+    end
+
+    scenario = extract_option("-ts", "--test-scenario")
+    plan     = extract_option("-tsp", "--test-scenario-plan")
+    return nil unless scenario || plan
+
+    {
+      mode:       plan ? :plan : :scenario,
+      name:       plan || scenario,
+      # `-batch` is accepted alongside `--batch` because that is the spelling
+      # the brief was written in, and a flag that silently means nothing is
+      # worse than one extra alias.
+      batch:      extract_option("--batch", "-batch")&.to_i,
+      profile:    extract_option("--profile"),
+      set:        extract_repeated_option("--set"),
+      map_memory: extract_option("--map-memory"),
+      report:     extract_option("--report"),
+      no_judge:   extract_flag("--no-judge"),
+      dry_run:    extract_flag("--dry-run"),
+      # §5.4. `--quiet` still writes the run log file; it only stops the echo,
+      # because the file is the artifact and the echo is the convenience.
+      quiet:      extract_flag("--quiet"),
+      verbose:    extract_flag("--verbose", "-v")
+    }
+  end
+
+  # The MUD wiring, as a proc both the REPL and a headless test case can be
+  # built with. It was inline in `load_and_start_repl` and therefore reachable
+  # only from the REPL, which meant `Boukensha.run` produced an agent with no
+  # hooks, no memory and no navigation tools — an agent a test session could
+  # not honestly be compared against. Extracted verbatim: the harness reaches
+  # into production code by SHARING this setup rather than reimplementing it,
+  # which is the only version where a test session is genuinely the same agent
+  # as a real one.
+  #
+  def self.mud_agent_setup
     # Every tool the player has comes from settings.yaml's `mcp_servers:` block.
     # It used to have one native tool as well — `inspect_room`, which it called
     # to get the current room back as JSON — and it does not any more.
@@ -171,7 +304,7 @@ module BoukenshaLoader
     # inherits this process's environment, so exporting MUD_HOST still reaches
     # the daemon, but only for keys its `env:` block doesn't set: config now
     # wins over the environment, where it used to lose.
-    Boukensha.repl(tui: !no_tui) do
+    proc do
       # Captured out of the DSL so the hook's own MUD calls append to the
       # player's session file instead of opening one file per room visited
       # (plan Amendment A).
@@ -281,6 +414,50 @@ module BoukenshaLoader
         # it did before this feature existed.
         warn "[boukensha] #{e.message} — continuing without room memory"
       end
+    end
+  end
+
+  # One headless case: the same agent the REPL builds, handed one goal and run
+  # to completion. `Boukensha.run` already does exactly this; what it lacked
+  # was the MUD setup, which is now `mud_agent_setup` above.
+  #
+  # `on_progress:` — called once per iteration with the running tool-call count
+  # and cost. The agent turn is the longest single stretch of a case and the one
+  # that can legitimately take a minute, so without this a run log goes quiet
+  # exactly where a reader most needs it not to (§5.4). It rides on
+  # `Logger#subscribe`, which already exists and already sees every event — no
+  # new callback plumbed through the agent loop.
+  def self.run_case(goal:, launch: nil, max_output_tokens: nil, on_progress: nil)
+    setup = mud_agent_setup
+    Boukensha.run(task: goal, launch: launch, max_output_tokens: max_output_tokens) do
+      # Explicit receiver: this block is `instance_eval`d on `RunDSL`, so a bare
+      # call would resolve there and not here.
+      BoukenshaLoader.attach_progress(logger, on_progress) if on_progress
+      # The MUD setup runs in this same DSL context, so it registers its tools
+      # and hooks exactly as it does for the REPL.
+      instance_eval(&setup)
+    end
+  end
+
+  # Fold the event stream down to the three numbers a watcher wants. Hook calls
+  # are excluded from the count for the same reason they are everywhere else:
+  # the figure is meant to track what the MODEL is doing.
+  def self.attach_progress(logger, on_progress)
+    tools = 0
+    cost  = 0.0
+    logger.subscribe do |event|
+      phase = event[:phase] || event["phase"]
+      case phase
+      when "tool_call"
+        tools += 1 unless (event[:initiator] || event["initiator"]) == "hook"
+      when "response"
+        cost += (event[:cost_usd] || event["cost_usd"]).to_f
+      when "iteration"
+        on_progress.call(iteration: (event[:n] || event["n"]), tool_calls: tools, cost_usd: cost)
+      end
+    rescue StandardError
+      # A watcher that raises costs its own line, never the run it is watching.
+      nil
     end
   end
 end

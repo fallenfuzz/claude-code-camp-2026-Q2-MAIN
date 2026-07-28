@@ -5,10 +5,12 @@ import type {
   AutomaticOperation,
   Entry,
   SessionDetail as SessionDetailData,
+  SessionLaunch,
   SessionSummary,
   TimingSummary,
 } from "../api/types";
 import { useEventStream } from "../api/useEventStream";
+import { useProfile } from "../ProfileGate";
 import CostTable from "../components/CostTable";
 import Duration from "../components/Duration";
 import LiveBadge from "../components/LiveBadge";
@@ -38,6 +40,7 @@ function isWindowAtBottom() {
 export default function SessionDetail() {
   const { id } = useParams<{ id: string }>();
   const [searchParams, setSearchParams] = useSearchParams();
+  const { profiles, selected, select } = useProfile();
   const [data, setData] = useState<SessionDetailData | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [entries, setEntries] = useState<Entry[]>([]);
@@ -51,8 +54,24 @@ export default function SessionDetail() {
   const [scrollToSeq, setScrollToSeq] = useState<number | null>(null);
   const stickToBottomRef = useRef(true);
 
+  // A report's case links here with `?profile=`, because the case may have run
+  // as a profile other than the one currently selected and every log in this
+  // app is profile-scoped. Switching first is what makes that link resolve;
+  // without it the fetch below asks the wrong directory and 404s on a session
+  // that exists. `Layout` keys its `<Outlet>` on the selection, so this
+  // remounts and the fetch re-runs against the right profile.
+  const wantedProfile = searchParams.get("profile");
+  useEffect(() => {
+    if (!wantedProfile || wantedProfile === selected) return;
+    const match = profiles.find((p) => p.available && p.id.toLowerCase() === wantedProfile.toLowerCase());
+    if (match) select(match.id);
+  }, [wantedProfile, selected, profiles, select]);
+
   useEffect(() => {
     if (!id) return;
+    // Hold the fetch until the switch above has landed, so the one request we
+    // make is the one that can succeed.
+    if (wantedProfile && wantedProfile !== selected) return;
     setData(null);
     setError(null);
     setEntries([]);
@@ -65,7 +84,7 @@ export default function SessionDetail() {
         setEntries(detail.entries);
       })
       .catch((err) => setError(err instanceof ApiRequestError ? err.message : String(err)));
-  }, [id]);
+  }, [id, wantedProfile, selected]);
 
   const handleEntry = useCallback((entry: Entry) => {
     stickToBottomRef.current = isWindowAtBottom();
@@ -150,10 +169,13 @@ export default function SessionDetail() {
       <div className="session-page-head">
         <Link to="/sessions" className="session-back" aria-label="All sessions">← Sessions</Link>
         <h1>
-          <span className="session-heading-label">Session</span> {session.id}
+          <span className="session-heading-label">Session</span> {session.name ?? session.id}
           {data.session.live && <LiveBadge status={streamStatus} />}
         </h1>
+        {session.name && <div className="session-id-sub mono">{session.id}</div>}
       </div>
+
+      <ProvenanceStrip launch={session.launch} />
 
       <p className="meta">
         Started {formatTime(session.started_at)}
@@ -917,5 +939,53 @@ function AutomaticWorkTable({ rows, timing }: { rows: AutomaticOperation[]; timi
         ))}
       </tbody>
     </table>
+  );
+}
+
+// Who ran this session, from what, and against which configuration.
+//
+// Two sessions that disagree are usually two different configurations, and this
+// is where you find that out — the git sha and the settings digest are here
+// precisely so "it got worse" can be checked against "something changed" before
+// anyone goes looking at the model.
+//
+// Renders nothing on a legacy log. A strip of em-dashes would be noise on every
+// session written before the contract existed.
+function ProvenanceStrip({ launch }: { launch: SessionLaunch | null }) {
+  if (!launch) return null;
+
+  const facts: [string, string | undefined][] = [
+    ["mode", launch.mode],
+    ["runner", launch.runner],
+    ["profile", launch.profile ?? undefined],
+    ["scenario", launch.scenario],
+    ["plan", launch.plan],
+    ["case", launch.case_index && launch.batch_size ? `${launch.case_index} of ${launch.batch_size}` : undefined],
+    ["state", launch.state],
+    ["map", launch.map_memory],
+    ["version", launch.boukensha_version],
+    ["git", launch.git_sha],
+    ["settings", launch.settings_digest?.slice(0, 18)],
+  ];
+
+  return (
+    <div className="provenance-strip">
+      {facts
+        .filter(([, value]) => value)
+        .map(([label, value]) => (
+          <span key={label} className="provenance-fact">
+            <span className="provenance-label">{label}</span>
+            <span className="provenance-value mono">{value}</span>
+          </span>
+        ))}
+      {/* Back-link to the run this case belonged to. The report links to
+          sessions and the session links back; neither duplicates the other. */}
+      {launch.run_id && (
+        <Link className="provenance-report" to={`/reports/${launch.run_id}`}>
+          report →
+        </Link>
+      )}
+      {launch.goal && <div className="provenance-goal">{launch.goal}</div>}
+    </div>
   );
 }

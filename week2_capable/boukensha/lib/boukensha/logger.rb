@@ -167,6 +167,19 @@ module Boukensha
       @task_stack.last
     end
 
+    # A name is mutable and the log is append-only, so the name is not stored
+    # once: it is the LAST `session_name` the file mentions. `session_start`
+    # may carry one (the launcher's `--session-name`, or a scenario's), and
+    # every later rename appends another. A reader folds them last-one-wins.
+    #
+    # A crashed rename cannot corrupt an earlier one, and the rename is itself
+    # timestamped history — "I renamed this after I saw what happened" is a
+    # real annotation and worth keeping.
+    def rename(name:, source: "user")
+      write_log(phase: "session_rename", session_name: name.to_s, source: source)
+      name.to_s
+    end
+
     def turn(n:)
       write_log(phase: "turn", n: n)
     end

@@ -1,0 +1,38 @@
+# The same shape as `cleric`, for a profile that is a warrior. Kept as its own
+# file rather than as overrides on `cleric` because `requires_class` and the
+# class-legal equipment are the whole difference, and neither is a merge.
+
+description: "Level 10 warrior, banked, armed, standing in the Temple."
+
+requires_class: warrior
+
+location: 3001
+
+level: 10
+money:
+  gold: 5000
+  bank: 10000
+stats:
+  align: 0
+
+# Warriors get weapon skills, not spells. `skillset` takes the MUD's own
+# spelling, so these are quoted verbatim.
+skills:
+  "bash": 75
+  "kick": 75
+
+inventory:
+  - vnum: 3001
+    keyword: bottle
+    quantity: 2
+
+equipment:
+  # No class restriction on a blade here, unlike the cleric state.
+  - vnum: 3021
+    keyword: dagger
+    quantity: 1
+    wear: wield
+  - vnum: 3043
+    keyword: jacket
+    quantity: 1
+    wear: wear

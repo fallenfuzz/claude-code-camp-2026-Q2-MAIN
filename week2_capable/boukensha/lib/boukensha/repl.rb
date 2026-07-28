@@ -14,6 +14,7 @@ module Boukensha
   #   /loud    re-enable logging
   #   /clear   wipe conversation history (tools stay registered)
   #   /compact drop oldest 40% of messages to free context
+  #   /rename  name this session (or print its current name)
   #   /exit    leave the REPL
   #   /quit    alias for /exit
   class Repl
@@ -25,13 +26,14 @@ module Boukensha
         /loud     re-enable logging output
         /clear    wipe conversation history (tools stay)
         /compact  drop oldest 40% of messages to free context
+        /rename   name this session, e.g. /rename find bakery — cold map
         /exit     leave the REPL
         /help     show this message
     HELP
 
-    attr_reader :logger, :context, :model, :version
+    attr_reader :logger, :context, :model, :version, :session_name
 
-    def initialize(context:, registry:, builder:, client:, logger:, hooks: nil, config_dir: nil, provider: nil, model: nil, version: nil, api_key: nil, servers: nil, max_iterations: nil, max_turn_tokens: nil, max_output_tokens: nil)
+    def initialize(context:, registry:, builder:, client:, logger:, hooks: nil, config_dir: nil, provider: nil, model: nil, version: nil, api_key: nil, servers: nil, max_iterations: nil, max_turn_tokens: nil, max_output_tokens: nil, session_name: nil)
       @context    = context
       @registry   = registry
       @builder    = builder
@@ -46,6 +48,9 @@ module Boukensha
       @version    = version
       @api_key    = api_key
       @servers    = servers
+      # Mirrors the name already written into `session_start`, so `/rename`
+      # with no argument can answer without re-reading the log it just wrote.
+      @session_name = session_name
       @max_iterations    = max_iterations
       @max_turn_tokens   = max_turn_tokens
       @max_output_tokens = max_output_tokens
@@ -67,6 +72,7 @@ module Boukensha
       config_line   = config_exists ? @config_dir : "#{@config_dir || "(default)"}  ✗ directory not found"
       ver           = @version || "?.?.?"
       servers_stat  = servers_status_string
+      name_line     = @session_name ? "\n  session:   #{@session_name}" : ""
 
       <<~BANNER
 
@@ -75,11 +81,12 @@ module Boukensha
         ╚══════════════════════════════════════╝
           config:    #{config_line}
           provider:  #{provider_line}
-          servers:   #{servers_stat}
+          servers:   #{servers_stat}#{name_line}
 
           /quiet or /loud   toggle logging
           /clear           reset conversation history
           /compact         free context (drop oldest messages)
+          /rename NAME     name this session
           /exit or /quit    leave the REPL
 
       BANNER
@@ -115,6 +122,15 @@ module Boukensha
         dropped = @context.compact_messages!
         @logger.compaction(before: before, dropped: dropped, context_window: @context.context_window)
         output("(compacted context — #{dropped} messages dropped)")
+        :command
+      when %r{\A/rename\s+(.+)\z}
+        @session_name = @logger.rename(name: Regexp.last_match(1).strip, source: "user")
+        output("(session renamed to #{@session_name.inspect})")
+        :command
+      when "/rename"
+        # Bare `/rename` prints rather than errors: the far more common reason
+        # to type it alone is wanting to know what the session is already called.
+        output(@session_name ? "(session name: #{@session_name.inspect})" : "(this session has no name)")
         :command
       end
     end

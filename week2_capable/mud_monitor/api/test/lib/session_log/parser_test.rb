@@ -383,5 +383,38 @@ module SessionLog
       assert_empty parser.task_roster
       assert_nil parser.root_task
     end
+
+    # ---- provenance and naming (batch_sesssion_testing.md §1) --------------
+
+    test "reads how and by whom a session was started" do
+      parser = Parser.load(FIXTURES.join("named_test_case.jsonl"))
+
+      assert_equal "test", parser.launch_mode
+      assert_equal "boukensha-test", parser.launch["runner"]
+      assert_equal "find_bakery", parser.launch["scenario"]
+      assert_equal "20260728T143000Z-a1b2c3d4", parser.launch["run_id"]
+      assert_equal 3, parser.launch["case_index"]
+      assert_equal "sha256:9f21", parser.launch["settings_digest"]
+    end
+
+    # A name is mutable and the log is append-only, so the name is the LAST one
+    # the file mentions — not the first, and not a merge of them.
+    test "folds session_start and every rename into one name, last one wins" do
+      parser = Parser.load(FIXTURES.join("named_test_case.jsonl"))
+
+      assert_equal "the one that examined the menu", parser.name
+    end
+
+    # Everything above is additive and optional. A file written before the
+    # contract existed must parse exactly as it did, reporting "we cannot say"
+    # rather than a guess — the same discipline `has_provenance?` follows.
+    test "a legacy log has no name and no launch rather than an invented one" do
+      parser = Parser.load(FIXTURES.join("complete.jsonl"))
+
+      assert_nil parser.name
+      assert_nil parser.launch
+      assert_nil parser.launch_mode
+    end
+
   end
 end

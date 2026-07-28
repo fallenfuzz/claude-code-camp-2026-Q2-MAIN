@@ -12,6 +12,8 @@ import type {
   JournalPage,
   ManagerPage,
   MessagesTimeline,
+  ReportPage,
+  ReportsPage,
   SessionDetail,
   SessionSummary,
   TelnetPage,
@@ -202,6 +204,17 @@ export function fetchJournalForOperation(operationId: string, date?: string): Pr
   const qs = new URLSearchParams({ operation_id: operationId });
   if (date) qs.set("date", date);
   return get(`/journal?${qs.toString()}`);
+}
+
+// Batch test-run reports. No stream sibling and no polling: a report is written
+// once, when the run finishes. There is no cursor to follow.
+export function fetchReports(profile?: string): Promise<ReportsPage> {
+  const qs = profile ? `?profile=${encodeURIComponent(profile)}` : "";
+  return get(`/reports${qs}`);
+}
+
+export function fetchReport(id: string): Promise<ReportPage> {
+  return get(`/reports/${encodeURIComponent(id)}`);
 }
 
 export { ApiRequestError };

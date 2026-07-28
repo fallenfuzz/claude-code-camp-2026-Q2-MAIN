@@ -1,91 +1,77 @@
 #!/usr/bin/env ruby
 # frozen_string_literal: true
 
+# Seed one fixture character into a named starting state.
+#
+#   bin/seed_player --state cleric --profile Derrano [--emit-fixtures]
+#
+# The character and its complete seeded state used to be frozen constants in
+# this file that you edited by hand. They are now data:
+#
+#   who    <boukensha_dir>/profiles/<profile>/profile.yaml   name, password, gender, class
+#   what   <boukensha_dir>/tests/states/<state>.yml          level, money, skills, items, location
+#   where  settings.yaml `mcp_servers.mud.env`               MUD_HOST / MUD_PORT
+#
+# so this script and the test harness seed through exactly one code path
+# (Boukensha::Testing::StateLoader) and cannot drift apart. Passwords stay in
+# the Boukensha runtime directory's .env; only their variable names appear in
+# a profile. Directory precedence matches the Boukensha launcher: BOUKENSHA_DIR,
+# then `boukensha_dir` in ~/.boukensharc, then ~/.boukensha.
+
 require "dotenv"
 require_relative "../mud_manager/lib/mud_manager"
 require_relative "../boukensha/lib/boukensha_loader"
 
-# Edit this block to choose the character and its complete seeded state. Keep
-# passwords in the Boukensha runtime directory's .env; only their variable
-# names belong here. Directory precedence matches the Boukensha launcher:
-# BOUKENSHA_DIR, then `boukensha_dir` in ~/.boukensharc, then ~/.boukensha.
 BOUKENSHA_RC = BoukenshaLoader.load_rc
-BOUKENSHA_DIR = File.expand_path(
-  ENV["BOUKENSHA_DIR"] ||
-  BoukenshaLoader.expand_rc_path(BOUKENSHA_RC["boukensha_dir"]) ||
-  File.join(Dir.home, ".boukensha")
-)
+ENV["BOUKENSHA_DIR"] ||= BoukenshaLoader.expand_rc_path(BOUKENSHA_RC["boukensha_dir"]).to_s
+ENV.delete("BOUKENSHA_DIR") if ENV["BOUKENSHA_DIR"].to_s.empty?
+BOUKENSHA_DIR = BoukenshaLoader.root_dir
 ENV_FILE = File.join(BOUKENSHA_DIR, ".env")
 raise "missing #{ENV_FILE}" unless File.file?(ENV_FILE)
 Dotenv.load(ENV_FILE)
 
-HOST = "localhost"
-PORT = 4000
-TIMEOUT = 10.0
-
-ADMIN_NAME = "admin"
-ADMIN_PASSWORD_ENV = "MUD_PASSWORD_ADMIN"
-
-PLAYER_NAME = "Derrano"
-PLAYER_PASSWORD_ENV = "MUD_PASSWORD_DERRANO"
-PLAYER_GENDER = "M"
-PLAYER_CLASS = "C"
-
-UPLIFT = {
-  level: 10,
-  money: {
-    gold: 5_000,
-    bank: 1_000
-  },
-  stats: {
-    align: 0
-  },
-  # Keep these class-legal. Derrano is a cleric (`PLAYER_CLASS = "C"`).
-  skills: {
-    "armor" => 75,
-    "cure light" => 75
-  },
-  inventory: [
-    { vnum: 3001, keyword: "bottle", quantity: 2 }
-  ],
-  equipment: [
-    # Clerics use blunt weapons; a dagger is rejected by class restrictions.
-    { vnum: 3023, keyword: "club", quantity: 1, wear: "wield" },
-    { vnum: 3043, keyword: "jacket", quantity: 1, wear: "wear" }
-  ]
-}.freeze
-
 FIXTURE_DIR = File.expand_path("../boukensha/test/fixtures/player", __dir__)
 
-def secret!(variable_name)
-  value = ENV[variable_name]
-  raise "#{variable_name} is missing or empty in #{ENV_FILE}" if value.to_s.empty?
-  value
+def option!(flag)
+  index = ARGV.index(flag)
+  return nil unless index
+  raise ArgumentError, "#{flag} requires a value" unless ARGV[index + 1]
+
+  ARGV.slice!(index, 2).last
 end
 
 begin
-  config = {
-    host: HOST,
-    port: PORT,
-    timeout: TIMEOUT,
-    admin_name: ADMIN_NAME,
-    admin_password: secret!(ADMIN_PASSWORD_ENV),
-    player_name: PLAYER_NAME,
-    player_password: secret!(PLAYER_PASSWORD_ENV),
-    gender: PLAYER_GENDER,
-    player_class: PLAYER_CLASS,
-    uplift: UPLIFT
-  }
+  emit_fixtures = !ARGV.delete("--emit-fixtures").nil?
+  state_name    = option!("--state")   || "cleric"
+  profile_name  = option!("--profile") || ENV["BOUKENSHA_PROFILE"] || "Derrano"
 
-  unknown_args = ARGV - ["--emit-fixtures"]
-  raise ArgumentError, "unknown arguments: #{unknown_args.join(' ')}" unless unknown_args.empty?
+  raise ArgumentError, "unknown arguments: #{ARGV.join(' ')}" unless ARGV.empty?
 
-  seeder = MudManager::CharacterSeeder.new(config).run
-  if ARGV.include?("--emit-fixtures")
+  BoukenshaLoader.apply_profile!(profile_name)
+  require_relative "../boukensha/lib/boukensha"
+  require_relative "../boukensha/lib/boukensha/testing/fixtures"
+  require_relative "../boukensha/lib/boukensha/testing/state_loader"
+
+  config   = Boukensha.config
+  fixtures = Boukensha::Testing::Fixtures.new(dir: config.tests_dir)
+
+  loader = Boukensha::Testing::StateLoader.new(
+    state:   fixtures.state(state_name),
+    profile: config.profile["player"],
+    mud:     config.mcp_servers.dig("mud", :env) || {}
+  )
+
+  puts "Seeding #{profile_name} into state #{state_name.inspect} " \
+       "at #{loader.config_hash[:host]}:#{loader.config_hash[:port]}"
+  seeder = loader.apply!
+
+  if emit_fixtures
     files = seeder.emit_fixtures(FIXTURE_DIR)
     puts "Wrote fixtures: #{files.join(', ')}"
   end
-rescue MudManager::CharacterSeeder::Error, MudManager::Session::Error, KeyError, ArgumentError => e
+rescue Boukensha::Testing::StateLoader::Error, Boukensha::Testing::Fixtures::Error,
+       MudManager::CharacterSeeder::Error, MudManager::Session::Error,
+       KeyError, ArgumentError => e
   warn "seed_player failed: #{e.message}"
   exit 1
 end
