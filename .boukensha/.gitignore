@@ -7,3 +7,13 @@ profiles/*/sessions/
 profiles/*/journal/
 profiles/*/manager/
 profiles/*/telnet/
+
+# The map each test case ended with, named after its session. One binary per
+# case, pruned to the 30 most recent per profile — kept on disk so a past run's
+# memory can be reopened, never committed, because they churn on every run and
+# are reproducible only by running.
+#
+# `tests/knowledge/snapshots/` is deliberately NOT ignored: a pinned fixture is
+# the one memory artifact that belongs in git, and the whole point of promoting
+# a retained map is that the result is reviewable and stays put.
+tests/knowledge/sessions/

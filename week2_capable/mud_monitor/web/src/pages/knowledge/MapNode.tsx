@@ -1,5 +1,6 @@
 import type { CSSProperties } from "react";
 import { Link } from "react-router";
+import { useKnowledgeHref } from "./Knowledge";
 import { CELL_H, CELL_W, STEP_X, STEP_Y, displayName } from "./layout";
 import type { FrontierStub, PlacedNode } from "./layout";
 
@@ -29,6 +30,7 @@ interface Props {
 // `.tag` chips — the same markup Rooms.tsx already renders, which in SVG would
 // mean foreignObject or measuring text by hand.
 export default function MapNode({ node, stubs, current, detailed }: Props) {
+  const href = useKnowledgeHref();
   const room = node.room;
   const full = detailed || current;
   const chips = stubs.filter((s) => !s.free);
@@ -40,7 +42,7 @@ export default function MapNode({ node, stubs, current, detailed }: Props) {
 
   return (
     <Link
-      to={`/knowledge/rooms/${room.id}`}
+      to={href(`/knowledge/rooms/${room.id}`)}
       className={classes.join(" ")}
       style={{
         left: node.cx * STEP_X,

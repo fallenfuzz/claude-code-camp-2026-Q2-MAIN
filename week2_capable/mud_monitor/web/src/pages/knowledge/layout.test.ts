@@ -39,6 +39,9 @@ function room(id: number, exits: ExitSpec[] = [], over: Partial<KnowledgeRoom> =
     exits: exits.map(exit),
     entity_count: 0,
     entities: [],
+    // Layout knows nothing about regions — tint is drawn over the placement
+    // this function produces, never fed into it.
+    region_id: null,
     ...over,
   };
 }

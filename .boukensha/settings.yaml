@@ -121,6 +121,11 @@ tasks:
     allow:
       - plan_route
       - execute_route
+      # The two region declarations (boundaries_revised.md §2). Native tools,
+      # zero MUD I/O — they write the agent's own conclusion about where it is
+      # to the one place routing can read it back from.
+      - name_region
+      - split_region
       - tbamud__move
       - tbamud__consider
       - tbamud__examine

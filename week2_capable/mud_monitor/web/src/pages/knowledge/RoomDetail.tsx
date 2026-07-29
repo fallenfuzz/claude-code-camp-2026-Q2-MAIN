@@ -4,11 +4,13 @@ import { usePolling } from "../../api/usePolling";
 import FingerprintCode from "../../components/FingerprintCode";
 import ThreatChip from "../../components/ThreatChip";
 import { formatTime } from "../../format";
-import { useReportEnvelope } from "./Knowledge";
+import { useKnowledgeHref, useKnowledgeSession, useReportEnvelope } from "./Knowledge";
 
 export default function RoomDetail() {
+  const href = useKnowledgeHref();
   const { id } = useParams();
-  const { data, error } = usePolling(() => fetchKnowledgeRoom(id ?? ""), [ id ]);
+  const session = useKnowledgeSession();
+  const { data, error } = usePolling(() => fetchKnowledgeRoom(id ?? "", session), [ id, session ]);
   useReportEnvelope(data);
 
   if (error) return <p className="error">Failed to read room: {error}</p>;
@@ -18,7 +20,7 @@ export default function RoomDetail() {
 
   return (
     <>
-      <Link to="/knowledge/rooms" className="back">
+      <Link to={href("/knowledge/rooms")} className="back">
         ← all rooms
       </Link>
 
@@ -79,7 +81,7 @@ export default function RoomDetail() {
                 <td className="nowrap">{exit.direction}</td>
                 <td>
                   {exit.target_room_id != null ? (
-                    <Link to={`/knowledge/rooms/${exit.target_room_id}`}>
+                    <Link to={href(`/knowledge/rooms/${exit.target_room_id}`)}>
                       {exit.target_name ?? `#${exit.target_room_id}`}
                     </Link>
                   ) : (
@@ -106,7 +108,7 @@ export default function RoomDetail() {
         <ul className="knowledge-list">
           {inbound.map((from) => (
             <li key={`${from.room_id}-${from.direction}`}>
-              <Link to={`/knowledge/rooms/${from.room_id}`}>{from.room_name}</Link>{" "}
+              <Link to={href(`/knowledge/rooms/${from.room_id}`)}>{from.room_name}</Link>{" "}
               <span className="muted-cell">going {from.direction}</span>
             </li>
           ))}

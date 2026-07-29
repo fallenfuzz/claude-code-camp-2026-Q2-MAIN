@@ -10,9 +10,10 @@ case      = one execution of a scenario           one session .jsonl
 run       = one CLI invocation                    one report .json
 ```
 
-A case produces **nothing new on disk except a normal session log**. A report is
-a derivation over those logs plus a judge verdict — which is why mud_monitor's
-existing session views work unmodified on a test session.
+A case produces a **normal session log** and one copy of the map it ended with,
+filed under that same session id (see "Retained session maps" below). A report
+is a derivation over those logs plus a judge verdict — which is why
+mud_monitor's existing session views work unmodified on a test session.
 
 ---
 
@@ -49,6 +50,26 @@ alias bk='ruby ~/Sites/omenking/claude-code-camp-2026-Q2/week2_capable/boukensha
 |---|---|---|---|
 | `find_bakery` | Derrano | `cleric` | Find the bakery and list the menu |
 | `withdraw_money` | Derrano | `cleric` | Go to the bank and withdraw 500 gold |
+| `find_bakery_cold` | Derrano | `cleric` | Find the bakery, no map at all — Journal A′ |
+| `find_hermit_mapped` | Derrano | `cleric` | Find the hermit, town already walked — Journal B′ |
+| `find_mayor_split` | Derrano | `cleric` | Find the mayor's office — Journal C′ |
+
+The last three are `boundaries_revised.md`'s three journals, and they are the
+measurement §8 asks for. `find_bakery_cold` is the gate: it runs `map_memory:
+none` and reproduces the reported failure, and step 1 (frontier visibility) is
+supposed to fix it on its own — runnable today.
+
+⚠️ `find_hermit_mapped` and `find_mayor_split` both begin with the town already
+walked and so want `snapshot:midgaard`, **which is not on disk**. Capture it
+after a real exploration run:
+
+```bash
+bk --snapshot-map midgaard --profile Derrano
+```
+
+They deliberately do not fall back to `copy:Derrano`: that profile's memory is
+currently 13 rooms of the Great Chessboard, which is not a town, and a case that
+quietly measures the wrong world is worse than one that refuses to start.
 
 | Plans | Cases |
 |---|---|
@@ -127,7 +148,7 @@ a different task from `find_bakery` against a warm one.
 # Pin a profile's current map as a committed fixture (VACUUM INTO — safe against
 # a live WAL-mode DB, even mid-session).
 bk --snapshot-map bakery_known --profile Dummy
-# -> .boukensha/tests/states/maps/bakery_known.sqlite3
+# -> .boukensha/tests/knowledge/snapshots/bakery_known.sqlite3
 
 # Then run against it.
 bk -ts find_bakery --map-memory snapshot:bakery_known --dry-run
@@ -141,10 +162,47 @@ bk -ts find_bakery --map-memory snapshot:bakery_known --dry-run
 | `keep` | Leave it alone — for "does it get better the second time" |
 | `copy:Dummy` | Snapshot another profile's DB into this one |
 | `snapshot:bakery_known` | Restore a committed fixture |
+| `session:20260729T183933Z-4caca6d5` | Restore the map a previous case ENDED with |
 
 `none` **archives, it does not delete** — the old DB lands in
 `profiles/<name>/knowledge.archive/<timestamp>.sqlite3`. Losing a developer's
 accumulated map to a mistyped test command is not recoverable.
+
+### Retained session maps
+
+Every case writes the map it ended with to
+
+```
+tests/knowledge/sessions/<profile>/<session_id>.sqlite3
+```
+
+named after the session that built it, which is the key the session log, the
+telnet log, the journal and the report already join on. The **thirty most recent
+per profile** are kept and older ones are deleted; that is enough for two
+consecutive plan runs, which is the comparison worth making.
+
+A retained map is a candidate fixture, and promotion is how one survives
+pruning:
+
+```bash
+# The map as it stood at the END of that case, not whatever the profile holds now.
+bk --snapshot-map midgaard --profile Derrano --from-session 20260729T183933Z-4caca6d5
+
+# Or start a case from it directly, without promoting anything.
+bk -ts find_hermit_mapped --map-memory session:20260729T183933Z-4caca6d5
+```
+
+Snapshots live in `tests/knowledge/snapshots/`, are never pruned, and are the
+only memory artifact that belongs in git.
+
+Two limits worth knowing before you rely on this. Only **test runs** retain a
+map — a REPL session does not go through the case runner, so an exploratory run
+by hand still has to be pinned with `--snapshot-map` before the next case
+overwrites the profile. And a retained map is the map at session **end**: a case
+that died halfway retains a half-built map, which is correct and can still
+mislead anyone reading it as the map the agent had at the moment it made the
+decision they are investigating. The session log timestamps every discovery, so
+that ordering is recoverable — but not from the database alone.
 
 ---
 
@@ -192,6 +250,7 @@ anyone parsing JSON.
 | `--report PATH` | write elsewhere than `tests/reports/` |
 | `--list-scenarios`, `--list-plans` | |
 | `--snapshot-map NAME --profile P` | pin a map as a fixture |
+| `--from-session ID` | with `--snapshot-map`: pin a retained session's map instead of the profile's current one |
 | `--quiet` | write the run log, echo nothing (CI) |
 | `--verbose`, `-v` | fold the seeder's telnet transcript into the run log |
 

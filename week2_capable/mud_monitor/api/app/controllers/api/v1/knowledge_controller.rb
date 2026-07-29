@@ -12,6 +12,14 @@ module Api
       DEFAULT_LIMIT = 200
       MAX_LIMIT     = 1000
 
+      # `Boukensha::Logger#generate_session_id`, exactly. Every action accepts
+      # `?session=<id>` and turns it into a filesystem path, which makes this
+      # the one parameter in this application where a traversal is possible —
+      # so the id is matched against the grammar before it is joined to
+      # anything, and a value that does not match is refused rather than
+      # sanitised.
+      SESSION_ID = /\A\d{8}T\d{6}Z-[0-9a-f]{8}\z/
+
       rescue_from ::Knowledge::Reader::SchemaMismatch, with: :render_schema_mismatch
 
       # GET /knowledge
@@ -76,6 +84,19 @@ module Api
         end
       end
 
+      # GET /knowledge/regions
+      #
+      # The places the agent named, with their declared boundary edges and the
+      # rooms that ended up in each. Its own action beside the other
+      # `knowledge/*` reads, and a snapshot like all of them — a declaration is
+      # a row that changes, not an event with a cursor to tail.
+      def regions
+        with_reader do |reader|
+          rows = reader.regions
+          render json: reader.envelope.merge(regions: rows, count: rows.length)
+        end
+      end
+
       # GET /knowledge/frontier
       def frontier
         with_reader do |reader|
@@ -86,8 +107,38 @@ module Api
 
       private
 
+      # Live by default; `?session=<id>` serves the map that session ENDED with,
+      # out of the harness's retained directory.
+      #
+      # The reader needs no teaching for this. It already takes a path, opens a
+      # connection per request rather than memoizing one, reports absence as a
+      # state instead of raising, and gates every read on the schema version the
+      # file itself reports — so a past session's memory is a different path,
+      # not a different reader.
       def with_reader(&block)
-        ::Knowledge::Reader.open(path: cfg.knowledge_db, live_window: cfg.live_window, &block)
+        session = params[:session].presence
+        return render_invalid_session if session && !SESSION_ID.match?(session)
+
+        path = session ? retained_map_path(session) : cfg.knowledge_db
+        ::Knowledge::Reader.open(path: path, live_window: cfg.live_window, session: session, &block)
+      end
+
+      # Off the boukensha ROOT and under the harness's directory, exactly where
+      # `CaseRunner` writes it — the monitor resolves the writer's path rather
+      # than guessing a parallel one.
+      #
+      # A missing file here is NOT an error: retention keeps thirty per profile,
+      # so an older session having no map is the policy working. The reader
+      # answers `attached: false` and the UI says which policy removed it.
+      def retained_map_path(session)
+        cfg.tests_dir.join("knowledge", "sessions", cfg.profile.to_s, "#{session}.sqlite3")
+      end
+
+      def render_invalid_session
+        render json: { error: { code: "invalid_session",
+                                message: "#{params[:session].inspect} is not a session id " \
+                                         "(expected the form 20260729T183933Z-4caca6d5)" } },
+               status: :bad_request
       end
 
       def clamp_limit(raw)

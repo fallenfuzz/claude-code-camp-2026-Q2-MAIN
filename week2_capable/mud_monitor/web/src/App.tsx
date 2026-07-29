@@ -11,6 +11,7 @@ import KnowledgeMap from "./pages/knowledge/Map";
 import Overview from "./pages/knowledge/Overview";
 import Player from "./pages/knowledge/Player";
 import Progression from "./pages/knowledge/Progression";
+import Regions from "./pages/knowledge/Regions";
 import RoomDetail from "./pages/knowledge/RoomDetail";
 import Rooms from "./pages/knowledge/Rooms";
 import Manager from "./pages/Manager";
@@ -45,6 +46,7 @@ export default function App() {
           <Route path="map" element={<KnowledgeMap />} />
           <Route path="entities" element={<Entities />} />
           <Route path="frontier" element={<Frontier />} />
+          <Route path="regions" element={<Regions />} />
           <Route path="player" element={<Player />} />
           <Route path="progression" element={<Progression />} />
         </Route>

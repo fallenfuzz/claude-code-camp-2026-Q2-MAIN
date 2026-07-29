@@ -27,8 +27,25 @@ module Boukensha
           :steps,               # [{ direction:, from_room_id:, to_room_id: }]
           :frontier,            # { room_id:, direction: } or nil
           :evidence,
-          :alternatives         # [{ room_id:, name: }], up to 3
+          :alternatives,        # [{ room_id:, name: }], up to 3
+          # boundaries_revised.md §2: the whole unexplored set, not one pick.
+          # Groups, in distance bands: [{ distance:, room_id:, room_name:,
+          # path: [dir], exits: [{ direction:, target_name: }] }]
+          :unexplored,
+          # { count:, rooms:, min_distance:, max_distance: }, or nil when the
+          # whole set is on screen.
+          :withheld,
+          :unexplored_total
         )
+
+        # How many unexplored exits go on screen before the rest are withheld.
+        #
+        # SOFT, and the softness is the point: a distance BAND is never cut in
+        # half, because "the nearest ones are all here" has to be true for the
+        # ordering to mean anything at all. The band that crosses this number
+        # is shown whole and the listing stops after it, so the figure bounds
+        # the output loosely rather than exactly (boundaries_revised.md §2).
+        FRONTIER_SOFT_CAP = 6
 
         module_function
 
@@ -38,23 +55,56 @@ module Boukensha
         # exits:                   Store#all_exits
         # entities_by_room:        Store#entities_by_room
         # frontier_attempt_counts: { [room_id, direction] => failed_count }
-        def plan(query:, current_room_id:, rooms:, exits:, entities_by_room: {}, frontier_attempt_counts: {})
+        # regions_by_room:         { room_id => region_id }
+        # scope_region_ids:        region ids exploration is confined to, or
+        #                          nil for `scope: "world"`
+        def plan(query:, current_room_id:, rooms:, exits:, entities_by_room: {}, frontier_attempt_counts: {},
+                 regions_by_room: {}, scope_region_ids: nil)
           Planner.new(rooms: rooms, exits: exits, entities_by_room: entities_by_room,
-                      frontier_attempt_counts: frontier_attempt_counts)
+                      frontier_attempt_counts: frontier_attempt_counts,
+                      regions_by_room: regions_by_room, scope_region_ids: scope_region_ids)
                  .plan(query: query, current_room_id: current_room_id)
+        end
+
+        # Unit-cost BFS over the linked graph, exposed so anything else that
+        # needs "how far is every room from here" — the region shape line, for
+        # one — asks the same function the routes do rather than growing a
+        # second implementation that can disagree with this one.
+        def distances(exits:, from:)
+          return {} unless from
+
+          linked = exits.select { |e| e[:target_room_id] }.group_by { |e| e[:room_id] }
+          dist   = { from => 0 }
+          queue  = [from]
+          until queue.empty?
+            room_id = queue.shift
+            (linked[room_id] || []).each do |edge|
+              target = edge[:target_room_id]
+              next if dist.key?(target)
+
+              dist[target] = dist[room_id] + 1
+              queue << target
+            end
+          end
+          dist
         end
 
         # The algorithm, instantiated per call so the BFS/search results and
         # the room/exit snapshot can live as ivars instead of being re-threaded
         # through every private method as arguments.
         class Planner
-          def initialize(rooms:, exits:, entities_by_room: {}, frontier_attempt_counts: {})
+          def initialize(rooms:, exits:, entities_by_room: {}, frontier_attempt_counts: {},
+                         regions_by_room: {}, scope_region_ids: nil)
             @rooms_by_id      = rooms.each_with_object({}) { |r, h| h[r[:id]] = r }
             @exits_by_room    = exits.group_by { |e| e[:room_id] }
             @linked_by_room   = exits.select { |e| e[:target_room_id] }.group_by { |e| e[:room_id] }
             @frontiers        = exits.reject { |e| e[:target_room_id] }
             @entities_by_room = entities_by_room
             @attempt_counts   = frontier_attempt_counts
+            @region_of        = regions_by_room
+            # nil means `scope: "world"` — no constraint at all, as distinct
+            # from an empty array, which would constrain to nothing.
+            @scope_ids        = scope_region_ids
           end
 
           def plan(query:, current_room_id:)
@@ -62,6 +112,10 @@ module Boukensha
             return empty_plan("position_unknown", q, current_room_id) if current_room_id.nil?
 
             distances, predecessors = bfs(current_room_id)
+            # Kept as an ivar as well as a local: `region_hops` needs to walk
+            # the same tree the steps are reconstructed from, several layers
+            # below the call that computed it.
+            @predecessors = predecessors
             return empty_plan("unknown", q, current_room_id) if q.empty?
 
             matches = DestinationSearch.search(q, rooms: @rooms_by_id.values,
@@ -137,19 +191,20 @@ module Boukensha
             alternatives = build_alternatives(top, primary)
 
             if primary[:room_id] == current_room_id
-              return RoutePlan.new(status: "arrived", query: q, start_room: current_room_id,
-                                    destination_room: current_room_id, steps: [], frontier: nil,
-                                    evidence: primary[:evidence], alternatives: alternatives)
+              return plan_row("arrived", q, current_room_id,
+                              destination_room: current_room_id,
+                              evidence: primary[:evidence], alternatives: alternatives)
             end
 
             if distances.key?(primary[:room_id])
-              RoutePlan.new(status: "known", query: q, start_room: current_room_id,
-                            destination_room: primary[:room_id], steps: path_to(primary[:room_id], predecessors),
-                            frontier: nil, evidence: primary[:evidence], alternatives: alternatives)
+              plan_row("known", q, current_room_id,
+                       destination_room: primary[:room_id],
+                       steps: path_to(primary[:room_id], predecessors),
+                       evidence: primary[:evidence], alternatives: alternatives)
             else
-              RoutePlan.new(status: "unreachable", query: q, start_room: current_room_id,
-                            destination_room: primary[:room_id], steps: [], frontier: nil,
-                            evidence: primary[:evidence], alternatives: alternatives)
+              plan_row("unreachable", q, current_room_id,
+                       destination_room: primary[:room_id],
+                       evidence: primary[:evidence], alternatives: alternatives)
             end
           end
 
@@ -173,6 +228,22 @@ module Boukensha
             reachable = @frontiers.select { |f| distances.key?(f[:room_id]) }
             return empty_plan("exhausted", q, current_room_id) if reachable.empty?
 
+            # Scope constrains EXPLORATION and never travel: `known_branch` has
+            # already returned by this point, so a destination the agent has
+            # stood in is routed to across any number of boundaries. What is
+            # narrowed here is only where to look for something not on the map.
+            in_scope = reachable.select { |f| in_scope?(f[:room_id]) }
+            if in_scope.empty?
+              # Every remaining door leaves the region. This is a QUESTION, not
+              # a wall — it carries the widening call as text and the agent can
+              # simply make it (§2). It is also not the mechanism the design is
+              # betting on: Journal B′ widens on MEANING, with twelve doors
+              # still open in town, and this status only fires when the
+              # arithmetic happens to agree.
+              return plan_row("region_exhausted", q, current_room_id, unexplored_total: reachable.size)
+            end
+            reachable = in_scope
+
             room_matches = q.empty? ? [] : DestinationSearch.search(q, rooms: @rooms_by_id.values,
                                                                      entities_by_room: @entities_by_room,
                                                                      exits_by_room: @exits_by_room)
@@ -180,29 +251,102 @@ module Boukensha
 
             best = reachable.min_by { |f| frontier_rank_key(f, q, distances, room_tier) }
             evidence = frontier_evidence(best, q, room_tier)
+            shown, withheld = unexplored_view(reachable, distances, predecessors)
 
             status = evidence ? "explore" : "unknown"
-            RoutePlan.new(status: status, query: q, start_room: current_room_id, destination_room: nil,
-                          steps: path_to(best[:room_id], predecessors),
-                          frontier: { room_id: best[:room_id], direction: best[:direction] },
-                          evidence: evidence, alternatives: [])
+            plan_row(status, q, current_room_id,
+                     steps: path_to(best[:room_id], predecessors),
+                     frontier: { room_id: best[:room_id], direction: best[:direction] },
+                     evidence: evidence,
+                     unexplored: shown, withheld: withheld, unexplored_total: reachable.size)
+          end
+
+          # ---------------------------------------------------------------
+          # The whole reachable frontier, grouped by (distance, room) and cut
+          # only on a band boundary — boundaries_revised.md §2. Returns the
+          # groups to show and a summary of the ones held back, and the ONLY
+          # judgement in it is arithmetic: nothing here reads a name.
+          #
+          # `path` rides on each group because a frontier the agent cannot
+          # walk to is not a choice it can make, and the whole point of
+          # listing more than one is that the choice is the agent's.
+          def unexplored_view(reachable, distances, predecessors)
+            groups = reachable
+                     .group_by { |f| f[:room_id] }
+                     .map { |room_id, fs| build_group(room_id, fs, distances, predecessors) }
+                     .sort_by { |g| [g[:distance], g[:room_id]] }
+
+            shown = []
+            count = 0
+            groups.chunk_while { |a, b| a[:distance] == b[:distance] }.each do |band|
+              break if !shown.empty? && count >= FRONTIER_SOFT_CAP
+
+              shown.concat(band)
+              count += band.sum { |g| g[:exits].size }
+            end
+
+            held = groups - shown
+            [shown, held.empty? ? nil : withheld_summary(held)]
+          end
+
+          def build_group(room_id, frontiers, distances, predecessors)
+            {
+              distance:  distances[room_id],
+              room_id:   room_id,
+              room_name: @rooms_by_id.dig(room_id, :name),
+              path:      path_to(room_id, predecessors).map { |s| s[:direction] },
+              exits:     frontiers.sort_by { |f| direction_index(f[:direction]) }
+                                  .map { |f| { direction: f[:direction], target_name: f[:target_name] } }
+            }
+          end
+
+          def withheld_summary(held)
+            distances = held.map { |g| g[:distance] }
+            { count: held.sum { |g| g[:exits].size }, rooms: held.size,
+              min_distance: distances.min, max_distance: distances.max }
           end
 
           # Lexicographic: (1) exact/phrase clue in the frontier's own
           # target_name, (2) the frontier's source room's own match tier
           # (covers both "best matching room" and "any room with matching
           # evidence" as one continuum — a lower tier IS a better match),
-          # (3) nearest by BFS distance, (4) fewest prior failed attempts,
-          # (5) canonical direction order, (6) source room id.
+          # (3) region hops, (4) nearest by BFS distance, (5) fewest prior
+          # failed attempts, (6) canonical direction order, (7) source room id.
+          #
+          # Term 3 is the only one boundaries_revised.md adds, and it sits
+          # AHEAD of raw distance deliberately: three moves without leaving
+          # town should beat one move out of the gate. No other term changes.
           def frontier_rank_key(frontier, q, distances, room_tier)
             [
               target_name_clue?(frontier, q) ? 0 : 1,
               room_tier[frontier[:room_id]] || Float::INFINITY,
+              region_hops(frontier[:room_id], distances),
               distances[frontier[:room_id]] || Float::INFINITY,
               @attempt_counts[[frontier[:room_id], frontier[:direction]]] || 0,
               direction_index(frontier[:direction]),
               frontier[:room_id]
             ]
+          end
+
+          # How many region changes the shortest known walk to this room passes
+          # through, computed off the BFS tree the route itself is built from.
+          #
+          # It measures the walk to the frontier's SOURCE room, not what lies
+          # beyond the exit, because what lies beyond an unexplored exit is
+          # precisely what nobody knows — claiming otherwise would be the sort
+          # of guess §7 rules out.
+          def region_hops(room_id, distances)
+            return 0 unless distances.key?(room_id)
+
+            @hops ||= {}
+            @hops[room_id] ||= path_to(room_id, @predecessors)
+                               .count { |s| @region_of[s[:from_room_id]] != @region_of[s[:to_room_id]] }
+          end
+
+          def in_scope?(room_id)
+            return true if @scope_ids.nil?
+
+            @scope_ids.include?(@region_of[room_id])
           end
 
           def target_name_clue?(frontier, q)
@@ -224,8 +368,17 @@ module Boukensha
           end
 
           def empty_plan(status, q, current_room_id)
-            RoutePlan.new(status: status, query: q, start_room: current_room_id, destination_room: nil,
-                          steps: [], frontier: nil, evidence: nil, alternatives: [])
+            plan_row(status, q, current_room_id)
+          end
+
+          # One construction site for a Data with eleven members, so adding a
+          # twelfth does not mean editing five call sites and missing one.
+          def plan_row(status, q, current_room_id, destination_room: nil, steps: [], frontier: nil,
+                       evidence: nil, alternatives: [], unexplored: [], withheld: nil, unexplored_total: 0)
+            RoutePlan.new(status: status, query: q, start_room: current_room_id,
+                          destination_room: destination_room, steps: steps, frontier: frontier,
+                          evidence: evidence, alternatives: alternatives,
+                          unexplored: unexplored, withheld: withheld, unexplored_total: unexplored_total)
           end
         end
         private_constant :Planner

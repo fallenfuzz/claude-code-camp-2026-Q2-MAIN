@@ -30,13 +30,14 @@ module Boukensha
       # `candidates`  — look_candidates, only while the room is unexamined.
       # `ambiguity`   — how many rooms this could be, when it is more than one.
       def render(room:, exits: [], here: [], player: {}, events: [], first_visit: false,
-                 candidates: nil, ambiguity: nil)
+                 candidates: nil, ambiguity: nil, region: nil)
         return nil if room.nil? && player.to_h.empty? && events.empty?
 
         lines = []
         lines << location_line(room, ambiguity)
         lines << "  #{room[:description]}" if first_visit && room && !room[:description].to_s.empty?
         lines << exits_line(exits) if exits && !exits.empty?
+        lines << region_line(region) if region
         lines << here_line(here)   if here  && !here.empty?
         lines << candidates_line(candidates) if candidates && !candidates.empty?
         lines << you_line(player)  if player && !player.to_h.empty?
@@ -97,6 +98,24 @@ module Boukensha
           bits.empty? ? label : "#{label} (#{bits.join(' — ')})"
         end
         "here: #{rendered.join(' | ')}"
+      end
+
+      # The place this room is in, and — when the label is still machine-made —
+      # four words asking what it is really called.
+      #
+      # That tag is the entire prompt for naming (boundaries_revised.md §2). It
+      # is not a nag and it is not a rule in the system prompt: it sits in the
+      # block the model already reads, asks its question at a cost of four
+      # words, and disappears the moment the question is answered. `(inherited)`
+      # is there so the agent can tell a region it declared from one that
+      # merely flowed in with the move — a distinction that matters when the
+      # inherited answer is WRONG, which is exactly the moment Journal B′ turns
+      # on ("inherited, and wrong; I am outside it").
+      def region_line(region)
+        bits = [region[:label].to_s]
+        bits << "— unconfirmed" if region[:confirmed].to_i != 1
+        bits << "(#{region[:basis]})" if region[:basis] == "inherited"
+        "region: #{bits.join(' ')}"
       end
 
       def candidates_line(candidates)

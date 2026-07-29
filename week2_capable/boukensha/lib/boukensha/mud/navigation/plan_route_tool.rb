@@ -1,4 +1,5 @@
 require_relative "route_planner"
+require_relative "region_tools"
 
 module Boukensha
   module Mud
@@ -12,31 +13,60 @@ module Boukensha
       module PlanRouteTool
         module_function
 
-        def call(store:, destination:)
+        # scope: "region" (default) confines EXPLORATION to the place the agent
+        # is standing in and everything within it; "world" lifts that. Travel
+        # is never scoped — see RoutePlanner#frontier_branch.
+        def call(store:, destination:, scope: "region")
           query = destination.to_s.strip
           return "[route] error: destination is required" if query.empty?
 
+          scope = scope.to_s
+          return "[route] error: scope must be \"region\" or \"world\"" unless %w[region world].include?(scope)
+
+          here   = store.player[:current_room_id]
+          region = here && store.region_for_room(here)
+          scope_ids = (scope == "world" || region.nil?) ? nil : store.region_descendants(region[:id])
+
           plan = RoutePlanner.plan(
             query: query,
-            current_room_id: store.player[:current_room_id],
+            current_room_id: here,
             rooms: store.rooms,
             exits: store.all_exits,
             entities_by_room: store.entities_by_room,
-            frontier_attempt_counts: store.frontier_attempt_counts
+            frontier_attempt_counts: store.frontier_attempt_counts,
+            regions_by_room: store.room_regions.transform_values { |m| m[:region_id] },
+            scope_region_ids: scope_ids
           )
-          render(plan, store)
+          render(plan, store, region, scope)
         end
 
-        def render(plan, store)
-          case plan.status
-          when "position_unknown" then render_position_unknown(plan)
-          when "arrived"          then render_arrived(plan, store)
-          when "known"            then render_known(plan, store)
-          when "explore", "unknown" then render_frontier(plan, store)
-          when "unreachable"      then render_unreachable(plan, store)
-          when "exhausted"        then render_exhausted(plan)
-          else "[route] #{plan.query} — #{plan.status}"
-          end
+        def render(plan, store, region = nil, scope = "region")
+          # The label goes on the listing only when it actually constrained
+          # it. Under `scope: "world"` the set spans every region the agent
+          # has walked, and heading it "in Midgaard" would be false.
+          scoped = scope == "region" ? region : nil
+          body =
+            case plan.status
+            when "position_unknown" then render_position_unknown(plan)
+            when "arrived"          then render_arrived(plan, store)
+            when "known"            then render_known(plan, store)
+            when "explore", "unknown" then render_frontier(plan, store, scoped)
+            when "unreachable"      then render_unreachable(plan, store)
+            when "exhausted"        then render_exhausted(plan)
+            when "region_exhausted" then render_region_exhausted(plan, region)
+            else "[route] #{plan.query} — #{plan.status}"
+            end
+
+          # The shape of the place the agent is in, on one line, on every
+          # exploring answer — and nothing anywhere branches on any of these
+          # numbers (§2, §5).
+          return body unless region && %w[explore unknown region_exhausted].include?(plan.status)
+
+          lines = body.lines.map(&:chomp)
+          lines.insert(1, "region: #{RegionShape.line(store: store, region: region,
+                                                      distances: RoutePlanner.distances(exits: store.all_exits,
+                                                                                        from: plan.start_room))}")
+          lines.join("\n")
         end
 
         def render_position_unknown(plan)
@@ -61,14 +91,77 @@ module Boukensha
           lines.join("\n")
         end
 
-        def render_frontier(plan, store)
-          source_room = store.room(plan.frontier[:room_id])
+        # The destination is not mapped. What used to be printed here was ONE
+        # frontier with the other N hidden, which is how an agent asked to find
+        # a bakery walked out of town without ever being shown that there was a
+        # choice to make (boundaries_revised.md §1). The list is now the body of
+        # the answer.
+        #
+        # `explore` keeps its single-lead block, because a clue naming one exit
+        # IS a recommendation and withholding it would be its own kind of
+        # dishonesty. `unknown` has no lead to offer, so it offers the set and
+        # says outright that the ordering is arithmetic.
+        def render_frontier(plan, store, region = nil)
           lines = ["[route] #{plan.query} — #{plan.status}"]
-          lines << (plan.status == "explore" ? "clue: #{plan.evidence}" : "reason: nearest unvisited exit; no remembered room matches #{plan.query.inspect}")
-          lines << "frontier: #{plan.frontier[:direction]} from #{source_room ? source_room[:name] : '?'}"
-          lines << "path: #{path_line(plan.steps)}" unless plan.steps.empty?
-          lines << "then explore: #{plan.frontier[:direction]} (destination beyond this exit is not mapped)"
+
+          if plan.status == "explore"
+            source_room = store.room(plan.frontier[:room_id])
+            lines << "clue: #{plan.evidence}"
+            lines << "frontier: #{plan.frontier[:direction]} from #{source_room ? source_room[:name] : '?'}"
+            lines << "path: #{path_line(plan.steps)}" unless plan.steps.empty?
+            lines << "then explore: #{plan.frontier[:direction]} (destination beyond this exit is not mapped)"
+          end
+
+          lines.concat(unexplored_lines(plan, region))
+          lines << reason_lines(plan) if plan.status == "unknown"
           lines.join("\n")
+        end
+
+        # ---------------------------------------------------------------
+        # The banded listing. Bands in distance order, whole; a group per room
+        # inside a band; the walk to that room in brackets so a frontier the
+        # agent picks off this list is one it can actually reach.
+        def unexplored_lines(plan, region = nil)
+          return [] if plan.unexplored.empty?
+
+          width = plan.unexplored.flat_map { |g| g[:exits].map { |e| e[:direction].to_s.length } }.max
+          lines = [unexplored_header(plan, region)]
+          plan.unexplored.each do |group|
+            lines << "  #{group_header(group)}"
+            group[:exits].each do |e|
+              lines << "    #{e[:direction].to_s.ljust(width)} → #{e[:target_name] || '(unnamed)'}"
+            end
+          end
+          lines << "  #{withheld_line(plan.withheld)}" if plan.withheld
+          lines
+        end
+
+        def unexplored_header(plan, region)
+          shown = plan.unexplored.sum { |g| g[:exits].size }
+          count = plan.withheld ? "#{shown} of #{plan.unexplored_total}, nearest first" : "all #{shown}"
+          "unexplored#{region ? ", in #{region[:label]}" : ', anywhere you have walked'} — #{count}:"
+        end
+
+        def group_header(group)
+          label = case group[:distance]
+                  when 0 then "here"
+                  when 1 then "1 move"
+                  else "#{group[:distance]} moves"
+                  end
+          path = group[:path].empty? ? "" : "  [#{group[:path].join(' → ')}]"
+          "#{label} — #{group[:room_name] || '?'}#{path}"
+        end
+
+        def withheld_line(w)
+          range = w[:min_distance] == w[:max_distance] ? "#{w[:min_distance]}" : "#{w[:min_distance]}–#{w[:max_distance]}"
+          "#{w[:count]} more from #{w[:rooms]} room#{'s' unless w[:rooms] == 1}, #{range} moves away"
+        end
+
+        # Said in the same breath as the ordering it describes, which is the
+        # whole reason none of this lives in the system prompt (§7).
+        def reason_lines(plan)
+          ["reason: no remembered room matches #{plan.query.inspect}; ordered by distance, which knows",
+           "        nothing about what these names mean — you do"].join("\n")
         end
 
         def render_unreachable(plan, store)
@@ -82,6 +175,19 @@ module Boukensha
         def render_exhausted(plan)
           ["[route] #{plan.query} — exhausted",
            "reason: no reachable exploration frontier from your current position"].join("\n")
+        end
+
+        # A refusal that carries its own remedy. §2 is explicit that this is a
+        # question rather than a wall, so the widening call is printed as text
+        # the agent can copy, and the count says how much is on the other side
+        # of the answer.
+        def render_region_exhausted(plan, region)
+          n = plan.unexplored_total
+          ["[route] #{plan.query} — region_exhausted",
+           "reason: every unexplored exit still reachable from here leaves " \
+           "#{region ? region[:label] : 'this region'}",
+           "#{n} unexplored exit#{'s' unless n == 1} remain#{'s' if n == 1} outside it — to include them, call " \
+           "plan_route(destination: #{plan.query.inspect}, scope: \"world\")"].join("\n")
         end
 
         def room_label(room)

@@ -1,0 +1,128 @@
+# The full measurement — boundaries_revised.md §8 step 5, "batch all three
+# journals as scenarios against the table below".
+#
+# Run `boundaries_gate` FIRST. This plan measures whether regions help; that one
+# measures whether they were needed, and its answer is the one that decides
+# whether the numbers here are worth reading.
+#
+# ── PREREQUISITE: a mapped Midgaard ───────────────────────────────────────
+#
+# Journals B′ and C′ both begin with the town already walked — §4 says 66 rooms,
+# §5 needs both banks of the river partly explored. No such map is on disk:
+# Derrano's current knowledge is 13 rooms of the Great Chessboard, which is not
+# a town and would make both cases meaningless.
+#
+# So capture one first. Let an agent explore Midgaard properly, then pin it:
+#
+#   bk --snapshot-map midgaard --profile Derrano
+#   # -> .boukensha/tests/knowledge/snapshots/midgaard.sqlite3
+#
+# If the exploration was a TEST run rather than a REPL session, its map was
+# retained under its own session id and can be pinned after the fact, which is
+# the version that survives the next case overwriting the profile:
+#
+#   bk --snapshot-map midgaard --profile Derrano --from-session <session_id>
+#
+# VACUUM INTO, so it is safe against a live WAL-mode DB even mid-session. Until
+# that file exists, B′ and C′ fail as their map is installed, with a sentence
+# naming the file they wanted — not at resolve time, so `--dry-run` will look
+# clean whether or not the snapshot is there. Check for it yourself before
+# committing to a run.
+#
+#   bk -tsp boundaries --dry-run
+#   bk -tsp boundaries
+#
+# ── WHAT THE REPORT CAN AND CANNOT TELL YOU ───────────────────────────────
+#
+# §8's metrics table has seven rows, and the deterministic `expect:` blocks in
+# these scenarios cover only the first and the last — moves to first arrival,
+# and plan_route calls per goal. The rows §8 says are the ones to watch are
+# exactly the ones no projection of a session log can compute today:
+#
+#   share of moves outside the starting region     needs region membership
+#                                                  joined against the move log
+#   name_region / split_region calls, and how      needs "was this a repair",
+#     many were repairs                            which is a judgement
+#   name_region used where split_region was meant  the sharp edge this design
+#                                                  introduces (§9)
+#   region_exhausted widened vs wrongly accepted   is the refusal a question
+#                                                  or a wall
+#   boundaries declared vs boundaries walked       did the boundary track
+#                                                  reality
+#
+# All five are carried by the judge rubrics in the scenario files, which means
+# they are reported as prose and not as numbers. That is a real gap and worth
+# closing — the first one is mechanical now that room_regions exists — but it
+# is not closed today, so read the verdicts and not just the pass rate.
+name: boundaries
+description: "Journals A′, B′ and C′ — do regions help, and is the mechanism usable or fiddly?"
+
+defaults:
+  player_profile: Derrano
+  # B′ and C′ both need the town already walked. A′ overrides this back to
+  # `none` below, because a cold start is the whole point of that case.
+  map_memory: snapshot:midgaard
+
+cases:
+  # ── Journal A′ — cold start, find the bakery ───────────────────────────
+  #
+  # Carried over from the gate plan so the full run is self-contained and the
+  # three journals are measured together. `map_memory: none` overrides the
+  # plan default: A′ is defined by having no map.
+  #
+  # By this point the answer should already be known from boundaries_gate. What
+  # this batch adds is the region half — §3 is candid that name_region did
+  # nothing for THIS task ("its only effect in this session was the 'in
+  # Midgaard' header on the iteration-4 list"), so a run where the agent names
+  # the town and still takes eight moves is the expected result, not a better
+  # one. Watch for the opposite failure: naming becoming a ritual the agent
+  # performs before every search.
+  - scenario: find_bakery_cold
+    batch: 5
+    session_name: A′ find_bakery_cold
+    map_memory: none
+
+  # ── Journal B′ — find the hermit, and the declared break ───────────────
+  #
+  # The crossing that matters. Both rooms either side of it are CITY in zone 30
+  # (§1), so movement cost does not change and any terrain-based detector would
+  # miss it entirely; the only evidence is the prose saying the busy city of
+  # Midgaard lies to the south.
+  #
+  # The behaviour under test is widening on MEANING. §4 is emphatic that
+  # `region_exhausted` did not fire and should not have — twelve doors were
+  # still open in town — and that the model widened because a hermit is by
+  # definition someone who lives away from people. A run that widens only after
+  # the arithmetic runs out has passed the case and missed the point, and the
+  # judge rubric is written to catch that.
+  #
+  # Then: does split_region land on the right edge? The tool prints the edge it
+  # used every time, so a boundary on an interior edge is legible in the
+  # transcript without reading the database.
+  - scenario: find_hermit_mapped
+    batch: 5
+    session_name: B′ find_hermit_mapped
+
+  # ── Journal C′ — the region that stopped narrowing anything ────────────
+  #
+  # The hardest of the three, and the one most likely to fail.
+  #
+  # §5 turns on the model reading a MEDIAN. Sixteen doors at median six is a
+  # scope that has stopped meaning "here"; twelve doors at median two, in
+  # Journal A′, was a dense little town where scope was working perfectly. A
+  # count threshold would have fired on A′ and been wrong, which is why both
+  # numbers are printed on one line and nothing in the code branches on either.
+  # Whether a model actually reads them is not something the design can assume,
+  # and §9 admits as much: "the claim that C′ splits in the right place rests on
+  # it noticing a median".
+  #
+  # This is also the case where §9's second failure mode is most likely — a
+  # nested split declared with name_region, renaming the whole town after a
+  # quarter of it. The tool prints the room count it renamed, so `53 rooms carry
+  # the new name` when the agent expected thirteen is the tell.
+  #
+  # A batch of 5 rather than 3: if this one is going to fail it will fail
+  # intermittently, and an intermittent failure at n=3 is unreadable.
+  - scenario: find_mayor_split
+    batch: 5
+    session_name: C′ find_mayor_split

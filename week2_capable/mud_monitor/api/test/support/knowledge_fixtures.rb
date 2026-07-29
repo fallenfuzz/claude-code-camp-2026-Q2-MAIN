@@ -35,6 +35,24 @@ module KnowledgeFixtures
     point_config_at(knowledge_tmpdir.join("absent.sqlite3"))
   end
 
+  # The map a past session ended with, where the harness writes it:
+  # `tests/knowledge/sessions/<profile>/<session_id>.sqlite3`. Built from the
+  # same seed as the live file so a test can point at both and tell them apart
+  # by content.
+  def use_retained_map(session_id, sql: File.read(SEED_SQL), profile: "legacy")
+    cfg = Rails.application.config.x.mud_monitor
+    @previous_boukensha_dir = cfg.boukensha_dir unless defined?(@previous_boukensha_dir)
+    cfg.boukensha_dir = knowledge_tmpdir
+
+    dir = knowledge_tmpdir.join("tests/knowledge/sessions", profile)
+    dir.mkpath
+    path = dir.join("#{session_id}.sqlite3")
+    db = SQLite3::Database.new(path.to_s)
+    db.execute_batch(sql)
+    db.close
+    path
+  end
+
   def knowledge_tmpdir
     @knowledge_tmpdir ||= Pathname.new(Dir.mktmpdir("knowledge"))
   end
@@ -69,6 +87,7 @@ module KnowledgeFixtures
     cfg = Rails.application.config.x.mud_monitor
     cfg.knowledge_db = @previous_knowledge_db if defined?(@previous_knowledge_db)
     cfg.profile_registry = @previous_profile_registry if defined?(@previous_profile_registry)
+    cfg.boukensha_dir = @previous_boukensha_dir if defined?(@previous_boukensha_dir)
     FileUtils.remove_entry(@knowledge_tmpdir) if @knowledge_tmpdir&.directory?
   end
 

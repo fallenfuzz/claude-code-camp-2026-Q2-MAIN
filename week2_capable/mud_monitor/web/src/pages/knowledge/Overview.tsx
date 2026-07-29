@@ -3,7 +3,7 @@ import { fetchKnowledge } from "../../api/client";
 import { usePolling } from "../../api/usePolling";
 import KnowledgeEmpty from "../../components/KnowledgeEmpty";
 import { formatTime } from "../../format";
-import { useReportEnvelope } from "./Knowledge";
+import { useKnowledgeHref, useKnowledgeSession, useReportEnvelope } from "./Knowledge";
 
 function Tile({ label, value, sub }: { label: string; value: string | number; sub?: string }) {
   return (
@@ -23,7 +23,9 @@ function withMax(value: number | null, max: number | null) {
 }
 
 export default function Overview() {
-  const { data, error } = usePolling(() => fetchKnowledge(), []);
+  const href = useKnowledgeHref();
+  const session = useKnowledgeSession();
+  const { data, error } = usePolling(() => fetchKnowledge(session), [ session ]);
   useReportEnvelope(data);
 
   if (error) return <p className="error">Failed to read knowledge: {error}</p>;
@@ -70,7 +72,7 @@ export default function Overview() {
             <dt>Location</dt>
             <dd>
               {player.current_room ? (
-                <Link to={`/knowledge/rooms/${player.current_room.id}`}>{player.current_room.name}</Link>
+                <Link to={href(`/knowledge/rooms/${player.current_room.id}`)}>{player.current_room.name}</Link>
               ) : (
                 <span className="muted-cell">unknown</span>
               )}
@@ -78,7 +80,7 @@ export default function Overview() {
                 <span className="muted-cell">
                   {" "}
                   — came {player.last_direction ?? "?"} from{" "}
-                  <Link to={`/knowledge/rooms/${player.prev_room.id}`}>{player.prev_room.name}</Link>
+                  <Link to={href(`/knowledge/rooms/${player.prev_room.id}`)}>{player.prev_room.name}</Link>
                 </span>
               )}
             </dd>

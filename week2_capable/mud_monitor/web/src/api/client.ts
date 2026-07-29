@@ -7,6 +7,7 @@ import type {
   KnowledgeMapPage,
   KnowledgeOverview,
   KnowledgePlayerPage,
+  KnowledgeRegionsPage,
   KnowledgeRoomDetail,
   KnowledgeRoomsPage,
   JournalPage,
@@ -123,9 +124,20 @@ export function fetchDropped(filters: DroppedFilters = {}): Promise<DroppedDiff>
 //
 // No stream sibling for any of these: knowledge is a snapshot, not a log, so
 // the pages poll (usePolling) rather than tailing a cursor.
+//
+// Every read takes an optional session id. Omitted, it is the profile's live
+// memory; given, it is the map that session ENDED with, out of the harness's
+// retained directory. Same shapes either way — the envelope's `session` field
+// is how a view knows which of the two it is rendering.
 
-export function fetchKnowledge(): Promise<KnowledgeOverview> {
-  return get("/knowledge");
+/** Appends `?session=` to a knowledge path, preserving any query already on it. */
+function withSession(path: string, session?: string | null): string {
+  if (!session) return path;
+  return `${path}${path.includes("?") ? "&" : "?"}session=${encodeURIComponent(session)}`;
+}
+
+export function fetchKnowledge(session?: string | null): Promise<KnowledgeOverview> {
+  return get(withSession("/knowledge", session));
 }
 
 export interface KnowledgeRoomFilters {
@@ -135,13 +147,16 @@ export interface KnowledgeRoomFilters {
   limit?: number;
 }
 
-export function fetchKnowledgeRooms(filters: KnowledgeRoomFilters = {}): Promise<KnowledgeRoomsPage> {
+export function fetchKnowledgeRooms(
+  filters: KnowledgeRoomFilters = {},
+  session?: string | null,
+): Promise<KnowledgeRoomsPage> {
   const params = new URLSearchParams();
   if (filters.q) params.set("q", filters.q);
   if (filters.filter) params.set("filter", filters.filter);
   if (filters.limit != null) params.set("limit", String(filters.limit));
   const qs = params.toString();
-  return get(`/knowledge/rooms${qs ? `?${qs}` : ""}`);
+  return get(withSession(`/knowledge/rooms${qs ? `?${qs}` : ""}`, session));
 }
 
 /**
@@ -155,14 +170,22 @@ export function fetchKnowledgeRooms(filters: KnowledgeRoomFilters = {}): Promise
  * is a `fields=map` param on THIS action that drops `description` and
  * `entities[].descr` — not a second action.
  */
-export function fetchKnowledgeMap(): Promise<KnowledgeMapPage> {
-  return Promise.all([ fetchKnowledgeRooms({ limit: 1000 }), fetchKnowledge() ]).then(
-    ([ rooms, overview ]) => ({ ...rooms, player: overview.player }),
+export function fetchKnowledgeMap(session?: string | null): Promise<KnowledgeMapPage> {
+  return Promise.all([
+    fetchKnowledgeRooms({ limit: 1000 }, session),
+    fetchKnowledge(session),
+    fetchKnowledgeRegions(session),
+  ]).then(
+    ([ rooms, overview, regions ]) => ({ ...rooms, player: overview.player, regions: regions.regions }),
   );
 }
 
-export function fetchKnowledgeRoom(id: number | string): Promise<KnowledgeRoomDetail> {
-  return get(`/knowledge/rooms/${encodeURIComponent(String(id))}`);
+export function fetchKnowledgeRegions(session?: string | null): Promise<KnowledgeRegionsPage> {
+  return get(withSession("/knowledge/regions", session));
+}
+
+export function fetchKnowledgeRoom(id: number | string, session?: string | null): Promise<KnowledgeRoomDetail> {
+  return get(withSession(`/knowledge/rooms/${encodeURIComponent(String(id))}`, session));
 }
 
 export interface KnowledgeEntityFilters {
@@ -170,23 +193,26 @@ export interface KnowledgeEntityFilters {
   q?: string;
 }
 
-export function fetchKnowledgeEntities(filters: KnowledgeEntityFilters = {}): Promise<KnowledgeEntitiesPage> {
+export function fetchKnowledgeEntities(
+  filters: KnowledgeEntityFilters = {},
+  session?: string | null,
+): Promise<KnowledgeEntitiesPage> {
   const params = new URLSearchParams();
   if (filters.kind) params.set("kind", filters.kind);
   if (filters.q) params.set("q", filters.q);
   const qs = params.toString();
-  return get(`/knowledge/entities${qs ? `?${qs}` : ""}`);
+  return get(withSession(`/knowledge/entities${qs ? `?${qs}` : ""}`, session));
 }
 
-export function fetchKnowledgeFrontier(): Promise<KnowledgeFrontierPage> {
-  return get("/knowledge/frontier");
+export function fetchKnowledgeFrontier(session?: string | null): Promise<KnowledgeFrontierPage> {
+  return get(withSession("/knowledge/frontier", session));
 }
 
 // Its own endpoint rather than more keys on /knowledge, for the same reason
 // rooms and entities are: the Overview polls every 3s and must not start
 // carrying a full skill list and two item snapshots to render four tiles.
-export function fetchKnowledgePlayer(): Promise<KnowledgePlayerPage> {
-  return get("/knowledge/player");
+export function fetchKnowledgePlayer(session?: string | null): Promise<KnowledgePlayerPage> {
+  return get(withSession("/knowledge/player", session));
 }
 
 // The progression journal, folded into series server-side. A snapshot of the

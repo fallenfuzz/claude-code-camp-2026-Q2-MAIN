@@ -6,7 +6,7 @@ import KnowledgeEmpty from "../../components/KnowledgeEmpty";
 import ThreatChip from "../../components/ThreatChip";
 import { formatTime } from "../../format";
 import { useDebouncedValue } from "../../useDebouncedValue";
-import { useReportEnvelope } from "./Knowledge";
+import { useKnowledgeHref, useKnowledgeSession, useReportEnvelope } from "./Knowledge";
 
 const KINDS = [
   { value: "", label: "all" },
@@ -19,12 +19,14 @@ const KINDS = [
 // appraisal reusable — a cityguard met in a brand-new room costs zero
 // consider/examine round trips because this row already answers both questions.
 export default function Entities() {
+  const href = useKnowledgeHref();
   const [ kind, setKind ] = useState("");
   const [ q, setQ ] = useState("");
   const debouncedQ = useDebouncedValue(q);
+  const session = useKnowledgeSession();
   const { data, error } = usePolling(
-    () => fetchKnowledgeEntities({ kind: kind || undefined, q: debouncedQ || undefined }),
-    [ kind, debouncedQ ],
+    () => fetchKnowledgeEntities({ kind: kind || undefined, q: debouncedQ || undefined }, session),
+    [ kind, debouncedQ, session ],
   );
   useReportEnvelope(data);
 
@@ -99,7 +101,7 @@ export default function Entities() {
                   ) : (
                     <span className="sighting-list">
                       {(entity.sightings ?? []).map((s) => (
-                        <Link key={s.room_id} to={`/knowledge/rooms/${s.room_id}`}>
+                        <Link key={s.room_id} to={href(`/knowledge/rooms/${s.room_id}`)}>
                           {s.room_name}
                         </Link>
                       ))}

@@ -1,0 +1,69 @@
+# The gate on everything else in boundaries_revised.md.
+#
+# §8 sequences the work so that two cheap things run BEFORE any region
+# machinery is trusted:
+#
+#   step 0  cut `# Navigation` to policy only, then run find_bakery, which
+#           already has a deterministic gate (max_model_tool_calls: 6,
+#           final_room: The Bakery). One prompt edit and a batch run.
+#   step 1  frontier visibility — plan_route returns the whole unexplored set
+#           in distance bands with the names the MUD printed. Run
+#           find_bakery_cold here and RECORD THE NUMBER, because §3 claims this
+#           alone fixes the reported transcript, and that claim should be
+#           measured before anything else is built.
+#
+# The sentence that makes this file worth running: **if showing the agent the
+# names does not change its behaviour, steps 2–4 rest on a false assumption and
+# should not be built.** Regions, scope and the monitor are already written, so
+# what a bad result buys now is the knowledge that they are not what fixed it —
+# which is worth having either way, and is not recoverable later.
+#
+# No prerequisites beyond a live MUD and a key. Both cases are cold-map, so
+# nothing has to be captured first.
+#
+#   bk -tsp boundaries_gate --dry-run     # free: resolves the override chain
+#   bk -tsp boundaries_gate               # ~10 cases
+name: boundaries_gate
+description: "Does showing the agent the frontier names fix the reported bakery failure?"
+
+defaults:
+  player_profile: Derrano
+  # Both cases are about a cold start. `none` archives the existing DB aside
+  # rather than deleting it, so a developer's accumulated map survives.
+  map_memory: none
+
+cases:
+  # ── step 0: the ablation, against the gate that already exists ──────────
+  #
+  # This case is UNCHANGED from what it was before this work: same scenario,
+  # same expectations, same six-call ceiling. The only thing that moved
+  # underneath it is the system prompt, which lost 235 words of `# Navigation`
+  # — an enumeration of plan_route's six return statuses that restated what the
+  # tool's own output says at the moment it says it.
+  #
+  # What a pass means: the guidance was redundant, and it was costing attention
+  # on every request. What a failure means: some of those 235 words were load-
+  # bearing, and the tool descriptions that replaced them are not carrying it.
+  # Either way the answer is in the diff between this run and the reports
+  # already under tests/reports/find_bakery.
+  - scenario: find_bakery
+    batch: 5
+    session_name: find_bakery (prompt ablated)
+
+  # ── step 1: frontier visibility, on the transcript that started this ────
+  #
+  # Cold map, no memory, same starting room as the failing session. The agent
+  # is shown all five exits out of the temple instead of one.
+  #
+  # The headline is `final_room: The Bakery`. The number to WRITE DOWN is moves
+  # to first arrival — Journal A′ walks eight — and the number that decides
+  # whether the original bug is fixed is the share of those moves spent outside
+  # Midgaard, which should be zero. Neither is a deterministic expectation; the
+  # gate only catches the agent touring the countryside.
+  #
+  # Five runs, not one. The reasoning under test is the model reading five room
+  # names and noticing that four of them are parts of a temple, and a single
+  # sample cannot tell a fixed design from a lucky one.
+  - scenario: find_bakery_cold
+    batch: 5
+    session_name: find_bakery_cold

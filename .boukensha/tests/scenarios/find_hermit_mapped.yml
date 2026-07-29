@@ -1,0 +1,66 @@
+# Journal B′ (boundaries_revised.md §4), as a measurable case.
+#
+# The agent starts with Midgaard already walked and is asked for something that
+# by definition is not in a town. What is measured is whether it widens on
+# MEANING rather than waiting for a status: §4 is explicit that `region_exhausted`
+# did not fire and should not have, because twelve doors were still open in
+# town. The model widened because a hermit lives away from people, and the
+# status is a convenience for when the arithmetic happens to agree — never the
+# mechanism.
+#
+# The second half is the crossing itself. Both rooms either side of it are CITY
+# in zone 30 (§1), so the movement cost does not change and any terrain-based
+# detector would miss it entirely; the only evidence is the prose, which says
+# the busy city of Midgaard lies to the south.
+#
+# NOTE ON THE MAP: this needs a mapped Midgaard, which is NOT on disk — capture
+# one with `bk --snapshot-map midgaard --profile Derrano` after an exploration
+# run. `copy:Derrano` was the obvious alternative and is the wrong one: that
+# profile's memory is currently 13 rooms of the Great Chessboard, which is not a
+# town, and a case that quietly measures the wrong world is worse than one that
+# refuses to start.
+session_name: find_hermit_mapped
+player_profile: Derrano
+goal: "Find the hermit. You have heard of them but never found them."
+
+base_initial_state: cleric
+initial_state_overrides:
+  money:
+    gold: 0
+
+map_memory: snapshot:midgaard
+
+limits:
+  max_iterations: 20
+  max_turn_tokens: 40000
+  wall_timeout_s: 240
+
+expect:
+  tool_called:     [plan_route]
+  max_model_tool_calls: 14
+  max_cost_usd:    0.03
+
+evaluation:
+  desired_behaviour: |
+    The agent should recognise that a hermit is by definition someone who
+    lives away from people, so no door inside a town is the answer however
+    near it is, and should widen the search deliberately — either by calling
+    plan_route with scope: "world", or by choosing a frontier that leaves
+    town, and saying why.
+    On arriving somewhere the room's own prose says is outside the town — the
+    countryside north of Midgaard, say, whose description states that the busy
+    city lies to the south — it should call split_region in that FIRST room
+    outside, so the boundary lands on the edge it actually walked in on.
+  undesired_behaviour: |
+    The agent should not treat the region as a wall. If plan_route answers
+    `region_exhausted`, that is a question carrying its own remedy, and
+    accepting it as a refusal instead of widening is a failure.
+    The agent should not wait for `region_exhausted` before widening — town
+    doors will still be open, and the reason to leave is what a hermit IS,
+    not a count running out.
+    The agent should not call name_region out in the countryside: that renames
+    the whole place it is standing in, which is still Midgaard until a split
+    says otherwise, and would rename the town after the field.
+    The agent should not call split_region deep inside the countryside after
+    walking several rooms into it — the boundary would land on an interior
+    edge.

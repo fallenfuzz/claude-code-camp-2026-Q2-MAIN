@@ -125,6 +125,41 @@ We need create better logic for random exploration, I think the agent having a s
 
 ## Step 7 Boundary Awarneess
 
+When attempting to plan with Claude is tried use regex per usual to identify places which I told is brittle. Then it came up with a flag system where it would plant flags and add descriptions, but it seemed like exceesive flags being placed. So I told it should just create a region, add places as it goes, and decide to split a region when it grows to large.  
+
+I think the hard part is the fact that as a region grows more frontiers appear, and going to the closest frontier doesn't make sense you need to reason which frontier to take.
+
+docs/plans/week_2/boundaries.md
+
+I had to rewrite the tech doc.
+I was getting tired of the prosed being used to write tech doc so I created a skill called tech-prose. its not in this repo.
+
+docs/plans/week_2/boundaries_revised.md
+
+I had it execute the plan and it created a plan for boundaries_gate.
+A few problems:
+- agent never called its new region commands to create a region or split a region
+- in cases where it could plan a route it simply never executed execute_route.
+Its very hard to get this agent to call the tools we want it to call.
+
+## Step 8 Robust Snapshots and Prior Knowledge Sesssions
+
+The problem with running sessions is that it keeps clearning the current knowledgebase
+and so I have no reference to the old ones. These sqlite databases are quite small so it seems like we should store snapshots folder and a previous sessions knowledge up to so many before deleteing.
+
+docs/plans/week_3/session_memory.md
+
+### Step 6 - The Planner 
+
+I think I have been spinning my wheels around the same problem.
+And I think I might need to implement this now. The big problem is that
+by adding the planne we are opening the biggest can of worms.
+
+Aside, our main problem is `exmaine` and `move` becacause they are so generic
+that they can fired off when it doesn't make sense.
+
+Instead having `move` we could have `explore` which underneath would have to handle
+logic like region mapping.
 
 
 

@@ -258,6 +258,85 @@ module Api
         assert_equal [], body["inventory"]
       end
 
+      # ---------- a past session's memory -----------------------------------
+
+      SESSION = "20260729T183933Z-4caca6d5".freeze
+
+      # The point of the whole scheme: the map a session ended with, served
+      # beside the live one and distinguishable from it.
+      test "?session= serves the retained map rather than the live one" do
+        use_knowledge_db
+        # Two different worlds: the live map has moved on to three rooms, the
+        # retained one still holds the five the session ended with.
+        SQLite3::Database.new(knowledge_db_path.to_s).tap do |db|
+          db.execute("DELETE FROM room_exits WHERE room_id > 3")
+          db.execute("DELETE FROM rooms WHERE id > 3")
+          db.close
+        end
+        use_retained_map(SESSION)
+
+        get api_v1_knowledge_path
+        assert_equal 3, response.parsed_body["stats"]["rooms"], "no parameter means the live map"
+        assert_nil response.parsed_body["session"]
+
+        get api_v1_knowledge_path, params: { session: SESSION }
+        assert_response :success
+        body = response.parsed_body
+        assert_equal 5, body["stats"]["rooms"], "the session's own map, not the profile's current one"
+        assert_equal SESSION, body["session"]
+      end
+
+      # A retained file was written minutes ago by the case runner, but the
+      # world it describes stopped moving when the session ended.
+      test "a retained map is never reported as live" do
+        use_knowledge_db
+        use_retained_map(SESSION)
+
+        get api_v1_knowledge_path, params: { session: SESSION }
+
+        assert_not response.parsed_body["live"]
+        assert response.parsed_body["attached"]
+      end
+
+      test "every knowledge view accepts the session parameter" do
+        use_knowledge_db
+        use_retained_map(SESSION)
+
+        [ api_v1_knowledge_rooms_path, api_v1_knowledge_entities_path,
+          api_v1_knowledge_frontier_path, api_v1_knowledge_player_path,
+          api_v1_knowledge_regions_path, api_v1_knowledge_room_path(1) ].each do |path|
+          get path, params: { session: SESSION }
+
+          assert_response :success, "#{path} refused ?session="
+          assert_equal SESSION, response.parsed_body["session"], "#{path} did not say which session"
+        end
+      end
+
+      # Pruning keeps thirty per profile, so a session older than that having no
+      # map is the policy working — an empty tab, not an error.
+      test "a session whose map has been pruned is attached false, not a 404" do
+        use_knowledge_db
+        use_retained_map(SESSION)
+
+        get api_v1_knowledge_path, params: { session: "20260101T000000Z-deadbeef" }
+
+        assert_response :success
+        body = response.parsed_body
+        assert_not body["attached"]
+        assert_equal "20260101T000000Z-deadbeef", body["session"]
+        assert_equal 0, body["stats"]["rooms"]
+      end
+
+      # The one parameter in this app that becomes a filesystem path.
+      test "a session parameter that is not a session id is refused" do
+        use_knowledge_db
+
+        get api_v1_knowledge_path, params: { session: "../../../../etc/passwd" }
+
+        assert_response :bad_request
+        assert_equal "invalid_session", response.parsed_body["error"]["code"]
+      end
+
       # ---------- schema drift ----------------------------------------------
 
       test "a schema the reader cannot query is 503 with a named code, not a 500" do

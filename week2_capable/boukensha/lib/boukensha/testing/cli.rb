@@ -60,6 +60,11 @@ module Boukensha
         0
       end
 
+      # `--snapshot-map <name>` pins whatever the profile holds RIGHT NOW;
+      # `--snapshot-map <name> --from-session <id>` pins the map a retained
+      # session ended with. The second form is how a good exploration run
+      # becomes a fixture after the fact — by the time a run has been read, the
+      # profile's live map belongs to whatever ran next.
       def snapshot_map
         profile = @options[:profile] || ENV["BOUKENSHA_PROFILE"]
         unless profile
@@ -67,13 +72,19 @@ module Boukensha
           return 1
         end
 
-        path = MapMemory.new(
+        source = @options[:from_session]
+        path   = map_memory(profile).snapshot!(@options[:name], from_session: source)
+        @out.puts "Wrote map snapshot: #{path}#{" (from session #{source})" if source}"
+        0
+      end
+
+      def map_memory(profile)
+        MapMemory.new(
           profile_dir:  File.join(@root_dir, "profiles", profile),
           profiles_dir: File.join(@root_dir, "profiles"),
-          maps_dir:     fixtures.maps_dir
-        ).snapshot!(@options[:name])
-        @out.puts "Wrote map snapshot: #{path}"
-        0
+          maps_dir:     fixtures.maps_dir,
+          sessions_dir: fixtures.session_maps_dir(profile)
+        )
       end
 
       def run_suite(kind:)

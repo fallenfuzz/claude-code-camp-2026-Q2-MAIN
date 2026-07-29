@@ -78,6 +78,12 @@ export interface SessionSummary {
   any_limit_tripped: boolean;
   timing_source: "monotonic" | "wallclock" | "wallclock_coarse";
   timing: TimingSummary;
+  /**
+   * Whether the map this session ended with is still on disk. False is the
+   * ordinary answer: only test cases retain one, and only the thirty most
+   * recent per profile survive.
+   */
+  memory_retained: boolean;
   bytes: number;
 }
 
@@ -480,6 +486,12 @@ export interface KnowledgeEnvelope {
   schema_version: number | null;
   /** WAL size — grows all session and only shrinks on checkpoint (plan §7). */
   wal_bytes: number | null;
+  /**
+   * The session whose RETAINED map this payload came from, or null for the
+   * profile's live memory. A retained map is never `live`, whatever its mtime
+   * says: the world it describes stopped moving when that session ended.
+   */
+  session: string | null;
 }
 
 export interface KnowledgeStats {
@@ -612,6 +624,9 @@ export interface KnowledgeRoom {
   exits: KnowledgeExit[];
   entity_count: number;
   entities: KnowledgeRoomEntity[];
+  /** DERIVED membership, null against a pre-V5 file. Rewritten wholesale on
+   *  every recompute — see the warning on KnowledgeRegion. */
+  region_id: number | null;
 }
 
 export interface KnowledgeRoomEntity {
@@ -680,6 +695,7 @@ export interface KnowledgeRoomsPage extends KnowledgeEnvelope {
  */
 export interface KnowledgeMapPage extends KnowledgeRoomsPage {
   player: KnowledgePlayer | null;
+  regions: KnowledgeRegion[];
 }
 
 export interface KnowledgeRoomDetail extends KnowledgeEnvelope {
@@ -704,6 +720,57 @@ export interface FrontierExit {
 
 export interface KnowledgeFrontierPage extends KnowledgeEnvelope {
   frontier: FrontierExit[];
+  count: number;
+}
+
+// --- Regions ---------------------------------------------------------------
+// The places the agent named, and the edges it named them at. Two kinds of
+// thing travel together here and must stay distinguishable in the UI: a
+// BOUNDARY is earned (the agent stood in a room and said a new place starts
+// here), while a MEMBERSHIP is derived and rewritten wholesale on every
+// recompute. Region tint is the most authoritative-looking thing the map draws
+// and the least earned, so the declarations behind it stay visible on top.
+
+export interface RegionBoundary {
+  id: number;
+  from_room_id: number;
+  from_room_name: string;
+  to_room_id: number;
+  to_room_name: string;
+  direction: string;
+  /** Why the agent said so — optional, and the one claim a human reviewing a
+   *  wrong boundary needs to see. */
+  reason: string | null;
+  declared_at: string;
+}
+
+export interface RegionMember {
+  room_id: number;
+  room_name: string;
+  /** 'declared' — the agent said so here. 'inherited' — it flowed in with a
+   *  move and nobody has contradicted it. */
+  basis: "declared" | "inherited";
+}
+
+export interface KnowledgeRegion {
+  id: number;
+  /** '⟨from The Temple Of Midgaard⟩' while machine-made; the brackets mark it
+   *  as provenance rather than a claim. */
+  label: string;
+  confirmed: boolean;
+  description: string | null;
+  parent_id: number | null;
+  seed_room_id: number | null;
+  first_seen_at: string;
+  updated_at: string;
+  rooms: RegionMember[];
+  room_count: number;
+  boundaries: RegionBoundary[];
+}
+
+export interface KnowledgeRegionsPage extends KnowledgeEnvelope {
+  /** Empty against a pre-V5 file — an older agent's memory, served. */
+  regions: KnowledgeRegion[];
   count: number;
 }
 

@@ -2584,6 +2584,51 @@ main:has(.knowledge-map-page) .error {
   font-style: italic;
 }
 
+/* Regions. The tint keys are SWATCHES rather than the line strokes every other
+   key on this legend uses, because they label an area and not an edge — and
+   because the boundary, which IS an edge, has to stay tellable from them at a
+   glance. */
+.map-region-key {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  margin-right: 0.9rem;
+}
+
+.map-region-key .map-key {
+  width: 0.9rem;
+  height: 0.9rem;
+  margin: 0;
+  border: 1px solid var(--border);
+  border-radius: 3px;
+}
+
+.map-region-key em {
+  font-style: italic;
+  opacity: 0.75;
+}
+
+.knowledge-region {
+  margin: 1.4rem 0 0;
+  padding-top: 0.8rem;
+  border-top: 1px solid var(--border);
+}
+
+.knowledge-region h3 {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin: 0 0 0.3rem;
+  font-size: 0.95rem;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+
+.knowledge-region-description {
+  margin: 0.2rem 0 0.6rem;
+  font-size: 0.82rem;
+  color: var(--muted);
+}
+
 .session-page-head { display: flex; align-items: center; gap: 1rem; min-height: 2.5rem; margin-bottom: .65rem; border-bottom: 1px solid var(--border); }
 .session-page-head h1 { min-width: 0; margin: 0; font-size: 1rem; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .session-heading-label { color: var(--muted); font-family: -apple-system, "Segoe UI", Helvetica, Arial, sans-serif; font-weight: 500; }

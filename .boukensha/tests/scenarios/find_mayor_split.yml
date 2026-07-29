@@ -1,0 +1,68 @@
+# Journal C′ (boundaries_revised.md §5), as a measurable case.
+#
+# The region has stopped narrowing anything, and the question is whether the
+# agent notices. §5's argument is that the COUNT would not have told it — twelve
+# exits in Journal A′ was a dense little town where scope was working perfectly
+# — and the distances would: sixteen doors at a median of six, half of them
+# withheld because they are six to twelve moves off, is a scope that has
+# stopped meaning "here".
+#
+# Nothing in the code branches on either number. Both are printed on one line
+# and the judgement is the model's, which is exactly what this case measures.
+#
+# The declaration under test is a NESTED split — `within: "Midgaard"` — because
+# quarters nest rather than partition. Replacing Midgaard with three peers would
+# make "is this in town at all?" unanswerable, and that question is the original
+# bug.
+#
+# NOTE ON THE MAP: as with find_hermit_mapped, this needs a mapped Midgaard
+# captured as `snapshot:midgaard`. This case needs the fullest map of the three
+# — §5's whole argument is a median of six over sixteen doors, and a small map
+# has no such median to read, so the reasoning under test would simply not be
+# reachable.
+session_name: find_mayor_split
+player_profile: Derrano
+goal: "Find the mayor's office."
+
+base_initial_state: cleric
+initial_state_overrides:
+  money:
+    gold: 0
+
+map_memory: snapshot:midgaard
+
+limits:
+  max_iterations: 20
+  max_turn_tokens: 40000
+  wall_timeout_s: 240
+
+expect:
+  tool_called:     [plan_route]
+  max_model_tool_calls: 14
+  max_cost_usd:    0.03
+
+evaluation:
+  desired_behaviour: |
+    The agent should read the region shape line plan_route prints — room
+    count, unexplored exit count, nearest and median distance — and use the
+    DISTANCES rather than the count to judge whether scoping to the current
+    region is still narrowing the search. A large median with exits withheld
+    far away means the scope has stopped meaning "here".
+    Where it walks into a distinct quarter over a single entrance — a bridge,
+    a gate, a stair — calling split_region with `within:` set to the town, in
+    the first room past that entrance, is the correct move: the quarter nests
+    inside the town rather than replacing it, so a search starting elsewhere
+    in town still scopes to the whole of it.
+    A mayor's office is civic and central, so avenues and promenades before
+    cellars and back alleys.
+  undesired_behaviour: |
+    The agent should not split a region from a room deep inside it — the
+    boundary is the edge that room was first entered by, so declaring late
+    puts it on an interior edge. The tool prints the edge it used; ignoring
+    that line is the failure.
+    The agent should not use name_region where it means split_region. Naming
+    renames the WHOLE region it is standing in, and the room count printed
+    back will say so.
+    The agent should not try to carve a quarter out of already-mapped
+    territory it did not just walk into — there is no arrival edge to make a
+    boundary of, and re-parenting the whole region is what is offered instead.

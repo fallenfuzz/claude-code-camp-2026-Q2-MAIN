@@ -111,6 +111,20 @@ class TestTestingFixtures < Minitest::Test
     assert_match(/copy:<profile>/, error.message)
   end
 
+  def test_a_session_map_memory_carries_the_id_through
+    kase = fixtures.resolve_scenario("find_bakery", map_memory: "session:20260729T183933Z-4caca6d5").first
+
+    assert_equal "session:20260729T183933Z-4caca6d5", kase.map_memory
+  end
+
+  # Refused HERE, before anything is seeded, for the same reason a mistyped
+  # scenario name is: finding out in case 19 costs eighteen real runs.
+  def test_a_session_id_that_is_not_one_is_rejected_at_resolution
+    error = assert_raises(F::Error) { fixtures.resolve_scenario("find_bakery", map_memory: "session:yesterday") }
+
+    assert_match(/not a session id/, error.message)
+  end
+
   # ---------- plans ---------------------------------------------------------
 
   def test_a_plan_referencing_a_missing_scenario_fails_before_anything_is_seeded

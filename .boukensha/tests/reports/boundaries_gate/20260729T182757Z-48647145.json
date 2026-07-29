@@ -1,0 +1,1517 @@
+{
+  "schema": 1,
+  "run_id": "20260729T182757Z-48647145",
+  "kind": "plan",
+  "name": "boundaries_gate",
+  "started_at": "2026-07-29T18:27:57.994Z",
+  "ended_at": "2026-07-29T18:44:48.343Z",
+  "environment": {
+    "profile": "Derrano",
+    "provider": "anthropic",
+    "model": "claude-haiku-4-5",
+    "boukensha_version": "0.13.0",
+    "git_sha": "54ce732",
+    "settings_digest": "sha256:e580b6c75ddc2edf6fd7a9c55c3d96cfa4ac778b0a4f3b084fbbc7bbf71fa7bc",
+    "judge": {
+      "provider": "anthropic",
+      "model": "claude-sonnet-4-6"
+    }
+  },
+  "summary": {
+    "cases": 10,
+    "passed": 0,
+    "failed": 10,
+    "errored": 0,
+    "pass_rate": 0.0,
+    "cost_usd": {
+      "agent": 0.647904,
+      "judge": 0,
+      "total": 0.647904
+    },
+    "median": {
+      "model_tool_calls": 16,
+      "automatic_tool_calls": 56,
+      "iterations": 16,
+      "duration_ms": 33304,
+      "cost_usd": 0.069625
+    },
+    "p90": {
+      "model_tool_calls": 16,
+      "automatic_tool_calls": 57,
+      "iterations": 16,
+      "duration_ms": 35922,
+      "cost_usd": 0.07073
+    },
+    "failure_modes": {
+      "tool_called: execute_route": 5,
+      "tool_called: tbamud__shop(action: list)": 2,
+      "final_room: The Bakery": 6,
+      "max_model_tool_calls: 6": 5,
+      "max_cost_usd: 0.02": 5,
+      "max_cost_usd: 0.03": 5,
+      "max_model_tool_calls: 12": 4
+    }
+  },
+  "cases": [
+    {
+      "index": 1,
+      "scenario": "find_bakery",
+      "session_id": "20260729T182826Z-07d20a06",
+      "session_name": "find_bakery (prompt ablated) #1",
+      "profile": "Derrano",
+      "resolved_state": {
+        "description": "Level 10 cleric, banked, armed, standing in the Temple.",
+        "requires_class": "cleric",
+        "location": 3001,
+        "level": 10,
+        "money": {
+          "gold": 0,
+          "bank": 10000
+        },
+        "stats": {
+          "align": 0
+        },
+        "skills": {
+          "armor": 75,
+          "cure light": 75
+        },
+        "inventory": [
+          {
+            "vnum": 3001,
+            "keyword": "bottle",
+            "quantity": 2
+          }
+        ],
+        "equipment": [
+          {
+            "vnum": 3023,
+            "keyword": "club",
+            "quantity": 1,
+            "wear": "wield"
+          },
+          {
+            "vnum": 3043,
+            "keyword": "jacket",
+            "quantity": 1,
+            "wear": "wear"
+          }
+        ]
+      },
+      "base_initial_state": "cleric",
+      "map_memory": {
+        "mode": "none",
+        "archived_to": "/home/andrew/Sites/omenking/claude-code-camp-2026-Q2/.boukensha/profiles/Derrano/knowledge.archive/20260729T182758Z.sqlite3",
+        "rooms_at_start": 0,
+        "room_exits_at_start": 0,
+        "entities_at_start": 0
+      },
+      "seed_log": "/home/andrew/Sites/omenking/claude-code-camp-2026-Q2/.boukensha/tests/reports/.work/20260729T182757Z-48647145/case-1-seed.log",
+      "facts": {
+        "model_tool_calls": 16,
+        "automatic_tool_calls": 57,
+        "has_provenance": true,
+        "iterations": 16,
+        "turns": 0,
+        "end_reason": "max_tokens",
+        "duration_ms": 33306,
+        "input_tokens": 61556,
+        "output_tokens": 1524,
+        "cost_usd": 0.069176,
+        "final_room": "Inside The East Gate Of Midgaard",
+        "rooms_known": 10,
+        "rooms_known_delta": 10,
+        "db_reads": 293,
+        "db_writes": 228,
+        "db_ms": 30,
+        "journal_lines": 165,
+        "inference_ms": 88,
+        "mud_ms": 6593,
+        "mud_calls": 73
+      },
+      "errors": [],
+      "expectations": [
+        {
+          "kind": "tool_called",
+          "rule": "plan_route",
+          "ok": true,
+          "detail": "called at call_e98ac8d419a9"
+        },
+        {
+          "kind": "tool_called",
+          "rule": "execute_route",
+          "ok": false,
+          "detail": "never called"
+        },
+        {
+          "kind": "tool_called",
+          "rule": "tbamud__shop(action: list)",
+          "ok": false,
+          "detail": "never called"
+        },
+        {
+          "kind": "tool_not_called",
+          "rule": "tbamud__examine(target: menu)",
+          "ok": true
+        },
+        {
+          "kind": "final_room",
+          "rule": "The Bakery",
+          "ok": false,
+          "detail": "Inside The East Gate Of Midgaard"
+        },
+        {
+          "kind": "max_model_tool_calls",
+          "rule": "6",
+          "ok": false,
+          "detail": "16"
+        },
+        {
+          "kind": "max_cost_usd",
+          "rule": "0.02",
+          "ok": false,
+          "detail": "0.069176"
+        }
+      ],
+      "judge": {
+        "verdict": "fail",
+        "confidence": 0.97,
+        "reasoning": "The agent called plan_route for the bakery but then ignored the planned route and wandered manually through many wrong rooms, never reaching the bakery and never calling the shop list action. The route was not executed as required and the menu was never listed.",
+        "desired": [
+          {
+            "behaviour": "plan_route(destination: \"bakery\")",
+            "met": true,
+            "evidence": "call_e98ac8d419a9"
+          },
+          {
+            "behaviour": "execute_route(steps: [\"south\",\"south\",\"west\",\"north\"])",
+            "met": false,
+            "evidence": null
+          },
+          {
+            "behaviour": "tbamud__shop(action: \"list\", args: \"\")",
+            "met": false,
+            "evidence": null
+          }
+        ],
+        "undesired": [
+          {
+            "behaviour": "tbamud__examine(target: \"menu\")",
+            "occurred": false
+          },
+          {
+            "behaviour": "tbamud__examine(target: \"baker\")",
+            "occurred": false
+          }
+        ],
+        "session_id": "20260729T182826Z-07d20a06"
+      },
+      "status": "fail"
+    },
+    {
+      "index": 2,
+      "scenario": "find_bakery",
+      "session_id": "20260729T182950Z-c79e9b97",
+      "session_name": "find_bakery (prompt ablated) #2",
+      "profile": "Derrano",
+      "resolved_state": {
+        "description": "Level 10 cleric, banked, armed, standing in the Temple.",
+        "requires_class": "cleric",
+        "location": 3001,
+        "level": 10,
+        "money": {
+          "gold": 0,
+          "bank": 10000
+        },
+        "stats": {
+          "align": 0
+        },
+        "skills": {
+          "armor": 75,
+          "cure light": 75
+        },
+        "inventory": [
+          {
+            "vnum": 3001,
+            "keyword": "bottle",
+            "quantity": 2
+          }
+        ],
+        "equipment": [
+          {
+            "vnum": 3023,
+            "keyword": "club",
+            "quantity": 1,
+            "wear": "wield"
+          },
+          {
+            "vnum": 3043,
+            "keyword": "jacket",
+            "quantity": 1,
+            "wear": "wear"
+          }
+        ]
+      },
+      "base_initial_state": "cleric",
+      "map_memory": {
+        "mode": "none",
+        "archived_to": "/home/andrew/Sites/omenking/claude-code-camp-2026-Q2/.boukensha/profiles/Derrano/knowledge.archive/20260729T182922Z.sqlite3",
+        "rooms_at_start": 0,
+        "room_exits_at_start": 0,
+        "entities_at_start": 0
+      },
+      "seed_log": "/home/andrew/Sites/omenking/claude-code-camp-2026-Q2/.boukensha/tests/reports/.work/20260729T182757Z-48647145/case-2-seed.log",
+      "facts": {
+        "model_tool_calls": 13,
+        "automatic_tool_calls": 58,
+        "has_provenance": true,
+        "iterations": 14,
+        "turns": 0,
+        "end_reason": "completed",
+        "duration_ms": 31526,
+        "input_tokens": 49819,
+        "output_tokens": 1179,
+        "cost_usd": 0.055714,
+        "final_room": "The Bakery",
+        "rooms_known": 12,
+        "rooms_known_delta": 12,
+        "db_reads": 296,
+        "db_writes": 243,
+        "db_ms": 21,
+        "journal_lines": 160,
+        "inference_ms": 99,
+        "mud_ms": 6926,
+        "mud_calls": 71
+      },
+      "errors": [],
+      "expectations": [
+        {
+          "kind": "tool_called",
+          "rule": "plan_route",
+          "ok": true,
+          "detail": "called at call_5bc7f388fb99"
+        },
+        {
+          "kind": "tool_called",
+          "rule": "execute_route",
+          "ok": false,
+          "detail": "never called"
+        },
+        {
+          "kind": "tool_called",
+          "rule": "tbamud__shop(action: list)",
+          "ok": true,
+          "detail": "called at call_b115b94a9012"
+        },
+        {
+          "kind": "tool_not_called",
+          "rule": "tbamud__examine(target: menu)",
+          "ok": true
+        },
+        {
+          "kind": "final_room",
+          "rule": "The Bakery",
+          "ok": true,
+          "detail": "The Bakery"
+        },
+        {
+          "kind": "max_model_tool_calls",
+          "rule": "6",
+          "ok": false,
+          "detail": "13"
+        },
+        {
+          "kind": "max_cost_usd",
+          "rule": "0.02",
+          "ok": false,
+          "detail": "0.055714"
+        }
+      ],
+      "judge": {
+        "verdict": "fail",
+        "confidence": 0.9,
+        "reasoning": "The agent planned a route and ultimately reached the bakery and listed the menu correctly, but instead of executing the route via a single execute_route call with steps [\"south\",\"south\",\"west\",\"north\"], it navigated manually using individual tbamud__move calls taking a completely different path (south, south, south, west, west, west, north, north, east, east, north) — nine moves rather than the required four-step route.",
+        "desired": [
+          {
+            "behaviour": "plan_route(destination: \"bakery\")",
+            "met": true,
+            "evidence": "call_5bc7f388fb99"
+          },
+          {
+            "behaviour": "execute_route(steps: [\"south\",\"south\",\"west\",\"north\"])",
+            "met": false,
+            "evidence": null
+          },
+          {
+            "behaviour": "tbamud__shop(action: \"list\", args: \"\")",
+            "met": true,
+            "evidence": "call_b115b94a9012"
+          }
+        ],
+        "undesired": [
+          {
+            "behaviour": "tbamud__examine(target: \"menu\")",
+            "occurred": false
+          },
+          {
+            "behaviour": "tbamud__examine(target: \"baker\")",
+            "occurred": false
+          }
+        ],
+        "session_id": "20260729T182950Z-c79e9b97"
+      },
+      "status": "fail"
+    },
+    {
+      "index": 3,
+      "scenario": "find_bakery",
+      "session_id": "20260729T183132Z-cc65de11",
+      "session_name": "find_bakery (prompt ablated) #3",
+      "profile": "Derrano",
+      "resolved_state": {
+        "description": "Level 10 cleric, banked, armed, standing in the Temple.",
+        "requires_class": "cleric",
+        "location": 3001,
+        "level": 10,
+        "money": {
+          "gold": 0,
+          "bank": 10000
+        },
+        "stats": {
+          "align": 0
+        },
+        "skills": {
+          "armor": 75,
+          "cure light": 75
+        },
+        "inventory": [
+          {
+            "vnum": 3001,
+            "keyword": "bottle",
+            "quantity": 2
+          }
+        ],
+        "equipment": [
+          {
+            "vnum": 3023,
+            "keyword": "club",
+            "quantity": 1,
+            "wear": "wield"
+          },
+          {
+            "vnum": 3043,
+            "keyword": "jacket",
+            "quantity": 1,
+            "wear": "wear"
+          }
+        ]
+      },
+      "base_initial_state": "cleric",
+      "map_memory": {
+        "mode": "none",
+        "archived_to": "/home/andrew/Sites/omenking/claude-code-camp-2026-Q2/.boukensha/profiles/Derrano/knowledge.archive/20260729T183103Z.sqlite3",
+        "rooms_at_start": 0,
+        "room_exits_at_start": 0,
+        "entities_at_start": 0
+      },
+      "seed_log": "/home/andrew/Sites/omenking/claude-code-camp-2026-Q2/.boukensha/tests/reports/.work/20260729T182757Z-48647145/case-3-seed.log",
+      "facts": {
+        "model_tool_calls": 17,
+        "automatic_tool_calls": 56,
+        "has_provenance": true,
+        "iterations": 17,
+        "turns": 0,
+        "end_reason": "max_tokens",
+        "duration_ms": 35922,
+        "input_tokens": 65957,
+        "output_tokens": 1595,
+        "cost_usd": 0.073932,
+        "final_room": "Inside The East Gate Of Midgaard",
+        "rooms_known": 11,
+        "rooms_known_delta": 11,
+        "db_reads": 272,
+        "db_writes": 239,
+        "db_ms": 22,
+        "journal_lines": 173,
+        "inference_ms": 100,
+        "mud_ms": 6528,
+        "mud_calls": 73
+      },
+      "errors": [],
+      "expectations": [
+        {
+          "kind": "tool_called",
+          "rule": "plan_route",
+          "ok": true,
+          "detail": "called at call_006a62fff80a"
+        },
+        {
+          "kind": "tool_called",
+          "rule": "execute_route",
+          "ok": false,
+          "detail": "never called"
+        },
+        {
+          "kind": "tool_called",
+          "rule": "tbamud__shop(action: list)",
+          "ok": false,
+          "detail": "never called"
+        },
+        {
+          "kind": "tool_not_called",
+          "rule": "tbamud__examine(target: menu)",
+          "ok": true
+        },
+        {
+          "kind": "final_room",
+          "rule": "The Bakery",
+          "ok": false,
+          "detail": "Inside The East Gate Of Midgaard"
+        },
+        {
+          "kind": "max_model_tool_calls",
+          "rule": "6",
+          "ok": false,
+          "detail": "17"
+        },
+        {
+          "kind": "max_cost_usd",
+          "rule": "0.02",
+          "ok": false,
+          "detail": "0.073932"
+        }
+      ],
+      "judge": {
+        "verdict": "fail",
+        "confidence": 0.95,
+        "reasoning": "The agent called plan_route correctly but then ignored the planned route and wandered with individual moves, never reaching the bakery and never calling the shop list action. The route returned was unconfirmed/unexplored, but the agent should have attempted execute_route rather than manually navigating in the wrong directions.",
+        "desired": [
+          {
+            "behaviour": "plan_route(destination: \"bakery\")",
+            "met": true,
+            "evidence": "call_006a62fff80a"
+          },
+          {
+            "behaviour": "execute_route(steps: [\"south\",\"south\",\"west\",\"north\"])",
+            "met": false,
+            "evidence": null
+          },
+          {
+            "behaviour": "tbamud__shop(action: \"list\", args: \"\")",
+            "met": false,
+            "evidence": null
+          }
+        ],
+        "undesired": [
+          {
+            "behaviour": "tbamud__examine(target: \"menu\")",
+            "occurred": false
+          },
+          {
+            "behaviour": "tbamud__examine(target: \"baker\")",
+            "occurred": false
+          }
+        ],
+        "session_id": "20260729T183132Z-cc65de11"
+      },
+      "status": "fail"
+    },
+    {
+      "index": 4,
+      "scenario": "find_bakery",
+      "session_id": "20260729T183302Z-eadcf7b8",
+      "session_name": "find_bakery (prompt ablated) #4",
+      "profile": "Derrano",
+      "resolved_state": {
+        "description": "Level 10 cleric, banked, armed, standing in the Temple.",
+        "requires_class": "cleric",
+        "location": 3001,
+        "level": 10,
+        "money": {
+          "gold": 0,
+          "bank": 10000
+        },
+        "stats": {
+          "align": 0
+        },
+        "skills": {
+          "armor": 75,
+          "cure light": 75
+        },
+        "inventory": [
+          {
+            "vnum": 3001,
+            "keyword": "bottle",
+            "quantity": 2
+          }
+        ],
+        "equipment": [
+          {
+            "vnum": 3023,
+            "keyword": "club",
+            "quantity": 1,
+            "wear": "wield"
+          },
+          {
+            "vnum": 3043,
+            "keyword": "jacket",
+            "quantity": 1,
+            "wear": "wear"
+          }
+        ]
+      },
+      "base_initial_state": "cleric",
+      "map_memory": {
+        "mode": "none",
+        "archived_to": "/home/andrew/Sites/omenking/claude-code-camp-2026-Q2/.boukensha/profiles/Derrano/knowledge.archive/20260729T183234Z.sqlite3",
+        "rooms_at_start": 0,
+        "room_exits_at_start": 0,
+        "entities_at_start": 0
+      },
+      "seed_log": "/home/andrew/Sites/omenking/claude-code-camp-2026-Q2/.boukensha/tests/reports/.work/20260729T182757Z-48647145/case-4-seed.log",
+      "facts": {
+        "model_tool_calls": 13,
+        "automatic_tool_calls": 56,
+        "has_provenance": true,
+        "iterations": 14,
+        "turns": 0,
+        "end_reason": "completed",
+        "duration_ms": 28336,
+        "input_tokens": 50361,
+        "output_tokens": 1242,
+        "cost_usd": 0.056570999999999996,
+        "final_room": "The Bakery",
+        "rooms_known": 12,
+        "rooms_known_delta": 12,
+        "db_reads": 279,
+        "db_writes": 237,
+        "db_ms": 23,
+        "journal_lines": 154,
+        "inference_ms": 97,
+        "mud_ms": 6575,
+        "mud_calls": 69
+      },
+      "errors": [],
+      "expectations": [
+        {
+          "kind": "tool_called",
+          "rule": "plan_route",
+          "ok": true,
+          "detail": "called at call_a341a88b81b4"
+        },
+        {
+          "kind": "tool_called",
+          "rule": "execute_route",
+          "ok": false,
+          "detail": "never called"
+        },
+        {
+          "kind": "tool_called",
+          "rule": "tbamud__shop(action: list)",
+          "ok": true,
+          "detail": "called at call_5774e6a0a540"
+        },
+        {
+          "kind": "tool_not_called",
+          "rule": "tbamud__examine(target: menu)",
+          "ok": true
+        },
+        {
+          "kind": "final_room",
+          "rule": "The Bakery",
+          "ok": true,
+          "detail": "The Bakery"
+        },
+        {
+          "kind": "max_model_tool_calls",
+          "rule": "6",
+          "ok": false,
+          "detail": "13"
+        },
+        {
+          "kind": "max_cost_usd",
+          "rule": "0.02",
+          "ok": false,
+          "detail": "0.056570999999999996"
+        }
+      ],
+      "judge": {
+        "verdict": "fail",
+        "confidence": 0.9,
+        "reasoning": "The agent planned a route and ultimately reached the bakery and listed the menu, but it did not use execute_route; instead it manually moved step-by-step via individual tbamud__move calls, and the path taken (south, south, south, west, west, west, north, north, east, east, north) does not match the required route steps (south, south, west, north).",
+        "desired": [
+          {
+            "behaviour": "plan_route(destination: \"bakery\")",
+            "met": true,
+            "evidence": "call_a341a88b81b4"
+          },
+          {
+            "behaviour": "execute_route(steps: [\"south\",\"south\",\"west\",\"north\"])",
+            "met": false,
+            "evidence": null
+          },
+          {
+            "behaviour": "tbamud__shop(action: \"list\", args: \"\")",
+            "met": true,
+            "evidence": "call_5774e6a0a540"
+          }
+        ],
+        "undesired": [
+          {
+            "behaviour": "tbamud__examine(target: \"menu\")",
+            "occurred": false
+          },
+          {
+            "behaviour": "tbamud__examine(target: \"baker\")",
+            "occurred": false
+          }
+        ],
+        "session_id": "20260729T183302Z-eadcf7b8"
+      },
+      "status": "fail"
+    },
+    {
+      "index": 5,
+      "scenario": "find_bakery",
+      "session_id": "20260729T183425Z-e50a313a",
+      "session_name": "find_bakery (prompt ablated) #5",
+      "profile": "Derrano",
+      "resolved_state": {
+        "description": "Level 10 cleric, banked, armed, standing in the Temple.",
+        "requires_class": "cleric",
+        "location": 3001,
+        "level": 10,
+        "money": {
+          "gold": 0,
+          "bank": 10000
+        },
+        "stats": {
+          "align": 0
+        },
+        "skills": {
+          "armor": 75,
+          "cure light": 75
+        },
+        "inventory": [
+          {
+            "vnum": 3001,
+            "keyword": "bottle",
+            "quantity": 2
+          }
+        ],
+        "equipment": [
+          {
+            "vnum": 3023,
+            "keyword": "club",
+            "quantity": 1,
+            "wear": "wield"
+          },
+          {
+            "vnum": 3043,
+            "keyword": "jacket",
+            "quantity": 1,
+            "wear": "wear"
+          }
+        ]
+      },
+      "base_initial_state": "cleric",
+      "map_memory": {
+        "mode": "none",
+        "archived_to": "/home/andrew/Sites/omenking/claude-code-camp-2026-Q2/.boukensha/profiles/Derrano/knowledge.archive/20260729T183357Z.sqlite3",
+        "rooms_at_start": 0,
+        "room_exits_at_start": 0,
+        "entities_at_start": 0
+      },
+      "seed_log": "/home/andrew/Sites/omenking/claude-code-camp-2026-Q2/.boukensha/tests/reports/.work/20260729T182757Z-48647145/case-5-seed.log",
+      "facts": {
+        "model_tool_calls": 14,
+        "automatic_tool_calls": 57,
+        "has_provenance": true,
+        "iterations": 15,
+        "turns": 0,
+        "end_reason": "completed",
+        "duration_ms": 26760,
+        "input_tokens": 54667,
+        "output_tokens": 1231,
+        "cost_usd": 0.060822,
+        "final_room": "The Bakery",
+        "rooms_known": 12,
+        "rooms_known_delta": 12,
+        "db_reads": 296,
+        "db_writes": 238,
+        "db_ms": 28,
+        "journal_lines": 156,
+        "inference_ms": 115,
+        "mud_ms": 6714,
+        "mud_calls": 71
+      },
+      "errors": [],
+      "expectations": [
+        {
+          "kind": "tool_called",
+          "rule": "plan_route",
+          "ok": true,
+          "detail": "called at call_de0dc7130aad"
+        },
+        {
+          "kind": "tool_called",
+          "rule": "execute_route",
+          "ok": false,
+          "detail": "never called"
+        },
+        {
+          "kind": "tool_called",
+          "rule": "tbamud__shop(action: list)",
+          "ok": true,
+          "detail": "called at call_2616a2f3caed"
+        },
+        {
+          "kind": "tool_not_called",
+          "rule": "tbamud__examine(target: menu)",
+          "ok": true
+        },
+        {
+          "kind": "final_room",
+          "rule": "The Bakery",
+          "ok": true,
+          "detail": "The Bakery"
+        },
+        {
+          "kind": "max_model_tool_calls",
+          "rule": "6",
+          "ok": false,
+          "detail": "14"
+        },
+        {
+          "kind": "max_cost_usd",
+          "rule": "0.02",
+          "ok": false,
+          "detail": "0.060822"
+        }
+      ],
+      "judge": {
+        "verdict": "fail",
+        "confidence": 0.9,
+        "reasoning": "The agent planned a route and eventually reached the bakery and listed the menu, but it did not execute the route via a single execute_route call with the prescribed steps; instead it navigated manually with individual move calls, taking a longer wandering path rather than the direct south/south/west/north route.",
+        "desired": [
+          {
+            "behaviour": "plan_route(destination: \"bakery\")",
+            "met": true,
+            "evidence": "call_de0dc7130aad"
+          },
+          {
+            "behaviour": "execute_route(steps: [\"south\",\"south\",\"west\",\"north\"])",
+            "met": false,
+            "evidence": null
+          },
+          {
+            "behaviour": "tbamud__shop(action: \"list\", args: \"\")",
+            "met": true,
+            "evidence": "call_2616a2f3caed"
+          }
+        ],
+        "undesired": [
+          {
+            "behaviour": "tbamud__examine(target: \"menu\")",
+            "occurred": false
+          },
+          {
+            "behaviour": "tbamud__examine(target: \"baker\")",
+            "occurred": false
+          }
+        ],
+        "session_id": "20260729T183425Z-e50a313a"
+      },
+      "status": "fail"
+    },
+    {
+      "index": 6,
+      "scenario": "find_bakery_cold",
+      "session_id": "20260729T183559Z-197540fb",
+      "session_name": "find_bakery_cold #1",
+      "profile": "Derrano",
+      "resolved_state": {
+        "description": "Level 10 cleric, banked, armed, standing in the Temple.",
+        "requires_class": "cleric",
+        "location": 3001,
+        "level": 10,
+        "money": {
+          "gold": 0,
+          "bank": 10000
+        },
+        "stats": {
+          "align": 0
+        },
+        "skills": {
+          "armor": 75,
+          "cure light": 75
+        },
+        "inventory": [
+          {
+            "vnum": 3001,
+            "keyword": "bottle",
+            "quantity": 2
+          }
+        ],
+        "equipment": [
+          {
+            "vnum": 3023,
+            "keyword": "club",
+            "quantity": 1,
+            "wear": "wield"
+          },
+          {
+            "vnum": 3043,
+            "keyword": "jacket",
+            "quantity": 1,
+            "wear": "wear"
+          }
+        ]
+      },
+      "base_initial_state": "cleric",
+      "map_memory": {
+        "mode": "none",
+        "archived_to": "/home/andrew/Sites/omenking/claude-code-camp-2026-Q2/.boukensha/profiles/Derrano/knowledge.archive/20260729T183530Z.sqlite3",
+        "rooms_at_start": 0,
+        "room_exits_at_start": 0,
+        "entities_at_start": 0
+      },
+      "seed_log": "/home/andrew/Sites/omenking/claude-code-camp-2026-Q2/.boukensha/tests/reports/.work/20260729T182757Z-48647145/case-6-seed.log",
+      "facts": {
+        "model_tool_calls": 12,
+        "automatic_tool_calls": 53,
+        "has_provenance": true,
+        "iterations": 13,
+        "turns": 0,
+        "end_reason": "completed",
+        "duration_ms": 26061,
+        "input_tokens": 45256,
+        "output_tokens": 1076,
+        "cost_usd": 0.050636,
+        "final_room": "The Bakery",
+        "rooms_known": 12,
+        "rooms_known_delta": 12,
+        "db_reads": 239,
+        "db_writes": 224,
+        "db_ms": 20,
+        "journal_lines": 151,
+        "inference_ms": 115,
+        "mud_ms": 6527,
+        "mud_calls": 65
+      },
+      "errors": [],
+      "expectations": [
+        {
+          "kind": "tool_called",
+          "rule": "plan_route",
+          "ok": true,
+          "detail": "called at call_37922cbf08ee"
+        },
+        {
+          "kind": "final_room",
+          "rule": "The Bakery",
+          "ok": true,
+          "detail": "The Bakery"
+        },
+        {
+          "kind": "max_model_tool_calls",
+          "rule": "12",
+          "ok": true,
+          "detail": "12"
+        },
+        {
+          "kind": "max_cost_usd",
+          "rule": "0.03",
+          "ok": false,
+          "detail": "0.050636"
+        }
+      ],
+      "judge": {
+        "verdict": "pass",
+        "confidence": 0.95,
+        "reasoning": "The agent called plan_route first and was shown all 5 exits; it correctly moved south to Temple Square (the city-facing exit) rather than north into the altar/Great Field, stayed within Midgaard throughout, and found the bakery. The name_region call was optional and its omission is not a failure.",
+        "desired": [
+          {
+            "behaviour": "call plan_route first and be shown all 5 unexplored exits",
+            "met": true,
+            "evidence": "call_37922cbf08ee"
+          },
+          {
+            "behaviour": "choose Temple Square (south) as the exit that leads to a city, not a deeper temple room",
+            "met": true,
+            "evidence": "call_b8e2990908ec"
+          },
+          {
+            "behaviour": "find the bakery without leaving Midgaard",
+            "met": true,
+            "evidence": "call_0c6c7ef0276c"
+          }
+        ],
+        "undesired": [
+          {
+            "behaviour": "leave Midgaard by going north through the altar into The Great Field or out through a gate",
+            "occurred": false
+          },
+          {
+            "behaviour": "take the first frontier in the plan_route list merely because it was printed first",
+            "occurred": false
+          }
+        ],
+        "session_id": "20260729T183559Z-197540fb"
+      },
+      "status": "fail"
+    },
+    {
+      "index": 7,
+      "scenario": "find_bakery_cold",
+      "session_id": "20260729T183731Z-2ac20794",
+      "session_name": "find_bakery_cold #2",
+      "profile": "Derrano",
+      "resolved_state": {
+        "description": "Level 10 cleric, banked, armed, standing in the Temple.",
+        "requires_class": "cleric",
+        "location": 3001,
+        "level": 10,
+        "money": {
+          "gold": 0,
+          "bank": 10000
+        },
+        "stats": {
+          "align": 0
+        },
+        "skills": {
+          "armor": 75,
+          "cure light": 75
+        },
+        "inventory": [
+          {
+            "vnum": 3001,
+            "keyword": "bottle",
+            "quantity": 2
+          }
+        ],
+        "equipment": [
+          {
+            "vnum": 3023,
+            "keyword": "club",
+            "quantity": 1,
+            "wear": "wield"
+          },
+          {
+            "vnum": 3043,
+            "keyword": "jacket",
+            "quantity": 1,
+            "wear": "wear"
+          }
+        ]
+      },
+      "base_initial_state": "cleric",
+      "map_memory": {
+        "mode": "none",
+        "archived_to": "/home/andrew/Sites/omenking/claude-code-camp-2026-Q2/.boukensha/profiles/Derrano/knowledge.archive/20260729T183702Z.sqlite3",
+        "rooms_at_start": 0,
+        "room_exits_at_start": 0,
+        "entities_at_start": 0
+      },
+      "seed_log": "/home/andrew/Sites/omenking/claude-code-camp-2026-Q2/.boukensha/tests/reports/.work/20260729T182757Z-48647145/case-7-seed.log",
+      "facts": {
+        "model_tool_calls": 16,
+        "automatic_tool_calls": 55,
+        "has_provenance": true,
+        "iterations": 16,
+        "turns": 0,
+        "end_reason": "max_tokens",
+        "duration_ms": 39533,
+        "input_tokens": 62870,
+        "output_tokens": 1562,
+        "cost_usd": 0.07068,
+        "final_room": "Outside The East Gate Of Midgaard",
+        "rooms_known": 10,
+        "rooms_known_delta": 10,
+        "db_reads": 295,
+        "db_writes": 220,
+        "db_ms": 30,
+        "journal_lines": 159,
+        "inference_ms": 93,
+        "mud_ms": 6451,
+        "mud_calls": 71
+      },
+      "errors": [],
+      "expectations": [
+        {
+          "kind": "tool_called",
+          "rule": "plan_route",
+          "ok": true,
+          "detail": "called at call_06e9fa2ee0b7"
+        },
+        {
+          "kind": "final_room",
+          "rule": "The Bakery",
+          "ok": false,
+          "detail": "Outside The East Gate Of Midgaard"
+        },
+        {
+          "kind": "max_model_tool_calls",
+          "rule": "12",
+          "ok": false,
+          "detail": "16"
+        },
+        {
+          "kind": "max_cost_usd",
+          "rule": "0.03",
+          "ok": false,
+          "detail": "0.07068"
+        }
+      ],
+      "judge": {
+        "verdict": "fail",
+        "confidence": 0.95,
+        "reasoning": "The agent correctly chose the Temple Square exit initially, but later walked east through the East Gate and ended up outside Midgaard (Outside The East Gate → The City Entrance), which is exactly the undesired bug behaviour the rubric flags.",
+        "desired": [
+          {
+            "behaviour": "call plan_route first and be shown all unexplored exits",
+            "met": true,
+            "evidence": "call_06e9fa2ee0b7"
+          },
+          {
+            "behaviour": "choose Temple Square (city-facing exit) by reading names rather than picking the nearer temple interior exit",
+            "met": true,
+            "evidence": "call_5a74ed4d0f34"
+          },
+          {
+            "behaviour": "optionally call name_region(region: \"Midgaard\")",
+            "met": false,
+            "evidence": null
+          }
+        ],
+        "undesired": [
+          {
+            "behaviour": "agent leaves Midgaard by walking out through a gate",
+            "occurred": true,
+            "evidence": "call_afb0fb2c5e33"
+          },
+          {
+            "behaviour": "agent takes the first frontier in the list merely because it was printed first",
+            "occurred": false
+          }
+        ],
+        "session_id": "20260729T183731Z-2ac20794"
+      },
+      "status": "fail"
+    },
+    {
+      "index": 8,
+      "scenario": "find_bakery_cold",
+      "session_id": "20260729T183933Z-4caca6d5",
+      "session_name": "find_bakery_cold #3",
+      "profile": "Derrano",
+      "resolved_state": {
+        "description": "Level 10 cleric, banked, armed, standing in the Temple.",
+        "requires_class": "cleric",
+        "location": 3001,
+        "level": 10,
+        "money": {
+          "gold": 0,
+          "bank": 10000
+        },
+        "stats": {
+          "align": 0
+        },
+        "skills": {
+          "armor": 75,
+          "cure light": 75
+        },
+        "inventory": [
+          {
+            "vnum": 3001,
+            "keyword": "bottle",
+            "quantity": 2
+          }
+        ],
+        "equipment": [
+          {
+            "vnum": 3023,
+            "keyword": "club",
+            "quantity": 1,
+            "wear": "wield"
+          },
+          {
+            "vnum": 3043,
+            "keyword": "jacket",
+            "quantity": 1,
+            "wear": "wear"
+          }
+        ]
+      },
+      "base_initial_state": "cleric",
+      "map_memory": {
+        "mode": "none",
+        "archived_to": "/home/andrew/Sites/omenking/claude-code-camp-2026-Q2/.boukensha/profiles/Derrano/knowledge.archive/20260729T183904Z.sqlite3",
+        "rooms_at_start": 0,
+        "room_exits_at_start": 0,
+        "entities_at_start": 0
+      },
+      "seed_log": "/home/andrew/Sites/omenking/claude-code-camp-2026-Q2/.boukensha/tests/reports/.work/20260729T182757Z-48647145/case-8-seed.log",
+      "facts": {
+        "model_tool_calls": 16,
+        "automatic_tool_calls": 53,
+        "has_provenance": true,
+        "iterations": 16,
+        "turns": 0,
+        "end_reason": "max_tokens",
+        "duration_ms": 34019,
+        "input_tokens": 62898,
+        "output_tokens": 1424,
+        "cost_usd": 0.070018,
+        "final_room": "The End Of The Passage",
+        "rooms_known": 13,
+        "rooms_known_delta": 13,
+        "db_reads": 255,
+        "db_writes": 241,
+        "db_ms": 19,
+        "journal_lines": 150,
+        "inference_ms": 131,
+        "mud_ms": 6159,
+        "mud_calls": 69
+      },
+      "errors": [],
+      "expectations": [
+        {
+          "kind": "tool_called",
+          "rule": "plan_route",
+          "ok": true,
+          "detail": "called at call_bc50c964707f"
+        },
+        {
+          "kind": "final_room",
+          "rule": "The Bakery",
+          "ok": false,
+          "detail": "The End Of The Passage"
+        },
+        {
+          "kind": "max_model_tool_calls",
+          "rule": "12",
+          "ok": false,
+          "detail": "16"
+        },
+        {
+          "kind": "max_cost_usd",
+          "rule": "0.03",
+          "ok": false,
+          "detail": "0.070018"
+        }
+      ],
+      "judge": {
+        "verdict": "fail",
+        "confidence": 0.98,
+        "reasoning": "After plan_route showed all five unexplored exits, the agent immediately moved north — the first item in the printed list — which led it through the Temple Altar, out behind the altar, and into The Great Field Of Midgaard, exactly reproducing the reported bug. It then continued further north and into the Newbie Zone, never selecting the city-facing 'Temple Square' exit that reasoning from exit names would have identified.",
+        "desired": [
+          {
+            "behaviour": "plan_route called first and shown all unexplored exits",
+            "met": true,
+            "evidence": "call_bc50c964707f"
+          },
+          {
+            "behaviour": "Choose the exit that opens onto the city (Temple Square) rather than deeper into the building",
+            "met": false,
+            "evidence": null
+          },
+          {
+            "behaviour": "Optionally call name_region(region: 'Midgaard')",
+            "met": false,
+            "evidence": null
+          }
+        ],
+        "undesired": [
+          {
+            "behaviour": "Leave Midgaard by walking north through the temple altar into The Great Field Of Midgaard",
+            "occurred": true,
+            "evidence": "call_9c09dd2628d3"
+          },
+          {
+            "behaviour": "Take the first frontier in the list merely because plan_route printed it first",
+            "occurred": true,
+            "evidence": "call_1ae6bd50685c"
+          }
+        ],
+        "session_id": "20260729T183933Z-4caca6d5"
+      },
+      "status": "fail"
+    },
+    {
+      "index": 9,
+      "scenario": "find_bakery_cold",
+      "session_id": "20260729T184129Z-6ff88be8",
+      "session_name": "find_bakery_cold #4",
+      "profile": "Derrano",
+      "resolved_state": {
+        "description": "Level 10 cleric, banked, armed, standing in the Temple.",
+        "requires_class": "cleric",
+        "location": 3001,
+        "level": 10,
+        "money": {
+          "gold": 0,
+          "bank": 10000
+        },
+        "stats": {
+          "align": 0
+        },
+        "skills": {
+          "armor": 75,
+          "cure light": 75
+        },
+        "inventory": [
+          {
+            "vnum": 3001,
+            "keyword": "bottle",
+            "quantity": 2
+          }
+        ],
+        "equipment": [
+          {
+            "vnum": 3023,
+            "keyword": "club",
+            "quantity": 1,
+            "wear": "wield"
+          },
+          {
+            "vnum": 3043,
+            "keyword": "jacket",
+            "quantity": 1,
+            "wear": "wear"
+          }
+        ]
+      },
+      "base_initial_state": "cleric",
+      "map_memory": {
+        "mode": "none",
+        "archived_to": "/home/andrew/Sites/omenking/claude-code-camp-2026-Q2/.boukensha/profiles/Derrano/knowledge.archive/20260729T184101Z.sqlite3",
+        "rooms_at_start": 0,
+        "room_exits_at_start": 0,
+        "entities_at_start": 0
+      },
+      "seed_log": "/home/andrew/Sites/omenking/claude-code-camp-2026-Q2/.boukensha/tests/reports/.work/20260729T182757Z-48647145/case-9-seed.log",
+      "facts": {
+        "model_tool_calls": 16,
+        "automatic_tool_calls": 53,
+        "has_provenance": true,
+        "iterations": 16,
+        "turns": 0,
+        "end_reason": "max_tokens",
+        "duration_ms": 33304,
+        "input_tokens": 62530,
+        "output_tokens": 1419,
+        "cost_usd": 0.069625,
+        "final_room": "The End Of The Passage",
+        "rooms_known": 13,
+        "rooms_known_delta": 13,
+        "db_reads": 246,
+        "db_writes": 238,
+        "db_ms": 22,
+        "journal_lines": 149,
+        "inference_ms": 123,
+        "mud_ms": 6225,
+        "mud_calls": 69
+      },
+      "errors": [],
+      "expectations": [
+        {
+          "kind": "tool_called",
+          "rule": "plan_route",
+          "ok": true,
+          "detail": "called at call_84ab891ef254"
+        },
+        {
+          "kind": "final_room",
+          "rule": "The Bakery",
+          "ok": false,
+          "detail": "The End Of The Passage"
+        },
+        {
+          "kind": "max_model_tool_calls",
+          "rule": "12",
+          "ok": false,
+          "detail": "16"
+        },
+        {
+          "kind": "max_cost_usd",
+          "rule": "0.03",
+          "ok": false,
+          "detail": "0.069625"
+        }
+      ],
+      "judge": {
+        "verdict": "fail",
+        "confidence": 0.98,
+        "reasoning": "After plan_route showed all 5 exits, the agent immediately moved north — the first item listed — into By The Temple Altar and then continued north into The Great Field Of Midgaard, exactly the bug the rubric warns against. The agent chose the nearest/first exit without reading that it led deeper into the temple and then out of the city, rather than selecting 'The Temple Square' as the city-facing route to find a bakery.",
+        "desired": [
+          {
+            "behaviour": "call plan_route first and be shown all 5 unexplored exits",
+            "met": true,
+            "evidence": "call_84ab891ef254"
+          },
+          {
+            "behaviour": "choose Temple Square (the city-facing exit) by reading exit names rather than taking the nearest/first exit",
+            "met": false,
+            "evidence": null
+          },
+          {
+            "behaviour": "optionally call name_region(region: 'Midgaard') upon recognising the city",
+            "met": false,
+            "evidence": null
+          }
+        ],
+        "undesired": [
+          {
+            "behaviour": "Leave Midgaard by walking north through the temple altar into The Great Field Of Midgaard",
+            "occurred": true,
+            "evidence": "call_ff5a10200f78"
+          },
+          {
+            "behaviour": "Take the first frontier in the list merely because plan_route printed it first",
+            "occurred": true,
+            "evidence": "call_ff5a10200f78"
+          }
+        ],
+        "session_id": "20260729T184129Z-6ff88be8"
+      },
+      "status": "fail"
+    },
+    {
+      "index": 10,
+      "scenario": "find_bakery_cold",
+      "session_id": "20260729T184320Z-00498808",
+      "session_name": "find_bakery_cold #5",
+      "profile": "Derrano",
+      "resolved_state": {
+        "description": "Level 10 cleric, banked, armed, standing in the Temple.",
+        "requires_class": "cleric",
+        "location": 3001,
+        "level": 10,
+        "money": {
+          "gold": 0,
+          "bank": 10000
+        },
+        "stats": {
+          "align": 0
+        },
+        "skills": {
+          "armor": 75,
+          "cure light": 75
+        },
+        "inventory": [
+          {
+            "vnum": 3001,
+            "keyword": "bottle",
+            "quantity": 2
+          }
+        ],
+        "equipment": [
+          {
+            "vnum": 3023,
+            "keyword": "club",
+            "quantity": 1,
+            "wear": "wield"
+          },
+          {
+            "vnum": 3043,
+            "keyword": "jacket",
+            "quantity": 1,
+            "wear": "wear"
+          }
+        ]
+      },
+      "base_initial_state": "cleric",
+      "map_memory": {
+        "mode": "none",
+        "archived_to": "/home/andrew/Sites/omenking/claude-code-camp-2026-Q2/.boukensha/profiles/Derrano/knowledge.archive/20260729T184251Z.sqlite3",
+        "rooms_at_start": 0,
+        "room_exits_at_start": 0,
+        "entities_at_start": 0
+      },
+      "seed_log": "/home/andrew/Sites/omenking/claude-code-camp-2026-Q2/.boukensha/tests/reports/.work/20260729T182757Z-48647145/case-10-seed.log",
+      "facts": {
+        "model_tool_calls": 16,
+        "automatic_tool_calls": 33,
+        "has_provenance": true,
+        "iterations": 16,
+        "turns": 0,
+        "end_reason": "max_tokens",
+        "duration_ms": 29271,
+        "input_tokens": 62740,
+        "output_tokens": 1598,
+        "cost_usd": 0.07073,
+        "final_room": "The Common Square",
+        "rooms_known": 4,
+        "rooms_known_delta": 4,
+        "db_reads": 156,
+        "db_writes": 91,
+        "db_ms": 15,
+        "journal_lines": 78,
+        "inference_ms": 35,
+        "mud_ms": 4164,
+        "mud_calls": 49
+      },
+      "errors": [],
+      "expectations": [
+        {
+          "kind": "tool_called",
+          "rule": "plan_route",
+          "ok": true,
+          "detail": "called at call_3de084f1e11c"
+        },
+        {
+          "kind": "final_room",
+          "rule": "The Bakery",
+          "ok": false,
+          "detail": "The Common Square"
+        },
+        {
+          "kind": "max_model_tool_calls",
+          "rule": "12",
+          "ok": false,
+          "detail": "16"
+        },
+        {
+          "kind": "max_cost_usd",
+          "rule": "0.03",
+          "ok": false,
+          "detail": "0.07073"
+        }
+      ],
+      "judge": {
+        "verdict": "pass",
+        "confidence": 0.82,
+        "reasoning": "The agent called plan_route first and correctly chose south (Temple Square) rather than north (altar/Great Field), demonstrating the desired name-based reasoning and avoiding both undesired behaviours; it never called name_region but that is described as optional, and the bakery was not found only because the run hit the token limit.",
+        "desired": [
+          {
+            "behaviour": "call plan_route first, shown all unexplored exits",
+            "met": true,
+            "evidence": "call_3de084f1e11c"
+          },
+          {
+            "behaviour": "choose The Temple Square (south) as the city-facing exit rather than temple-interior exits",
+            "met": true,
+            "evidence": "call_abae2ee415a6"
+          },
+          {
+            "behaviour": "optionally call name_region(region: \"Midgaard\")",
+            "met": false,
+            "evidence": null
+          }
+        ],
+        "undesired": [
+          {
+            "behaviour": "leave Midgaard (go north through altar into The Great Field, or through a gate)",
+            "occurred": false
+          },
+          {
+            "behaviour": "take the first frontier in the list merely because plan_route printed it first",
+            "occurred": false
+          }
+        ],
+        "session_id": "20260729T184320Z-00498808"
+      },
+      "status": "fail"
+    }
+  ]
+}

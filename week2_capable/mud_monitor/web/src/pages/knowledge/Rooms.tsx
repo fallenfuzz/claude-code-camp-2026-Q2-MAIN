@@ -6,7 +6,7 @@ import { usePolling } from "../../api/usePolling";
 import KnowledgeEmpty from "../../components/KnowledgeEmpty";
 import { formatTime, truncate } from "../../format";
 import { useDebouncedValue } from "../../useDebouncedValue";
-import { useReportEnvelope } from "./Knowledge";
+import { useKnowledgeHref, useKnowledgeSession, useReportEnvelope } from "./Knowledge";
 
 const FILTERS = [
   { value: "", label: "all" },
@@ -22,6 +22,7 @@ const MAX_VISIBLE_ENTITIES = 3;
 // making it a link-vs-not distinction means it reads correctly everywhere
 // without a legend.
 function ExitList({ exits }: { exits: KnowledgeExit[] }) {
+  const href = useKnowledgeHref();
   if (exits.length === 0) return <span className="muted-cell">none</span>;
 
   return (
@@ -30,7 +31,7 @@ function ExitList({ exits }: { exits: KnowledgeExit[] }) {
         <span key={exit.direction} className={exit.target_room_id == null ? "exit exit-frontier" : "exit"}>
           <span className="exit-dir">{exit.direction}</span>
           {exit.target_room_id != null ? (
-            <Link to={`/knowledge/rooms/${exit.target_room_id}`}>{exit.target_name ?? `#${exit.target_room_id}`}</Link>
+            <Link to={href(`/knowledge/rooms/${exit.target_room_id}`)}>{exit.target_name ?? `#${exit.target_room_id}`}</Link>
           ) : (
             <span title="never walked — this is the frontier">{exit.target_name ?? "?"}</span>
           )}
@@ -41,12 +42,14 @@ function ExitList({ exits }: { exits: KnowledgeExit[] }) {
 }
 
 export default function Rooms() {
+  const href = useKnowledgeHref();
   const [ q, setQ ] = useState("");
   const [ filter, setFilter ] = useState("");
   const debouncedQ = useDebouncedValue(q);
+  const session = useKnowledgeSession();
   const { data, error } = usePolling(
-    () => fetchKnowledgeRooms({ q: debouncedQ || undefined, filter: filter || undefined }),
-    [ debouncedQ, filter ],
+    () => fetchKnowledgeRooms({ q: debouncedQ || undefined, filter: filter || undefined }, session),
+    [ debouncedQ, filter, session ],
   );
   useReportEnvelope(data);
 
@@ -91,10 +94,10 @@ export default function Rooms() {
             {data.rooms.map((room) => (
               <tr key={room.id} className={room.confidence === "provisional" ? "room-provisional" : ""}>
                 <td className="nowrap">
-                  <Link to={`/knowledge/rooms/${room.id}`}>{room.id}</Link>
+                  <Link to={href(`/knowledge/rooms/${room.id}`)}>{room.id}</Link>
                 </td>
                 <td>
-                  <Link to={`/knowledge/rooms/${room.id}`}>{room.name}</Link>
+                  <Link to={href(`/knowledge/rooms/${room.id}`)}>{room.name}</Link>
                   {room.confidence === "provisional" && (
                     <span className="tag tag-provisional" title="the fingerprint resolver is not sure this is one room">
                       provisional

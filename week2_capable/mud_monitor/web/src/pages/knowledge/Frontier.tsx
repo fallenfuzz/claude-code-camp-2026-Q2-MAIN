@@ -3,7 +3,7 @@ import { fetchKnowledgeFrontier } from "../../api/client";
 import { usePolling } from "../../api/usePolling";
 import KnowledgeEmpty from "../../components/KnowledgeEmpty";
 import { formatTime } from "../../format";
-import { useReportEnvelope } from "./Knowledge";
+import { useKnowledgeHref, useKnowledgeSession, useReportEnvelope } from "./Knowledge";
 
 // Every exit the agent has seen named but never walked through.
 //
@@ -12,7 +12,9 @@ import { useReportEnvelope } from "./Knowledge";
 // left". Everything else on this tab describes what was found; this describes
 // what was not.
 export default function Frontier() {
-  const { data, error } = usePolling(() => fetchKnowledgeFrontier(), []);
+  const href = useKnowledgeHref();
+  const session = useKnowledgeSession();
+  const { data, error } = usePolling(() => fetchKnowledgeFrontier(session), [ session ]);
   useReportEnvelope(data);
 
   if (error) return <p className="error">Failed to read frontier: {error}</p>;
@@ -60,7 +62,7 @@ export default function Frontier() {
                 <td>
                   {i === 0 && (
                     <>
-                      <Link to={`/knowledge/rooms/${roomId}`}>{exit.room_name}</Link>
+                      <Link to={href(`/knowledge/rooms/${roomId}`)}>{exit.room_name}</Link>
                       {!exit.room_surveyed && (
                         <span className="tag" title="the room itself was never surveyed">
                           unsurveyed

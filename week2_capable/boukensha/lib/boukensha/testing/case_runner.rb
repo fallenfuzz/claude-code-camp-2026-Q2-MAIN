@@ -72,6 +72,7 @@ module Boukensha
           # which file, and `Operation.session_id` is the one value in this
           # process that knows.
           result["session_id"] = Operation.session_id
+          retain_map_memory!(result)
         rescue StandardError => e
           result["ok"]         = false
           result["error"]      = "#{e.class}: #{e.message}"
@@ -79,6 +80,10 @@ module Boukensha
           result["backtrace"]  = e.backtrace&.first(8)
           result["session_id"] ||= Operation.session_id
           log("failed", "#{error_kind(e)}: #{e.message}")
+          # A case that died halfway still built a map, and that map is usually
+          # the evidence for WHY it died. Retained on the failure path for the
+          # same reason it is retained on the success one.
+          retain_map_memory!(result)
         end
         result["duration_ms"] = ((Process.clock_gettime(Process::CLOCK_MONOTONIC) - started) * 1000).round
         write_result(result)
@@ -129,11 +134,40 @@ module Boukensha
       end
 
       def prepare_map_memory(config)
-        MapMemory.new(
+        fixtures = Fixtures.new(dir: config.tests_dir, profiles_dir: File.join(config.root_dir, "profiles"))
+        @map_memory = MapMemory.new(
           profile_dir:  config.profile_dir,
           profiles_dir: File.join(config.root_dir, "profiles"),
-          maps_dir:     File.join(config.tests_dir, "states", "maps")
-        ).apply!(@payload.fetch("map_memory", "none"))
+          maps_dir:     fixtures.maps_dir,
+          sessions_dir: fixtures.session_maps_dir(@payload.fetch("player_profile"))
+        )
+        @map_memory.apply!(@payload.fetch("map_memory", "none"))
+      end
+
+      # The map this case ENDED with, filed under the session that built it.
+      #
+      # This runs here rather than at the start of the next case because that is
+      # the ordering bug it exists to fix: an archive taken before a case begins
+      # holds the PREVIOUS case's map under the timestamp at which THIS one
+      # started, and nothing joins it to the run that produced it. By this line
+      # both the finished map and `Operation.session_id` are in hand.
+      #
+      # Never fatal. A case whose agent did the work and whose map could not be
+      # copied is a case that passed, and reporting it as an error would be a
+      # confident mislabel of the harness's problem as the agent's.
+      def retain_map_memory!(result)
+        session_id = result["session_id"]
+        return unless @map_memory && session_id
+
+        path = @map_memory.retain!(session_id)
+        return log("memory", "nothing to retain — the case wrote no knowledge database") unless path
+
+        result["map_memory_retained"] = path
+        pruned = @map_memory.prune_retained!
+        log("memory", "retained #{File.basename(path)}" \
+                      "#{" — pruned #{pruned.size} older (keeping #{MapMemory::RETAIN_LIMIT})" unless pruned.empty?}")
+      rescue StandardError => e
+        log("memory", "not retained: #{e.message}")
       end
 
       def seed!(config)

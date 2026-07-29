@@ -240,7 +240,11 @@ module BoukenshaLoader
     return { mode: :list, kind: listing } if listing
 
     if (name = extract_option("--snapshot-map"))
-      return { mode: :snapshot_map, name: name, profile: extract_option("--profile") }
+      # `--from-session <id>` promotes a RETAINED session map instead of the
+      # profile's current one, which is the only way to pin the map of a run
+      # that has already been overwritten by whatever ran after it.
+      return { mode: :snapshot_map, name: name, profile: extract_option("--profile"),
+               from_session: extract_option("--from-session") }
     end
 
     scenario = extract_option("-ts", "--test-scenario")
@@ -366,12 +370,82 @@ module BoukenshaLoader
         # a plain native tool (RunDSL#tool) so it is gated by
         # tasks.player.allow exactly like any MCP tool — see
         # docs/plans/week_2/plan_route.md §8.
+        # The `# Navigation` prompt section was cut to policy only
+        # (boundaries_revised.md §7): guidance about what a result MEANS
+        # belongs here and in the tool's own output, where it is read at the
+        # moment it applies, rather than in 290 permanent words of system
+        # prompt restating six status names.
         tool "plan_route",
              description: "Plan a route to a known place, landmark, or thing using only what you " \
-                          "have already explored. Never moves you and performs no MUD actions.",
-             parameters: { destination: { type: "string",
-               description: "Place, landmark, or thing to find, e.g. 'bakery' or 'Temple Square'." } } do |destination:|
-          Boukensha::Mud::Navigation::PlanRouteTool.call(store: store, destination: destination)
+                          "have already explored. Never moves you and performs no MUD actions. " \
+                          "Returns `known` (a path to somewhere you have stood — walk it with " \
+                          "execute_route), `arrived`, `unreachable`, `exhausted`, or, when the " \
+                          "destination is not on your map, the whole set of unexplored exits in " \
+                          "distance bands with the names the MUD printed. That set is ordered by " \
+                          "arithmetic, which knows nothing about what the names mean — read them " \
+                          "and choose, rather than taking the first. Each group shows the walk to " \
+                          "the room it leaves from.",
+             parameters: {
+               destination: { type: "string",
+                 description: "Place, landmark, or thing to find, e.g. 'bakery' or 'Temple Square'." },
+               scope: { type: "string", enum: %w[region world],
+                 description: "Where to look for something not yet on your map. 'region' (the " \
+                              "default) confines the search to the place you are standing in and " \
+                              "everything within it; 'world' lifts that. Travel to a place you " \
+                              "have already stood in is never scoped." }
+             } do |destination:, scope: "region"|
+          Boukensha::Mud::Navigation::PlanRouteTool.call(store: store, destination: destination, scope: scope)
+        end
+
+        # The two declaration tools — boundaries_revised.md §2. Both are
+        # read-mostly store writes with zero MUD I/O, registered as native
+        # tools so they are gated by tasks.player.allow exactly like plan_route.
+        #
+        # They are two tools rather than one with a mode flag because the agent
+        # has to MEAN one or the other, and §9 records what goes wrong when it
+        # picks the second while meaning the first.
+        tool "name_region",
+             description: "Say what the place you are standing in is called. Renames the region " \
+                          "you are already in — usually one still carrying a machine-made " \
+                          "⟨from …⟩ label — and clears its unconfirmed mark. Creates no boundary, " \
+                          "because nothing moved. Use this when you have worked out what the place " \
+                          "you have been walking through IS. It renames the WHOLE region you are " \
+                          "standing in, so check the room count it reports back. Naming it " \
+                          "something that already exists merges the two.",
+             parameters: {
+               region: { type: "string", description: "What this place is called, e.g. 'Midgaard'." },
+               within: { type: "string",
+                 description: "Optional. The larger place this one sits inside, by name; created " \
+                              "if it does not exist yet." },
+               description: { type: "string",
+                 description: "Optional. What this place is like, in your own words." }
+             } do |region:, within: nil, description: nil|
+          Boukensha::Mud::Navigation::RegionTools.name_region(
+            store: store, region: region, within: within, description: description
+          )
+        end
+
+        tool "split_region",
+             description: "Say that a DIFFERENT place starts in the room you are standing in. The " \
+                          "boundary is the edge you first walked into this room by, exactly: the " \
+                          "room behind you keeps its region, and this room plus everything you " \
+                          "first reached through it becomes the new one. Call it in the FIRST room " \
+                          "of the new place — called deep inside, it puts the boundary on an " \
+                          "interior edge. The edge it used is printed back to you every time.",
+             parameters: {
+               region: { type: "string", description: "What the new place is called, e.g. 'The Great Field'." },
+               within: { type: "string",
+                 description: "Optional. The larger place this one sits inside, by name; created " \
+                              "if it does not exist yet." },
+               description: { type: "string",
+                 description: "Optional. What this place is like, in your own words." },
+               reason: { type: "string",
+                 description: "Optional. What made you say a new place starts here — the one claim " \
+                              "someone reviewing a wrong boundary needs to see." }
+             } do |region:, within: nil, description: nil, reason: nil|
+          Boukensha::Mud::Navigation::RegionTools.split_region(
+            store: store, region: region, within: within, description: description, reason: reason
+          )
         end
 
         # `call_tool` is already bound above to the HOOK's own room-survey-

@@ -252,15 +252,22 @@ class TestMemoryStore < Minitest::Test
     db.execute_batch(M::Schema::V1)
     db.execute("PRAGMA user_version = 1")
     old = M::Store.new(db)
-    id  = old.create_room(name: "Market Square", description: "A famous square.",
-                          weak_fingerprint: F.weak(name: "Market Square", description: "A famous square.",
-                                                   exit_dirs: %w[north]))
+    # Raw SQL, not `create_room`: the row has to be written the way a V1-era
+    # build would have written it. Store#create_room speaks the CURRENT schema
+    # — it names V5's arrival columns — so using it here would test this
+    # build's DDL against itself rather than testing that a genuinely old file
+    # survives the climb.
+    id = 1
+    db.execute("INSERT INTO rooms (id, weak_fingerprint, confidence, name, description, " \
+               "first_seen_at, last_seen_at) VALUES (?, ?, 'confirmed', ?, ?, 't', 't')",
+               [id, F.weak(name: "Market Square", description: "A famous square.", exit_dirs: %w[north]),
+                "Market Square", "A famous square."])
     old.record_exits!(id, dirs: %w[north])
     old.update_player!(current_room_id: id, hp: 19, level: 10)
 
-    assert_equal 4, M::Schema::LATEST_VERSION, "migrations are appended, never edited into V1"
-    assert_equal 4, M::Schema.migrate!(db)
-    assert_equal 4, db.get_first_value("PRAGMA user_version")
+    assert_equal 5, M::Schema::LATEST_VERSION, "migrations are appended, never edited into V1"
+    assert_equal 5, M::Schema.migrate!(db)
+    assert_equal 5, db.get_first_value("PRAGMA user_version")
 
     # Every V1 row survived.
     assert_equal "Market Square", old.room(id)[:name]
@@ -305,7 +312,7 @@ class TestMemoryStore < Minitest::Test
     db.execute("INSERT INTO player_state (id, current_room_id, hp, title, char_class, race, updated_at) " \
                "VALUES (1, 7, 19, 'Old Title', 'thief', 'elf', 't')")
 
-    assert_equal 4, M::Schema.migrate!(db)
+    assert_equal 5, M::Schema.migrate!(db)
     row = db.execute("SELECT * FROM player_state WHERE id = 1").first
     assert_equal [7, 19, "Old Title", "thief"], row.values_at("current_room_id", "hp", "title", "player_class")
     assert_equal "Old Room", db.get_first_value("SELECT name FROM rooms WHERE id = 7")

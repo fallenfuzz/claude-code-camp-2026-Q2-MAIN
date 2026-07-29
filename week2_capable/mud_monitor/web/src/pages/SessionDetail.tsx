@@ -206,6 +206,18 @@ export default function SessionDetail() {
             )}
           </span>
         )}
+        {" · "}
+        {/* The map this session ended with, which for any session but the most
+            recent is a different world from what the Knowledge tab shows.
+            Disabled text rather than a dead link when it has been pruned:
+            "gone by policy" is an expected outcome and should read like one. */}
+        {session.memory_retained ? (
+          <Link to={`/knowledge?session=${encodeURIComponent(session.id)}`}>memory</Link>
+        ) : (
+          <span className="muted-cell" title="Only test cases retain a map, and only the 30 most recent per profile are kept">
+            memory not retained
+          </span>
+        )}
       </p>
 
       {/* "What is it doing right now" — answerable without reading the transcript. */}

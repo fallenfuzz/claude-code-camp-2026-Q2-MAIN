@@ -374,10 +374,17 @@ module Boukensha
         # first arrival of a session pays for one `look`, not two.
         surveyed = @survey.survey(look: (@look_is_fresh ? look : nil))
         targets  = surveyed[:exit_targets]
+        # The first-arrival edge, stamped on the one visit that can know it.
+        # Nil when nothing walked us here — a cold start, a flee, a teleport —
+        # and that nil is not a gap but rule 3: the room becomes a root, and
+        # the derivation seeds a provisional region on it
+        # (boundaries_revised.md §2).
+        edge = @pending_arrival_edge
         id = @store.create_room(
           name: look.name, description: look.description, weak_fingerprint: weak,
           strong_fingerprint: Memory::Fingerprint.strong(weak, targets),
-          look_candidates: surveyed[:look_candidates], surveyed: true
+          look_candidates: surveyed[:look_candidates], surveyed: true,
+          arrived_from: edge && edge[:from], arrived_direction: edge && edge[:direction]
         )
         @store.record_exits!(id, dirs: look.exit_dirs, targets: targets)
         persist_entities(id, surveyed)
@@ -393,10 +400,12 @@ module Boukensha
       # contains ambiguous rooms at all.
       def provisional(look, weak, candidates)
         log_conflict("ambiguous_room", name: look.name, candidates: candidates.map { |c| c[:id] })
+        edge = @pending_arrival_edge
         id = @store.create_room(
           name: look.name, description: look.description, weak_fingerprint: weak,
           strong_fingerprint: @resolved_targets && Memory::Fingerprint.strong(weak, @resolved_targets),
-          confidence: "provisional"
+          confidence: "provisional",
+          arrived_from: edge && edge[:from], arrived_direction: edge && edge[:direction]
         )
         @store.record_exits!(id, dirs: look.exit_dirs, targets: @resolved_targets || {})
         @first_visit = true
@@ -640,6 +649,9 @@ module Boukensha
         block = StateBlock.render(
           room: room,
           exits: room ? @store.exits_for(room[:id]) : [],
+          # Store reads only — the derivation behind this is lazy and runs
+          # here, on a read, never inside a MUD round trip.
+          region: room && @store.region_for_room(room[:id]),
           here: @live,
           player: @store.player,
           events: events,

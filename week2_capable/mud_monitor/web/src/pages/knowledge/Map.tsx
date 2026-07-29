@@ -3,7 +3,7 @@ import type { MouseEvent as ReactMouseEvent, PointerEvent as ReactPointerEvent }
 import { fetchKnowledgeMap } from "../../api/client";
 import { usePolling } from "../../api/usePolling";
 import KnowledgeEmpty from "../../components/KnowledgeEmpty";
-import { useReportEnvelope } from "./Knowledge";
+import { useKnowledgeSession, useReportEnvelope } from "./Knowledge";
 import MapNode from "./MapNode";
 import { CELL_H, CELL_W, cellCenter, layoutRooms, worldSize } from "./layout";
 import type { FrontierStub, PlacedNode } from "./layout";
@@ -19,6 +19,16 @@ const DRAG_THRESHOLD = 4;
 const FIT_PADDING = 48;
 
 const clamp = (v: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, v));
+
+/**
+ * Region tint hues. Fixed and cycled by index rather than hashed from the
+ * label, so a region keeps its colour while the agent renames it — the label
+ * is exactly the thing most likely to change, and a tint that jumps on a
+ * rename would read as the boundary having moved.
+ */
+const REGION_HUES = [ 205, 32, 145, 280, 0, 55, 190, 320 ];
+const regionTint = (index: number, alpha: number) =>
+  `hsl(${REGION_HUES[index % REGION_HUES.length]} 70% 55% / ${alpha})`;
 
 interface View {
   x: number;
@@ -51,12 +61,14 @@ function onBoxEdge(from: { x: number; y: number }, to: { x: number; y: number },
  * decoration, they are the reason this is allowed to be drawn at all.
  */
 export default function KnowledgeMap() {
-  const { data, error } = usePolling(() => fetchKnowledgeMap(), []);
+  const session = useKnowledgeSession();
+  const { data, error } = usePolling(() => fetchKnowledgeMap(session), [ session ]);
   useReportEnvelope(data);
 
   const [ view, setView ] = useState<View>({ x: 0, y: 0, k: 1 });
   const [ follow, setFollow ] = useState(true);
   const [ showFrontier, setShowFrontier ] = useState(true);
+  const [ showRegions, setShowRegions ] = useState(true);
   const [ detail, setDetail ] = useState(true);
 
   const viewportRef = useRef<HTMLDivElement | null>(null);
@@ -94,6 +106,32 @@ export default function KnowledgeMap() {
 
   const playerRoomId = data?.player?.current_room?.id ?? null;
   const world = worldSize(layout);
+
+  const regions = useMemo(() => data?.regions ?? [], [ data ]);
+
+  /** region id -> { index, region }, so tint and legend agree by construction. */
+  const regionById = useMemo(() => {
+    const map = new Map<number, { index: number; region: (typeof regions)[number] }>();
+    regions.forEach((region, index) => map.set(region.id, { index, region }));
+    return map;
+  }, [ regions ]);
+
+  /**
+   * Declared boundary edges, flattened across regions and keyed by the pair of
+   * rooms they separate.
+   *
+   * These are drawn on top of the tint and never derived from it. A tinted
+   * cell is a recompute away from changing; a boundary is something the agent
+   * stood in a room and said. Keeping the two visually distinct is the point
+   * of drawing either.
+   */
+  const boundaries = useMemo(
+    () =>
+      regions.flatMap((region) =>
+        region.boundaries.map((b) => ({ ...b, regionLabel: region.label, regionId: region.id })),
+      ),
+    [ regions ],
+  );
 
   const centreOn = useCallback((cx: number, cy: number, scale?: number) => {
     const el = viewportRef.current;
@@ -263,6 +301,10 @@ export default function KnowledgeMap() {
           Show frontier
         </label>
         <label>
+          <input type="checkbox" checked={showRegions} onChange={(e) => setShowRegions(e.target.checked)} />
+          Show regions
+        </label>
+        <label>
           <input type="checkbox" checked={detail} onChange={(e) => setDetail(e.target.checked)} />
           Detail
         </label>
@@ -327,6 +369,30 @@ export default function KnowledgeMap() {
               </marker>
             </defs>
 
+            {/* Tint first, under everything: it is background, and it is the
+                least earned thing on this canvas. */}
+            {showRegions &&
+              layout.nodes.map((node) => {
+                const entry = node.room.region_id == null ? undefined : regionById.get(node.room.region_id);
+                if (!entry) return null;
+                const c = cellCenter(node.cx, node.cy);
+                return (
+                  <rect
+                    key={`tint:${node.room.id}`}
+                    x={c.x - CELL_W / 2 - 5}
+                    y={c.y - CELL_H / 2 - 5}
+                    width={CELL_W + 10}
+                    height={CELL_H + 10}
+                    rx={8}
+                    fill={regionTint(entry.index, 0.16)}
+                    stroke={regionTint(entry.index, 0.35)}
+                    strokeWidth={1}
+                  >
+                    <title>{`${entry.region.label}${entry.region.confirmed ? "" : " — unconfirmed"}`}</title>
+                  </rect>
+                );
+              })}
+
             {layout.edges.map((edge) => {
               const a = nodeById.get(edge.from);
               const b = nodeById.get(edge.to);
@@ -368,6 +434,49 @@ export default function KnowledgeMap() {
                 </path>
               );
             })}
+
+            {/* Declared boundaries: a thick stroke ACROSS the edge the agent
+                walked in on, not along it, because what was declared is a line
+                between two rooms rather than a corridor. Hovering names both
+                regions and the reason given, so a boundary in the wrong place
+                is diagnosable without leaving the map. */}
+            {showRegions &&
+              boundaries.map((b) => {
+                const a = nodeById.get(b.from_room_id);
+                const z = nodeById.get(b.to_room_id);
+                if (!a || !z) return null;
+                const from = cellCenter(a.cx, a.cy);
+                const to = cellCenter(z.cx, z.cy);
+                const mx = (from.x + to.x) / 2;
+                const my = (from.y + to.y) / 2;
+                // Unit normal to the edge — the tick sits across it.
+                const dx = to.x - from.x;
+                const dy = to.y - from.y;
+                const len = Math.hypot(dx, dy) || 1;
+                const nx = -(dy / len) * 26;
+                const ny = (dx / len) * 26;
+                const entry = regionById.get(b.regionId);
+                const fromRegion = a.room.region_id == null ? null : regionById.get(a.room.region_id);
+                return (
+                  <line
+                    key={`boundary:${b.id}`}
+                    className="map-boundary"
+                    x1={mx - nx}
+                    y1={my - ny}
+                    x2={mx + nx}
+                    y2={my + ny}
+                    stroke={entry ? regionTint(entry.index, 0.95) : "currentColor"}
+                    strokeWidth={4}
+                    strokeLinecap="round"
+                  >
+                    <title>
+                      {`${fromRegion?.region.label ?? "?"} → ${b.regionLabel}\n` +
+                        `declared at ${b.from_room_name} —${b.direction}→ ${b.to_room_name}` +
+                        (b.reason ? `\nreason: ${b.reason}` : "")}
+                    </title>
+                  </line>
+                );
+              })}
 
             {/* Unwalked exits, beneath the nodes and visually subordinate to
                 real edges. The distinction that has to read pre-attentively is
@@ -430,6 +539,22 @@ export default function KnowledgeMap() {
         <span className="map-key map-key-frontier" /> frontier
         {playerRoomId == null && <span className="map-note">the agent does not know where it is</span>}
       </p>
+
+      {showRegions && regions.length > 0 && (
+        <p className="knowledge-map-legend knowledge-map-regions-legend">
+          {regions.map((region, index) => (
+            <span key={region.id} className="map-region-key" title={region.description ?? undefined}>
+              <span className="map-key" style={{ background: regionTint(index, 0.5) }} />
+              {region.label}
+              {!region.confirmed && <em> — unconfirmed</em>} ({region.room_count})
+            </span>
+          ))}
+          <span className="map-note">
+            tint is derived membership and is rewritten on every recompute; the thick ticks are the
+            boundaries the agent actually declared
+          </span>
+        </p>
+      )}
     </div>
   );
 }

@@ -4,7 +4,7 @@ import type { KnowledgeItem, KnowledgePlayer } from "../../api/types";
 import { usePolling } from "../../api/usePolling";
 import KnowledgeEmpty from "../../components/KnowledgeEmpty";
 import { formatTime } from "../../format";
-import { useReportEnvelope } from "./Knowledge";
+import { useKnowledgeHref, useKnowledgeSession, useReportEnvelope } from "./Knowledge";
 
 // A reading the agent has never taken. Rendered as an em dash rather than as 0
 // or "unknown" everywhere, because on this page most fields are legitimately
@@ -80,7 +80,9 @@ function Equipment({ items }: { items: KnowledgeItem[] }) {
 }
 
 export default function Player() {
-  const { data, error } = usePolling(() => fetchKnowledgePlayer(), []);
+  const href = useKnowledgeHref();
+  const session = useKnowledgeSession();
+  const { data, error } = usePolling(() => fetchKnowledgePlayer(session), [ session ]);
   useReportEnvelope(data);
 
   if (error) return <p className="error">Failed to read the player: {error}</p>;
@@ -157,7 +159,7 @@ export default function Player() {
           label="Location"
           value={
             player.current_room ? (
-              <Link to={`/knowledge/rooms/${player.current_room.id}`}>{player.current_room.name}</Link>
+              <Link to={href(`/knowledge/rooms/${player.current_room.id}`)}>{player.current_room.name}</Link>
             ) : null
           }
         />

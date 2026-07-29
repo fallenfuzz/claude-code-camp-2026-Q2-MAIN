@@ -1,5 +1,6 @@
 require "yaml"
 require_relative "overrides"
+require_relative "map_memory"
 
 module Boukensha
   module Testing
@@ -32,7 +33,7 @@ module Boukensha
       # second opinion, so it is an error rather than a losing bid.
       PROFILE_OWNED = %w[gender class player_class].freeze
 
-      MAP_MEMORY = /\A(none|keep|copy:.+|snapshot:.+)\z/.freeze
+      MAP_MEMORY = /\A(none|keep|copy:.+|snapshot:.+|session:.+)\z/.freeze
 
       attr_reader :dir, :profiles_dir
 
@@ -45,7 +46,19 @@ module Boukensha
       def scenarios_dir = File.join(@dir, "scenarios")
       def plans_dir     = File.join(@dir, "plans")
       def reports_dir   = File.join(@dir, "reports")
-      def maps_dir      = File.join(states_dir, "maps")
+
+      # Memory sits beside reports rather than under a profile for the same
+      # reason a report does: it is a per-run artifact joined by run and session
+      # id, and it exists precisely to compare runs that may not have used the
+      # same profile.
+      def knowledge_dir = File.join(@dir, "knowledge")
+      def maps_dir      = File.join(knowledge_dir, "snapshots")
+
+      # Retained maps subdivide by profile because retention is counted per
+      # profile and a per-directory count is the cheapest way to express that.
+      # Session ids are globally unique, so the subdirectory is for pruning and
+      # legibility rather than for avoiding collisions.
+      def session_maps_dir(profile) = File.join(knowledge_dir, "sessions", profile.to_s)
 
       def scenario_names = names_under(scenarios_dir)
       def plan_names     = names_under(plans_dir)
@@ -114,8 +127,7 @@ module Boukensha
         validate_class!(base_name, base, player_profile) if base_name
         validate_state!(base_name || name, state)
 
-        mode = map_memory || overrides["map_memory"] || spec["map_memory"] || "none"
-        raise Error, "map_memory #{mode.inspect} must be none | keep | copy:<profile> | snapshot:<name>" unless MAP_MEMORY.match?(mode.to_s)
+        mode = validate_map_memory!(map_memory || overrides["map_memory"] || spec["map_memory"] || "none")
 
         session_base = overrides["session_name"] || spec["session_name"] || name.to_s
 
@@ -217,6 +229,21 @@ module Boukensha
 
         doc = YAML.safe_load(File.read(path), permitted_classes: [], aliases: false) || {}
         doc.dig("player", "class")
+      end
+
+      # Checked here as well as in MapMemory, because this is the layer that
+      # fails before anything is seeded: a mistyped session id in case 19 costs
+      # nothing rather than eighteen real runs.
+      def validate_map_memory!(mode)
+        mode = mode.to_s
+        raise Error, "map_memory #{mode.inspect} must be #{MapMemory::MODES}" unless MAP_MEMORY.match?(mode)
+
+        id = mode[/\Asession:(.+)\z/, 1]
+        if id && !MapMemory.session_id?(id)
+          raise Error, "map_memory session id #{id.inspect} is not a session id " \
+                       "(expected the form 20260729T183933Z-4caca6d5)"
+        end
+        mode
       end
 
       def validate_state!(label, state)

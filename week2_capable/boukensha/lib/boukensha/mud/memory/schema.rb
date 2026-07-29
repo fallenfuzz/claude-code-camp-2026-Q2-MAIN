@@ -278,7 +278,88 @@ module Boukensha
           CREATE INDEX idx_frontier_attempts_room ON frontier_attempts(room_id, direction);
         SQL
 
-        MIGRATIONS = [V1, V2, V3, V4].freeze
+        # Regions — boundaries_revised.md §6. Three tables and two columns, and
+        # the split between them is the same EARNED/DERIVED line the rest of
+        # this file draws: the agent's declarations are kept forever and never
+        # overwritten, while membership is rewritten wholesale on every
+        # recompute, because a stale membership is a lie rather than a history.
+        #
+        # The two columns on `rooms` are what §6's SQL does not spell out and
+        # cannot work without. Inheritance is defined as "a room takes the
+        # region of the room it was first entered from", so the first-arrival
+        # edge has to be recorded for EVERY room, not just for the ones a
+        # boundary was declared at. Written once, at discovery, and never
+        # updated — a room's first arrival is a fact about the past, and a
+        # later visit by another route does not revise it.
+        V5 = <<~SQL.freeze
+          ALTER TABLE rooms ADD COLUMN arrived_from_room_id INTEGER REFERENCES rooms(id);
+          ALTER TABLE rooms ADD COLUMN arrived_direction    TEXT;
+
+          -- Backfill for a map explored before this migration existed. There is
+          -- no record of the order rooms were actually walked in, but `rooms.id`
+          -- IS discovery order (autoincrement, one INSERT per first arrival), so
+          -- the lowest-numbered room with a linked exit into this one is the
+          -- best available reconstruction of the room it was first entered from.
+          --
+          -- Getting an individual edge wrong here costs nothing that a later
+          -- declaration cannot fix. Leaving the column NULL instead would cost a
+          -- great deal: every room would be a root, and a 66-room town would
+          -- shatter into 66 provisional regions on the first recompute.
+          UPDATE rooms SET arrived_from_room_id = (
+            SELECT MIN(e.room_id) FROM room_exits e
+            WHERE e.target_room_id = rooms.id AND e.room_id < rooms.id
+          );
+          UPDATE rooms SET arrived_direction = (
+            SELECT e.direction FROM room_exits e
+            WHERE e.target_room_id = rooms.id AND e.room_id = rooms.arrived_from_room_id
+            ORDER BY e.direction LIMIT 1
+          ) WHERE arrived_from_room_id IS NOT NULL;
+
+          -- EARNED: the places the agent named, in its own words. A row with
+          -- confirmed = 0 and a bracketed label is machine-made provenance
+          -- ("⟨from The Temple Of Midgaard⟩"), never a claim about the world —
+          -- nothing anywhere derives "Midgaard" from "The Temple Of Midgaard",
+          -- because parsing a place name out of a room name is a lexicon.
+          CREATE TABLE regions (
+            id            INTEGER PRIMARY KEY,
+            label         TEXT NOT NULL UNIQUE,
+            confirmed     BOOLEAN NOT NULL DEFAULT 0,
+            description   TEXT,
+            parent_id     INTEGER REFERENCES regions(id),
+            seed_room_id  INTEGER REFERENCES rooms(id),
+            first_seen_at TEXT NOT NULL,
+            updated_at    TEXT NOT NULL
+          );
+
+          -- EARNED: one row per split. The edge IS the boundary, exactly — the
+          -- edge the agent walked in on, not a midpoint interpolated between two
+          -- claims — which is what makes a crossing cost one tool call and
+          -- leaves no session where the line sits silently in the wrong place.
+          CREATE TABLE region_boundaries (
+            id           INTEGER PRIMARY KEY,
+            from_room_id INTEGER NOT NULL REFERENCES rooms(id) ON DELETE CASCADE,
+            to_room_id   INTEGER NOT NULL REFERENCES rooms(id) ON DELETE CASCADE,
+            direction    TEXT NOT NULL,
+            region_id    INTEGER NOT NULL REFERENCES regions(id) ON DELETE CASCADE,
+            reason       TEXT,
+            declared_at  TEXT NOT NULL,
+            session_id   TEXT
+          );
+          CREATE INDEX idx_boundaries_to ON region_boundaries(to_room_id);
+
+          -- DERIVED: rewritten wholesale on recompute, the same overwrite
+          -- semantics as player_items. No null case — every walked room is a
+          -- member of something, from the first turn.
+          CREATE TABLE room_regions (
+            room_id     INTEGER PRIMARY KEY REFERENCES rooms(id) ON DELETE CASCADE,
+            region_id   INTEGER NOT NULL REFERENCES regions(id) ON DELETE CASCADE,
+            basis       TEXT NOT NULL,
+            computed_at TEXT NOT NULL
+          );
+          CREATE INDEX idx_room_regions_region ON room_regions(region_id);
+        SQL
+
+        MIGRATIONS = [V1, V2, V3, V4, V5].freeze
 
         LATEST_VERSION = MIGRATIONS.size
 

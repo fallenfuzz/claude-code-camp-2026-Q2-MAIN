@@ -146,6 +146,26 @@ module Api
         end
       end
 
+      # ---------- retained memory -------------------------------------------
+
+      # The link from a session to the map it built. False is the ordinary
+      # answer — a REPL session retains nothing, and a test case older than the
+      # retention limit has been pruned — so the flag exists to let the UI
+      # render disabled text instead of a dead link.
+      test "sessions report whether the map they ended with is still on disk" do
+        session = "20260729T183933Z-4caca6d5"
+        with_retained_session(session) do
+          get api_v1_sessions_path
+
+          rows = response.parsed_body["sessions"].index_by { |s| s["id"] }
+          assert rows[session]["memory_retained"], "the retained file is right where the harness writes it"
+          assert_not rows["no_memory"]["memory_retained"]
+
+          get api_v1_session_path(session)
+          assert response.parsed_body["session"]["memory_retained"], "detail says it too, so the link can render"
+        end
+      end
+
       test "stream responds 503 when the concurrent stream cap is already reached" do
         cfg = Rails.application.config.x.mud_monitor
         previous_gate = cfg.stream_gate
@@ -159,6 +179,31 @@ module Api
         ensure
           cfg.stream_gate = previous_gate
         end
+      end
+
+      private
+
+      # One session with a retained map and one without, in a throwaway
+      # boukensha dir laid out the way the harness lays out a real one.
+      def with_retained_session(session_id)
+        cfg  = Rails.application.config.x.mud_monitor
+        root = Pathname.new(Dir.mktmpdir("retained"))
+        previous_dir, previous_boukensha = cfg.sessions_dir, cfg.boukensha_dir
+
+        fixture = Rails.root.join("test/fixtures/session_logs/complete.jsonl")
+        root.join("sessions").mkpath
+        FileUtils.cp(fixture, root.join("sessions/#{session_id}.jsonl"))
+        FileUtils.cp(fixture, root.join("sessions/no_memory.jsonl"))
+        root.join("tests/knowledge/sessions/legacy").mkpath
+        root.join("tests/knowledge/sessions/legacy/#{session_id}.sqlite3").write("a retained map")
+
+        cfg.sessions_dir  = root.join("sessions")
+        cfg.boukensha_dir = root
+        yield
+      ensure
+        cfg.sessions_dir  = previous_dir
+        cfg.boukensha_dir = previous_boukensha
+        FileUtils.remove_entry(root)
       end
     end
   end

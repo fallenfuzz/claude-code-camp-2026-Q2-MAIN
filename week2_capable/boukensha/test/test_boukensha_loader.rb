@@ -57,7 +57,43 @@ class BoukenshaLoaderTest < Minitest::Test
     assert_equal BoukenshaLoader::BUNDLED_LIB, BoukenshaLoader.resolve
   end
 
+  # The test flags are extracted from ARGV before anything is required, so the
+  # branch is decided without loading the framework — which also makes it the
+  # one place a flag can go missing without anything failing.
+  def test_snapshot_map_carries_profile_and_from_session
+    args = with_argv(%w[--snapshot-map midgaard --profile Derrano --from-session 20260729T183933Z-4caca6d5]) do
+      BoukenshaLoader.extract_test_arguments
+    end
+
+    assert_equal :snapshot_map, args[:mode]
+    assert_equal "midgaard", args[:name]
+    assert_equal "Derrano", args[:profile]
+    assert_equal "20260729T183933Z-4caca6d5", args[:from_session]
+  end
+
+  def test_snapshot_map_without_from_session_still_pins_the_live_map
+    args = with_argv(%w[--snapshot-map bakery_known --profile Dummy]) { BoukenshaLoader.extract_test_arguments }
+
+    assert_nil args[:from_session]
+  end
+
+  def test_map_memory_accepts_a_session_mode
+    args = with_argv(%w[-ts find_bakery --map-memory session:20260729T183933Z-4caca6d5]) do
+      BoukenshaLoader.extract_test_arguments
+    end
+
+    assert_equal "session:20260729T183933Z-4caca6d5", args[:map_memory]
+  end
+
   private
+
+  def with_argv(argv)
+    original = ARGV.dup
+    ARGV.replace(argv)
+    yield
+  ensure
+    ARGV.replace(original)
+  end
 
   def make_step(name)
     step = File.join(@home, name)

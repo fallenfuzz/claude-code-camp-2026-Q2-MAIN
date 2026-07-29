@@ -16,13 +16,14 @@ module Api
       rescue_from SessionLog::Store::NotFound, with: :render_not_found
 
       def index
-        sessions = store.paths.map { |path| serializer_for(path).summary }
+        sessions = store.paths.map { |path| with_memory(serializer_for(path).summary) }
         render json: { sessions: sessions }
       end
 
       def show
         path   = store.path_for(params[:id])
-        render json: serializer_for(path).detail
+        detail = serializer_for(path).detail
+        render json: detail.merge(session: with_memory(detail[:session]))
       end
 
       # GET /sessions/:id/events?after=<seq>&limit=<n>
@@ -113,8 +114,12 @@ module Api
         end
       end
 
+      # Carries `memory_retained` like every other summary, so a client that
+      # replaces its copy from the stream does not lose a field the first
+      # payload had. It is false for the whole of a live session — the map is
+      # retained when the case closes — and true from the tick after that.
       def session_summary(parser, path)
-        SessionSerializer.new(parser, live: store.live?(path), bytes: File.size(path)).summary
+        with_memory(SessionSerializer.new(parser, live: store.live?(path), bytes: File.size(path)).summary)
       end
 
       def clamp_limit(raw)
@@ -128,6 +133,24 @@ module Api
 
       def cfg
         profile_config
+      end
+
+      # Whether the map this session ended with is still on disk, so the UI can
+      # render a link to it rather than a dead one. One `File.file?` per row,
+      # which is cheap at a page this size and is the only way to know: the
+      # session log says nothing about a file written after it closed.
+      #
+      # False is the ordinary answer for a session older than the retention
+      # limit, and for every session that was not a test case — the REPL does
+      # not go through the case runner and retains nothing.
+      def with_memory(summary)
+        summary.merge(memory_retained: retained_map?(summary[:id]))
+      end
+
+      def retained_map?(id)
+        return false unless KnowledgeController::SESSION_ID.match?(id.to_s)
+
+        cfg.tests_dir.join("knowledge", "sessions", cfg.profile.to_s, "#{id}.sqlite3").file?
       end
 
       def serializer_for(path)

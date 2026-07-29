@@ -23,7 +23,7 @@ module Knowledge
     # anyway — memory/schema.rb migrations are additive by construction ("append
     # to MIGRATIONS, never edit an applied one") — but the number is reported so
     # a surprise is visible rather than silent.
-    KNOWN_SCHEMA_VERSION = 3
+    KNOWN_SCHEMA_VERSION = 5
 
     # V2 added the player half — the score sheet's other two thirds, plus
     # `player_skills` and `player_items`. Additive DDL means a NEWER file is
@@ -33,6 +33,12 @@ module Knowledge
     # every V2 read is gated on the version the file itself reports, and one
     # monitor serves both an old and a new agent.
     PLAYER_HALF_VERSION = 2
+
+    # V5 added regions. Gated the same way and for the same reason as the
+    # player half: an older file has no `regions` table at all, and a named
+    # SELECT against a missing table raises. One monitor serves an agent that
+    # has never declared a region and one that has.
+    REGIONS_VERSION = 5
 
     # A SELECT that the file's schema can't answer. Carries the version so the
     # UI can say *which* schema it choked on.
@@ -51,8 +57,8 @@ module Knowledge
     # request is the point: opening SQLite costs microseconds, Puma is
     # multi-threaded, and SQLite3::Database is not thread-safe — so there is no
     # memoized connection and no pool.
-    def self.open(path:, live_window: 10)
-      reader = new(path: path, live_window: live_window)
+    def self.open(path:, live_window: 10, session: nil)
+      reader = new(path: path, live_window: live_window, session: session)
       begin
         yield reader
       ensure
@@ -60,10 +66,20 @@ module Knowledge
       end
     end
 
-    def initialize(path:, live_window: 10)
+    # `session:` names the session whose RETAINED map this reader is serving,
+    # and is nil for the profile's live file. Nothing about the reading changes
+    # — a retained map is the same schema read the same way — but every payload
+    # says which one it is, because a page that looks exactly like the live map
+    # while showing a two-day-old one is worse than no page.
+    def initialize(path:, live_window: 10, session: nil)
       @path        = Pathname.new(path)
       @live_window = live_window
+      @session     = session
     end
+
+    attr_reader :session
+
+    def retained? = !@session.nil?
 
     # Absence is a state, not an error — same rule as "no telnet log for today".
     # The agent writes this file the first time it looks at a room.
@@ -82,7 +98,8 @@ module Knowledge
         live: live?,
         last_write_at: last_write_at&.utc&.iso8601,
         schema_version: schema_version,
-        wal_bytes: wal_bytes
+        wal_bytes: wal_bytes,
+        session: @session
       }
     end
 
@@ -94,7 +111,12 @@ module Knowledge
       [ @path, wal_path ].filter_map { |p| p.mtime if p.exist? }.max
     end
 
+    # A retained map is never live whatever its mtime says: the file was written
+    # minutes ago by the case runner, but the world it describes stopped moving
+    # when that session ended.
     def live?
+      return false if retained?
+
       at = last_write_at
       !at.nil? && (Time.now - at) <= @live_window
     end
@@ -315,13 +337,17 @@ module Knowledge
 
       exits  = exits_for(ids)
       entities = entity_summaries_for(ids)
+      # One statement for the whole page, like exits and entities above — the
+      # map tints every cell it draws, so this cannot be a lookup per room.
+      regions = region_of_room
 
       rows.map do |row|
         room_entities = entities.fetch(row["id"], [])
         room_payload(row).merge(
           exits: exits.fetch(row["id"], []),
           entity_count: room_entities.length,
-          entities: room_entities
+          entities: room_entities,
+          region_id: regions[row["id"]]
         )
       end
     end
@@ -336,7 +362,8 @@ module Knowledge
       room_payload(row).merge(
         exits: exits_for([ id ]).fetch(id, []),
         entity_count: room_entities.length,
-        entities: room_entities
+        entities: room_entities,
+        region_id: region_of_room[id]
       )
     end
 
@@ -482,7 +509,88 @@ module Knowledge
       end
     end
 
+    # ---------- regions -------------------------------------------------
+
+    # The places the agent named, the edges it declared them at, and which
+    # rooms ended up in each — boundaries_revised.md §7.
+    #
+    # Boundaries and memberships are served TOGETHER and kept distinct on
+    # purpose. A tinted cell is simultaneously the most authoritative-looking
+    # thing the map will ever draw and the least earned — it is derived, and
+    # rewritten wholesale on every recompute — so the declarations that
+    # generated it travel alongside it and stay visible on top of it.
+    def regions
+      return [] unless attached? && regions?
+
+      members    = region_members
+      boundaries = region_boundaries
+
+      query("SELECT id, label, confirmed, description, parent_id, seed_room_id, first_seen_at, updated_at " \
+            "FROM regions ORDER BY id").map do |row|
+        id = row["id"]
+        {
+          id: id,
+          label: row["label"],
+          confirmed: row["confirmed"].to_i == 1,
+          description: row["description"],
+          parent_id: row["parent_id"],
+          seed_room_id: row["seed_room_id"],
+          first_seen_at: row["first_seen_at"],
+          updated_at: row["updated_at"],
+          rooms: members.fetch(id, []),
+          room_count: members.fetch(id, []).length,
+          boundaries: boundaries.fetch(id, [])
+        }
+      end
+    end
+
+    # { room_id => region_id }, for stamping onto room payloads.
+    def region_of_room
+      return {} unless attached? && regions?
+
+      query("SELECT room_id, region_id FROM room_regions")
+        .each_with_object({}) { |r, h| h[r["room_id"]] = r["region_id"] }
+    end
+
+    def regions? = schema_version.to_i >= REGIONS_VERSION
+
     private
+
+    # { region_id => [{ room_id:, basis: }] } — `basis` is what separates a
+    # room the agent declared from one that merely inherited, which is the
+    # difference between a boundary in the wrong place and a room on the wrong
+    # side of a right one (§9).
+    def region_members
+      query("SELECT rr.room_id, rr.region_id, rr.basis, r.name AS room_name " \
+            "FROM room_regions rr JOIN rooms r ON r.id = rr.room_id ORDER BY rr.room_id")
+        .each_with_object(Hash.new { |h, k| h[k] = [] }) do |row, out|
+          out[row["region_id"]] << { room_id: row["room_id"], room_name: row["room_name"], basis: row["basis"] }
+        end
+    end
+
+    # { region_id => [{ from_room_id:, to_room_id:, direction:, reason: }] }.
+    # The `reason` rides along because it is the one claim a human reviewing a
+    # wrong boundary needs to see, and it is a property of the edge rather than
+    # of the place.
+    def region_boundaries
+      sql = <<~SQL
+        SELECT b.id, b.from_room_id, b.to_room_id, b.direction, b.region_id, b.reason, b.declared_at,
+               f.name AS from_room_name, t.name AS to_room_name
+          FROM region_boundaries b
+          JOIN rooms f ON f.id = b.from_room_id
+          JOIN rooms t ON t.id = b.to_room_id
+         ORDER BY b.id
+      SQL
+
+      query(sql).each_with_object(Hash.new { |h, k| h[k] = [] }) do |row, out|
+        out[row["region_id"]] << {
+          id: row["id"],
+          from_room_id: row["from_room_id"], from_room_name: row["from_room_name"],
+          to_room_id: row["to_room_id"], to_room_name: row["to_room_name"],
+          direction: row["direction"], reason: row["reason"], declared_at: row["declared_at"]
+        }
+      end
+    end
 
     def wal_path = Pathname.new("#{@path}-wal")
 

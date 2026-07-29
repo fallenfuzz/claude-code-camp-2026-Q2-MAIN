@@ -50,6 +50,7 @@ Rails.application.routes.draw do
       get "knowledge/entities",  to: "knowledge#entities"
       get "knowledge/player",    to: "knowledge#player"
       get "knowledge/frontier",  to: "knowledge#frontier"
+      get "knowledge/regions",   to: "knowledge#regions"
     end
   end
 

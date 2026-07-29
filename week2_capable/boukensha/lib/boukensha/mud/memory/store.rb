@@ -2,6 +2,7 @@ require "json"
 require "time"
 require_relative "schema"
 require_relative "fingerprint"
+require_relative "regions"
 
 module Boukensha
   module Mud
@@ -123,6 +124,10 @@ module Boukensha
           # those are boot, not work.
           @db   = db.is_a?(CountingDb) ? db : CountingDb.new(db)
           @path = path
+          # True at open, not false: this process has derived nothing yet, and
+          # the file may have been left by a previous one that walked further
+          # than the room_regions rows in it describe.
+          @regions_dirty = true
         end
 
         # The meter Logger#operation reads at span open and close. Counters, not
@@ -269,17 +274,29 @@ module Boukensha
           @db.execute("SELECT * FROM rooms ORDER BY id").map { |r| row(r) }
         end
 
+        # `arrived_from`/`arrived_direction` are the first-arrival edge, and
+        # they are written HERE and nowhere else — this method runs once per
+        # room, on the visit that discovered it, which is exactly the moment
+        # the answer is known and the only moment it is true. A later visit by
+        # another route must never revise it, or region inheritance would
+        # re-parent rooms behind the agent's back.
         def create_room(name:, description:, weak_fingerprint:, strong_fingerprint: nil,
-                        look_candidates: nil, confidence: "confirmed", surveyed: false)
+                        look_candidates: nil, confidence: "confirmed", surveyed: false,
+                        arrived_from: nil, arrived_direction: nil)
           t = now
           @db.execute(
             "INSERT INTO rooms (weak_fingerprint, strong_fingerprint, confidence, name, description, " \
-            "look_candidates, first_seen_at, last_seen_at, visit_count, surveyed_at) " \
-            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1, ?)",
+            "look_candidates, first_seen_at, last_seen_at, visit_count, surveyed_at, " \
+            "arrived_from_room_id, arrived_direction) " \
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?, ?)",
             [weak_fingerprint, strong_fingerprint, confidence, name, description,
-             look_candidates && JSON.generate(look_candidates), t, t, (surveyed ? t : nil)]
+             look_candidates && JSON.generate(look_candidates), t, t, (surveyed ? t : nil),
+             arrived_from, arrived_direction&.to_s]
           )
           id = @db.last_insert_row_id
+          # A new room is a new leaf on the inheritance forest, so the
+          # derivation owes an answer for it.
+          @regions_dirty = true
           jevent("room", "create", id: id, name: name, confidence: confidence, surveyed: surveyed)
           id
         end
@@ -381,6 +398,158 @@ module Boukensha
             "WHERE room_id = ? AND direction = ?", [room_id, direction.to_s]
           )
           jevent("exit", "demote", room_id: room_id, direction: direction.to_s)
+        end
+
+        # ---------- regions -------------------------------------------------
+        # boundaries_revised.md §2/§6. Two EARNED tables the agent writes by
+        # declaration, one DERIVED table this store rewrites wholesale, and a
+        # dirty flag so the derivation runs lazily on the next READ rather than
+        # inside a MUD round trip.
+
+        def regions
+          @db.execute("SELECT * FROM regions ORDER BY id").map { |r| row(r) }
+        end
+
+        def region(id)
+          return nil unless id
+
+          row(@db.execute("SELECT * FROM regions WHERE id = ?", [id]).first)
+        end
+
+        def region_by_label(label)
+          return nil unless label
+
+          row(@db.execute("SELECT * FROM regions WHERE label = ?", [label.to_s]).first)
+        end
+
+        def region_boundaries
+          @db.execute("SELECT * FROM region_boundaries ORDER BY id").map { |r| row(r) }
+        end
+
+        def create_region!(label:, confirmed: false, description: nil, parent_id: nil, seed_room_id: nil)
+          t = now
+          @db.execute(
+            "INSERT INTO regions (label, confirmed, description, parent_id, seed_room_id, first_seen_at, updated_at) " \
+            "VALUES (?, ?, ?, ?, ?, ?, ?)",
+            [label.to_s, (confirmed ? 1 : 0), description, parent_id, seed_room_id, t, t]
+          )
+          id = @db.last_insert_row_id
+          @regions_dirty = true
+          jevent("region", "create", id: id, label: label.to_s, confirmed: confirmed)
+          id
+        end
+
+        # Declarations are EARNED and never silently overwritten, so this
+        # touches only the fields it was actually given.
+        def update_region!(id, **fields)
+          fields = fields.compact
+          return if fields.empty? || id.nil?
+
+          fields[:confirmed] = fields[:confirmed] ? 1 : 0 if fields.key?(:confirmed)
+          fields[:updated_at] = now
+          @db.execute("UPDATE regions SET #{fields.keys.map { |k| "#{k} = ?" }.join(', ')} WHERE id = ?",
+                      fields.values + [id])
+          @regions_dirty = true
+          jevent("region", "update", id: id, **fields)
+        end
+
+        # Fold one region into another: the boundaries that declared it, the
+        # regions nested inside it, and its seed all move, and then it is gone.
+        # This is what "naming it something that already exists merges the two"
+        # means, and it is the only operation here that DELETES a declaration —
+        # justified because the agent said the two names are one place.
+        def merge_region!(from_id, into_id)
+          return if from_id.nil? || into_id.nil? || from_id == into_id
+
+          @db.transaction do
+            @db.execute("UPDATE region_boundaries SET region_id = ? WHERE region_id = ?", [into_id, from_id])
+            @db.execute("UPDATE regions SET parent_id = ? WHERE parent_id = ?", [into_id, from_id])
+            seed = @db.execute("SELECT seed_room_id FROM regions WHERE id = ?", [from_id]).first
+            target_seed = @db.execute("SELECT seed_room_id FROM regions WHERE id = ?", [into_id]).first
+            if seed && seed["seed_room_id"] && !(target_seed && target_seed["seed_room_id"])
+              @db.execute("UPDATE regions SET seed_room_id = ? WHERE id = ?", [seed["seed_room_id"], into_id])
+            end
+            @db.execute("DELETE FROM room_regions WHERE region_id = ?", [from_id])
+            @db.execute("DELETE FROM regions WHERE id = ?", [from_id])
+          end
+          @regions_dirty = true
+          jevent("region", "merge", from: from_id, into: into_id)
+        end
+
+        def declare_boundary!(from_room_id:, to_room_id:, direction:, region_id:, reason: nil, session_id: nil)
+          @db.execute(
+            "INSERT INTO region_boundaries (from_room_id, to_room_id, direction, region_id, reason, declared_at, session_id) " \
+            "VALUES (?, ?, ?, ?, ?, ?, ?)",
+            [from_room_id, to_room_id, direction.to_s, region_id, reason, now, session_id]
+          )
+          @regions_dirty = true
+          jevent("region_boundary", "declare", from_room_id: from_room_id, to_room_id: to_room_id,
+                                               direction: direction.to_s, region_id: region_id)
+          @db.last_insert_row_id
+        end
+
+        # { room_id => { region_id:, basis: } }, derivation-fresh. The lazy
+        # recompute hangs off the READ rather than off every graph write,
+        # because the graph changes on every arrival and nothing reads the
+        # answer until the state block or a route asks for it.
+        def room_regions
+          recompute_regions! if @regions_dirty
+          @db.execute("SELECT * FROM room_regions ORDER BY room_id")
+             .each_with_object({}) { |r, h| h[r["room_id"]] = { region_id: r["region_id"], basis: r["basis"] } }
+        end
+
+        def region_for_room(room_id)
+          return nil unless room_id
+
+          m = room_regions[room_id] or return nil
+          region(m[:region_id])&.merge(basis: m[:basis])
+        end
+
+        # Every region at or beneath `id`. `scope: "region"` means the place
+        # you are in AND everything within it, which is what makes Inn→Pub
+        # reachable without a bakery search wandering into every building
+        # (§5, "quarters nest rather than partition").
+        def region_descendants(id)
+          return [] unless id
+
+          children = regions.group_by { |r| r[:parent_id] }
+          out  = []
+          queue = [id]
+          until queue.empty?
+            current = queue.shift
+            next if out.include?(current)
+
+            out << current
+            queue.concat((children[current] || []).map { |r| r[:id] })
+          end
+          out
+        end
+
+        # Rewrite the DERIVED table in full — the same overwrite semantics as
+        # `replace_items!`, and for the same reason: a membership that is no
+        # longer true is a lie, not a history. Two passes, because seeding a
+        # provisional region for a root that has none is a WRITE and the
+        # derivation itself is pure; the second pass has nothing left to seed.
+        def recompute_regions!
+          @regions_dirty = false
+          all = rooms
+          return if all.empty?
+
+          memberships, seeds = Regions.derive(rooms: all, regions: regions, boundaries: region_boundaries)
+          if seeds.any?
+            seeds.each { |s| create_region!(label: s[:label], seed_room_id: s[:room_id]) }
+            @regions_dirty = false
+            memberships, = Regions.derive(rooms: all, regions: regions, boundaries: region_boundaries)
+          end
+
+          t = now
+          @db.transaction do
+            @db.execute("DELETE FROM room_regions")
+            memberships.each do |m|
+              @db.execute("INSERT INTO room_regions (room_id, region_id, basis, computed_at) VALUES (?, ?, ?, ?)",
+                          [m[:room_id], m[:region_id], m[:basis], t])
+            end
+          end
         end
 
         # ---------- entities ----------------------------------------------

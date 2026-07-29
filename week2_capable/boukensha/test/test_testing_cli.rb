@@ -73,7 +73,47 @@ class TestTestingCli < Minitest::Test
     refute row.key?(:judge), "there is nothing to judge and nothing to pay for"
   end
 
+  # ---------- promoting a retained map --------------------------------------
+
+  # The half of the snapshot workflow a live profile cannot serve: by the time a
+  # run has been read, the profile's current map belongs to whatever ran next.
+  def test_snapshot_map_promotes_a_retained_session_to_a_fixture
+    session = "20260729T183933Z-4caca6d5"
+    retain(session)
+    out = StringIO.new
+
+    status = CLI.new({ mode: :snapshot_map, name: "midgaard", profile: "Derrano", from_session: session },
+                     root_dir: @root, out: out).run
+
+    assert_equal 0, status
+    assert File.file?(File.join(@root, "tests", "knowledge", "snapshots", "midgaard.sqlite3"))
+    assert_match(/from session #{session}/, out.string)
+  end
+
+  def test_promoting_a_session_that_is_not_retained_is_a_sentence_and_a_nonzero_status
+    err = capture_io do
+      status = CLI.new({ mode: :snapshot_map, name: "midgaard", profile: "Derrano",
+                         from_session: "20260101T000000Z-deadbeef" },
+                       root_dir: @root, out: StringIO.new).run
+      assert_equal 1, status
+    end.last
+
+    assert_match(/no retained map for session/, err)
+  end
+
   private
+
+  # A real (empty but valid) knowledge database where the harness retains one.
+  def retain(session_id)
+    scratch = File.join(@root, "scratch")
+    FileUtils.mkdir_p(scratch)
+    Boukensha::Mud::Memory::Store.for_dir(scratch).close
+
+    dir = File.join(@root, "tests", "knowledge", "sessions", "Derrano")
+    FileUtils.mkdir_p(dir)
+    FileUtils.cp(File.join(scratch, Boukensha::Mud::Memory::Store::FILENAME),
+                 File.join(dir, "#{session_id}.sqlite3"))
+  end
 
   def assess(outcome, kase: nil, no_judge: true)
     outcome = Outcome.new(**outcome.to_h.merge(case: kase)) if kase

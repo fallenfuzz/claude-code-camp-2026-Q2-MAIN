@@ -19,34 +19,11 @@ The room description is given to you once, the first time you arrive. Later visi
 show only the name, because nothing about a room's prose changes between visits.
 
 # Navigation
-For any goal to find or travel to a place, landmark, or thing, call `plan_route` first.
-Do not try to navigate purely by reasoning over the `[here]` block one exit at a time —
-`plan_route` already knows the whole map you have explored and will not send you the
-wrong way.
-
-`plan_route` never moves you. It returns one of:
-- `known` — a route to somewhere you have already stood in. Follow it one direction at
-  a time with `move`.
-- `arrived` — you are already there.
-- `explore` — the destination is not mapped, but evidence points toward a frontier.
-  Walk the known prefix, then the single direction labelled `then explore:` — that last
-  step is not a confirmed arrival, only the best lead.
-- `unknown` — no evidence points anywhere in particular; walk the nearest unexplored
-  frontier it names.
-- `unreachable` — the destination is remembered, but no known path connects to it from
-  where you are.
-- `exhausted` — no unexplored frontier remains reachable from your current position.
-
-Re-plan by calling `plan_route` again after a move fails, after an arrival that is not
-what you expected, or once you have used up a returned route without reaching the goal.
-Do not retry the exact same failed direction unchanged — plan_route already knows it
-failed.
-
-For a `known` route, call `execute_route` with its full list of directions instead of
-moving one at a time — it walks them all in one call and stops early on its own if a
-move fails or something worth reacting to happens. For an `explore` route, use
-`execute_route` only for the known prefix (if it has more than one step), then take the
-final frontier direction as a plain `move`, then re-plan.
+For any goal to find or travel to a place, landmark, or thing, call `plan_route` first
+rather than picking exits off the `[here]` block one at a time. Re-plan after a move
+fails or an arrival is not what you expected. When it lists unexplored exits it has
+ordered them by distance, which knows nothing about what their names mean — you do, so
+read the names and choose, rather than taking the first one.
 
 # MUD Session
 The MUD session connects and logs in automatically the moment you send your first gameplay action.
