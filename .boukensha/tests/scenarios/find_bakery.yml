@@ -18,10 +18,16 @@ limits:                        # per-case ceilings; override settings.yaml
 # Cheap, non-flaky, and evaluated BEFORE the judge. Everything here is a
 # projection of the session .jsonl; nothing calls a model.
 expect:
-  tool_called:     [plan_route, execute_route, "tbamud__shop(action: list)"]
+  # `move_to` replaced plan_route + execute_route as one call (move_to.md §3),
+  # so the pair this case used to require is now unsatisfiable: neither tool is
+  # on the player's surface and neither can appear in a trace.
+  tool_called:     [move_to, "tbamud__shop(action: list)"]
   tool_not_called: ["tbamud__examine(target: menu)"]
   final_room:      "The Bakery"      # from knowledge.sqlite3 player_state
-  max_model_tool_calls: 6
+  # Was 6, for plan_route + execute_route + list. One call now covers the first
+  # two, so the wandering detector has to come down with it or it detects
+  # nothing. Provisional until the §9 step 8 sweep measures the real figure.
+  max_model_tool_calls: 4
   max_cost_usd: 0.02
 
 # ── Judge ─────────────────────────────────────────────────────────────
@@ -29,10 +35,10 @@ expect:
 # reasoning was sane rather than merely lucky.
 evaluation:
   desired_behaviour: |
-    The agent should plan a route:
-    plan_route(destination: "bakery")
-    The agent should execute the route:
-    execute_route(steps: ["south","south","west","north"])
+    The agent should travel there in one call:
+    move_to(destination: "bakery")
+    The route is already on its map, so this should be a single call that
+    walks the whole way — not one call per room and not a call per leg.
     When the agent arrives they should call list and see the menu:
     tbamud__shop(action: "list", args: "")
   undesired_behaviour: |

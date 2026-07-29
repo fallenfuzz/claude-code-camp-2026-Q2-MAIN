@@ -1,0 +1,172 @@
+require_relative "helper"
+require "tmpdir"
+require_relative "../lib/boukensha_loader"
+
+# `BoukenshaLoader.mud_agent_setup` — the proc both the REPL and a headless test
+# case build their agent with.
+#
+# Nothing exercised it before, and it is the one place the entire move_to.md §3
+# surface change lives: which tools get registered, which permission slice the
+# walker dispatches under, and whether the navigator and cartographer are built
+# at all. A NameError or a mis-shaped `cfg.dig` in here would boot fine under
+# every unit test in this suite and fail on the first real session.
+#
+# So this evaluates the real proc, on a real RunDSL, against a real MCP server
+# talking to a FakeMud — the same arrangement `test_tools_mcp.rb` uses — and
+# asserts what ends up on the surface.
+class TestMudAgentSetup < Minitest::Test
+  include McpTestHelper
+
+  SLICE = Boukensha::Mud::Navigation::MoveTo::NAVIGATION_SLICE
+
+  def setup
+    @fake = start_fake_mud
+    @dir  = Dir.mktmpdir
+    @saved = ENV.to_hash.slice("BOUKENSHA_DIR", "BOUKENSHA_PROFILE_DIR")
+    ENV["BOUKENSHA_DIR"] = @dir
+    ENV.delete("BOUKENSHA_PROFILE_DIR")
+    File.write(File.join(@dir, "settings.yaml"), settings_yaml)
+    reset_boukensha!
+  end
+
+  def teardown
+    @fake&.stop
+    @saved.each { |k, v| ENV[k] = v }
+    %w[BOUKENSHA_DIR BOUKENSHA_PROFILE_DIR].each { |k| ENV.delete(k) unless @saved.key?(k) }
+    reset_boukensha!
+    FileUtils.remove_entry(@dir) if @dir && File.exist?(@dir)
+    Boukensha::Operation.reset!
+  end
+
+  # Config and the shared MCP clients are both memoized on the module, so a test
+  # that changes BOUKENSHA_DIR has to drop them or it silently asserts against
+  # the previous test's world.
+  def reset_boukensha!
+    Boukensha.instance_variable_set(:@config, nil)
+    Boukensha.reset_mcp_clients!
+    Boukensha.reset_error_log!
+  end
+
+  # The shape of the deployment's own settings.yaml, cut down to what this seam
+  # reads: the player's allowlist, the navigation slice, the survey slice, and
+  # the two reasoner tasks.
+  def settings_yaml(navigator: true, cartographer: true)
+    <<~YAML
+      tools:
+        room_survey:
+          allow:
+            - tbamud__poll
+            - tbamud__look
+            - "tbamud__check(kind: exits|score)"
+        #{SLICE}:
+          allow:
+            - tbamud__move
+            - tbamud__poll
+          limits:
+            max_rooms: 7
+      tasks:
+        player:
+          provider: anthropic
+          model: claude-haiku-4-5
+          allow:
+            - move_to
+            - name_region
+            - split_region
+            - tbamud__poll
+      #{"    navigator:\n      provider: anthropic\n      model: claude-haiku-4-5\n" if navigator}
+      #{"    cartographer:\n      provider: anthropic\n      model: claude-haiku-4-5\n" if cartographer}
+      mcp_servers:
+        mud:
+          command: #{mud_manager_command}
+          args:    #{mud_manager_args.inspect}
+          prefix:  tbamud
+          env:
+            MUD_HOST:     127.0.0.1
+            MUD_PORT:     #{@fake.port}
+            MUD_NAME:     Gandalf
+            MUD_PASSWORD: secret
+    YAML
+  end
+
+  # Boukensha.run minus the model: resolve the player's permissions, register the
+  # MCP tools, then instance_eval the real setup proc on a real RunDSL.
+  def build_player_registry
+    cfg      = Boukensha.config
+    perms    = Boukensha.task_permissions(cfg, "player")
+    ctx      = Boukensha::Context.new(system: "t")
+    registry = Boukensha::Registry.new(ctx, permissions: perms)
+    Boukensha.send(:register_task_tools, registry, cfg, perms)
+
+    dsl = Boukensha::RunDSL.new(registry)
+    dsl.instance_eval(&BoukenshaLoader.mud_agent_setup)
+    perms.validate_referenced!(registry.tool_names)
+    [registry, dsl]
+  end
+
+  def test_the_setup_evaluates_and_puts_move_to_on_the_players_surface
+    registry, dsl = build_player_registry
+
+    assert_includes registry.tool_names, "move_to"
+    refute_nil dsl.hooks, "the MUD hooks must be installed"
+    assert_kind_of Boukensha::Mud::Hooks, dsl.hooks
+  end
+
+  # §8's first surface assertion. `plan_route` is REGISTERED by this proc and
+  # `tbamud__move` arrives over MCP; neither is on the player's allowlist, so
+  # `Registry#tool` drops both and the model never sees them.
+  def test_none_of_the_three_replaced_tools_reaches_the_player
+    registry, = build_player_registry
+
+    %w[plan_route execute_route tbamud__move].each do |name|
+      refute_includes registry.tool_names, name
+    end
+  end
+
+  # The region declarations stay: they are for the case the navigator cannot
+  # see — working out what a place is from something an NPC said.
+  def test_the_region_declarations_are_still_on_the_surface
+    registry, = build_player_registry
+
+    assert_includes registry.tool_names, "name_region"
+    assert_includes registry.tool_names, "split_region"
+  end
+
+  # §3's load-bearing detail: the walker cannot reach `move` through the
+  # player's registry any more, so it must reach it through its own slice.
+  def test_the_navigation_slice_can_dispatch_move_and_the_player_cannot
+    registry, = build_player_registry
+
+    assert_raises(Boukensha::UnknownToolError) { registry.dispatch("tbamud__move", "direction" => "north") }
+
+    dispatcher = Boukensha.tool_dispatcher(SLICE, initiator: "hook")
+    refute_nil dispatcher.call("tbamud__move", { "direction" => "north" }),
+               "the slice has to be able to walk, or move_to raises on step 1"
+  end
+
+  # The reasoners are built only when settings.yaml declares them, which is what
+  # makes §9's staged delivery runnable — and §7.6's off switch, since a wrong
+  # boundary is durable.
+  def test_the_reasoners_are_built_from_configuration
+    registry, = build_player_registry
+    assert_includes registry.tool_names, "move_to"
+
+    File.write(File.join(@dir, "settings.yaml"), settings_yaml(navigator: false, cartographer: false))
+    reset_boukensha!
+    registry, = build_player_registry
+
+    assert_includes registry.tool_names, "move_to",
+                    "with no navigator configured move_to still ships — the known branch needs no model"
+  end
+
+  # `tools.navigation.limits` has to travel from the file into the object, or the
+  # numbers in settings.yaml are decoration.
+  def test_the_configured_limits_reach_the_subsystem
+    limits = Boukensha.config.dig(:tools, SLICE, :limits)
+
+    assert_equal 7, limits["max_rooms"]
+    subject = Boukensha::Mud::Navigation::MoveTo.new(store: nil, call_tool: nil, hooks: nil, limits: limits)
+    assert_equal 7, subject.limit("max_rooms")
+    assert_equal Boukensha::Mud::Navigation::MoveTo::DEFAULT_LIMITS["max_decisions"],
+                 subject.limit("max_decisions"), "an unset knob falls back to its default"
+  end
+end

@@ -59,6 +59,59 @@ tools:
       - tbamud__consider
       - tbamud__examine
 
+  # The walking subsystem behind `move_to` — move_to.md §3, §4.2. It is not a
+  # task (no model, no prompt) and it is not a tool the player can call; it is
+  # the code `move_to` runs, and like the room survey it is permission-scoped.
+  navigation:
+    # Its own slice, default-deny. `tbamud__move` appears HERE and nowhere in
+    # `tasks.player.allow`, exactly as `tbamud__look` does for room_survey.
+    #
+    # It could not simply be deleted from the player's list. The walker used to
+    # dispatch through the PLAYER's registry, so dropping the rule would make
+    # `Registry#tool` never register `move` and the walk would raise
+    # UnknownToolError on step 1. Hiding it behind `turn_policy` fails for a
+    # different reason: the policy is checked on every dispatch and the walk runs
+    # inside a model iteration, so a policy withholding `move` blocks the
+    # subsystem's own steps.
+    allow:
+      - tbamud__move
+      - tbamud__poll
+
+    # The bounded-loop knobs. None of these is a constant in Ruby, because "is
+    # Haiku good enough to pick a frontier" and "how far is too far" are
+    # questions the batch harness answers and it can only sweep them if they are
+    # configuration.
+    limits:
+      # The one that prevents the pre-bootcamp failure. Without it a single
+      # move_to can walk the map, and the player agent has no visibility into it
+      # and no chance to intervene. On hitting it the call returns like an
+      # interrupted route: where it got to, how far it went, and that it stopped
+      # on budget rather than on failure.
+      max_rooms: 12
+      # Bounds SPEND rather than distance. The two run away independently — a
+      # long corridor is many rooms and one decision, a dense town is few rooms
+      # and many decisions.
+      max_decisions: 6
+      # How stale a direction is allowed to get. Walk the whole way on one
+      # decision and you re-derive the chessboard failure of session
+      # 20260728T190719Z-d2fa7ec6; re-plan every step and you have rebuilt the
+      # per-move model call this design exists to remove.
+      max_steps_per_leg: 4
+      # A GATE, not a classifier (§5.7). Below this the scope question is not put
+      # to the navigator at all — the fields are simply absent from its payload.
+      # boundaries_revised deliberately refuses to code a threshold ("the
+      # judgement is the model's"), and a gate is a different thing from a
+      # decision: it suppresses obvious negatives without encoding the
+      # judgement.
+      min_rooms_for_scope_check: 3
+
+    # Whether the navigator's `place` field is allowed to WRITE. false keeps the
+    # field in the schema and out of the store, which is §9 step 5's observation
+    # window — read the answers in the logs before anything acts on them. It is
+    # on, because renaming is the safe half: it clears an unconfirmed label and
+    # creates no boundary.
+    act_on_place: true
+
 tasks:
   # Tier 2 of the batch test harness (docs/plans/week_3/batch_sesssion_testing.md
   # §6.1): reads a trace digest of one case and answers whether the agent did
@@ -85,6 +138,55 @@ tasks:
     # that runs out of tokens mid-JSON is recorded as an error, never as a
     # silent pass — but it is cheaper to give it room than to retry it.
     max_output_tokens: 2048
+
+  # One frontier decision inside one `move_to` call — move_to.md §2, §4.2.
+  #
+  # It exists because exit NAMES carry meaning and `plan_route`'s ordering does
+  # not: its own output says the ranking "knows nothing about what these names
+  # mean — you do." In `find_bakery_cold` the judge passed the agent specifically
+  # for choosing south (The Temple Square) over north (By The Temple Altar); in
+  # session 20260728T190719Z-d2fa7ec6 the agent took the first listed exit
+  # repeatedly and walked through the altar into The Great Field and onto a
+  # chessboard two zones outside Midgaard before running out of tokens. The
+  # judgement is real in both directions.
+  #
+  # No `allow:` block, and none is wanted: it has no tools. It reads a payload
+  # and answers with fields, which is §5.2's whole point — a field the answer
+  # must contain cannot be skipped the way a tool it may call can be.
+  #
+  # Haiku, matching the player. Whether a frontier choice needs more than that is
+  # a config change and a batch run.
+  navigator:
+    provider: anthropic
+    model: claude-haiku-4-5
+    # One turn: read the candidates, answer with a direction. This is what keeps
+    # it a judgement and not a second agent — it has no tools and nothing to
+    # iterate on. Same posture as `tasks.judge.max_iterations`.
+    max_iterations: 1
+    # A direction, a sentence of reasoning, and the two region fields.
+    max_output_tokens: 384
+    prompt_override:
+      system: true
+
+  # Where does the new place begin? — §5.4, §5.5.
+  #
+  # Fires ONLY when the navigator raises `scope_suspect` above
+  # `tools.navigation.limits.min_rooms_for_scope_check`, so it is the one place a
+  # stronger model would be affordable. Starting equal to the navigator;
+  # find_mayor_split is the case that settles whether it needs more.
+  #
+  # Delete this block to leave splitting alone entirely: the subsystem builds no
+  # cartographer when it is absent, and the navigator's `scope_suspect` then only
+  # ever reaches the journal. That is §9 step 7's off switch, and it matters
+  # because §7.6 makes a wrong boundary durable.
+  cartographer:
+    provider: anthropic
+    model: claude-haiku-4-5
+    max_iterations: 1
+    # A room id, a label, and the reasoning for the boundary — or a refusal.
+    max_output_tokens: 512
+    prompt_override:
+      system: true
 
   player:
     provider: anthropic
@@ -119,14 +221,31 @@ tasks:
     # There are no native tools here any more. `inspect_room` used to be one;
     # the state block replaced it, and the tool surface shrank by one.
     allow:
-      - plan_route
-      - execute_route
+      # ONE movement tool, and the whole of move_to.md §3 is the argument for it.
+      # `plan_route`, `execute_route` and `tbamud__move` are all still registered
+      # — `plan_route` and the region tools natively, `move` over MCP — and none
+      # of them is on this list, so `Registry#tool` never puts them on the
+      # model's surface. The walker reaches `move` through
+      # `tools.navigation.allow` instead.
+      #
+      # The agent had three ways to move and in the cold case only the worst one
+      # was usable: `execute_route` needs a path `plan_route` has called `known`,
+      # and in an unmapped world `plan_route` answers `unknown` with a frontier
+      # listing and no path. There were no steps to pass, so the agent fell back
+      # to `move` and paid one full model call per room — 97.6% of session
+      # 20260729T182950Z-c79e9b97's spend was re-sending context.
+      - move_to
       # The two region declarations (boundaries_revised.md §2). Native tools,
       # zero MUD I/O — they write the agent's own conclusion about where it is
       # to the one place routing can read it back from.
+      #
+      # They stay, and they are no longer the ONLY route to a region: the
+      # navigator now answers `place` and `scope_suspect` as required fields and
+      # the subsystem applies them (§5.3, §5.4). These remain for the case the
+      # navigator cannot see — the agent working out what a place is from
+      # something an NPC said rather than from an exit name.
       - name_region
       - split_region
-      - tbamud__move
       - tbamud__consider
       - tbamud__examine
       #- tbamud__flee

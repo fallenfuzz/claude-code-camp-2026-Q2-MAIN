@@ -53,6 +53,14 @@ module Boukensha
   # working_dir:      Recorded on the Context as the agent's notion of "where
   #                   it is". It registers nothing — an MCP server that touches
   #                   the filesystem is rooted by its own spawn args.
+  # max_iterations: / max_turn_tokens: — the two per-turn ceilings, normally
+  # read from settings.yaml's `agent:` block. They are keywords here because a
+  # test scenario declares its own `limits:` and, until move_to.md §4.5, those
+  # declared numbers never reached the agent at all: they were logged and used
+  # as expectations while every case actually ran under the settings defaults,
+  # so `find_bakery.yml`'s `max_iterations: 15` produced runs of 16, 17 and 19.
+  # nil means "use the configured default", which is what every non-test caller
+  # passes.
   def self.run(
     task:,
     system:           nil,
@@ -63,6 +71,8 @@ module Boukensha
     log:              nil,
     context_window:   nil,
     max_output_tokens: nil,
+    max_iterations:   nil,
+    max_turn_tokens:  nil,
     working_dir:      Dir.pwd,
     hooks:            nil,
     launch:           nil,
@@ -76,6 +86,12 @@ module Boukensha
     backend     ||= task_class.provider(task_settings).to_sym
     context_window ||= Models.context_window(model)
     api_key ||= api_key_for(backend)
+    # Resolved once, here, so the ceiling the Agent enforces and the ceiling the
+    # session_start snapshot reports are the same number by construction. A
+    # snapshot that disagreed with the enforced value is precisely how §4.5's
+    # gap stayed invisible for as long as it did.
+    max_iterations  ||= cfg.agent_max_iterations
+    max_turn_tokens ||= cfg.agent_max_turn_tokens
 
     perms    = task_permissions(cfg, task_class.task_name)
     ctx      = Context.new(system: system, context_window: context_window, working_dir: working_dir, compaction_threshold: cfg.agent_compaction_threshold)
@@ -88,8 +104,8 @@ module Boukensha
     # run, not one per delegation. It depends only on values resolved above.
     logger = Logger.new(log: log, task: task_class.task_name,
                         telemetry: Telemetry.build(config: cfg), snapshot: {
-      max_iterations:    cfg.agent_max_iterations,
-      max_turn_tokens:   cfg.agent_max_turn_tokens,
+      max_iterations:    max_iterations,
+      max_turn_tokens:   max_turn_tokens,
       max_output_tokens: (max_output_tokens || cfg.agent_max_output_tokens),
       context_window:    context_window,
       model:             model,
@@ -110,8 +126,8 @@ module Boukensha
     client  = Client.new(builder)
     agent   = Agent.new(context: ctx, registry: registry, builder: builder, client: client, logger: logger,
                         hooks: hooks,
-                        max_iterations: cfg.agent_max_iterations,
-                        max_turn_tokens: cfg.agent_max_turn_tokens,
+                        max_iterations: max_iterations,
+                        max_turn_tokens: max_turn_tokens,
                         max_output_tokens: (max_output_tokens || cfg.agent_max_output_tokens))
 
     ctx.add_message(:user, task)
@@ -524,6 +540,8 @@ require_relative "boukensha/mud/navigation/route_planner"
 require_relative "boukensha/mud/navigation/region_tools"
 require_relative "boukensha/mud/navigation/plan_route_tool"
 require_relative "boukensha/mud/navigation/execute_route_tool"
+require_relative "boukensha/mud/navigation/reasoners"
+require_relative "boukensha/mud/navigation/move_to"
 # `onnxruntime` is only required when a model is actually loaded, so a checkout
 # without the artifact (or without the gem) still boots.
 require_relative "boukensha/extractors"

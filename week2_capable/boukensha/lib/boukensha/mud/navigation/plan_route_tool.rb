@@ -17,11 +17,28 @@ module Boukensha
         # is standing in and everything within it; "world" lifts that. Travel
         # is never scoped — see RoutePlanner#frontier_branch.
         def call(store:, destination:, scope: "region")
+          plan, region, error = resolve(store: store, destination: destination, scope: scope)
+          return error if error
+
+          render(plan, store, region, scope)
+        end
+
+        # The plan, unrendered. `MoveTo` drives its loop off the RoutePlan's
+        # `status`, `steps` and `unexplored` fields and renders the text only
+        # when it is giving the answer back to the player — so the two callers
+        # share one planning path rather than one of them re-deriving it or
+        # parsing the other's prose.
+        #
+        # Returns [plan, region, nil] or [nil, nil, error_string]: validation is
+        # the tool surface's job and both callers want the same message for it.
+        def resolve(store:, destination:, scope: "region")
           query = destination.to_s.strip
-          return "[route] error: destination is required" if query.empty?
+          return [nil, nil, "[route] error: destination is required"] if query.empty?
 
           scope = scope.to_s
-          return "[route] error: scope must be \"region\" or \"world\"" unless %w[region world].include?(scope)
+          unless %w[region world].include?(scope)
+            return [nil, nil, "[route] error: scope must be \"region\" or \"world\""]
+          end
 
           here   = store.player[:current_room_id]
           region = here && store.region_for_room(here)
@@ -37,10 +54,17 @@ module Boukensha
             regions_by_room: store.room_regions.transform_values { |m| m[:region_id] },
             scope_region_ids: scope_ids
           )
-          render(plan, store, region, scope)
+          [plan, region, nil]
         end
 
-        def render(plan, store, region = nil, scope = "region")
+        # `widen_with:` — the name of the tool the READER can actually call to
+        # lift the region scope. `region_exhausted` is "a question rather than a
+        # wall" (boundaries_revised §2), so its answer prints the widening call
+        # as copyable text — and printing `plan_route` to a player that no longer
+        # has `plan_route` on its surface (move_to.md §3) would be a remedy for
+        # nobody. `MoveTo` passes its own name; every other caller keeps this
+        # tool's own.
+        def render(plan, store, region = nil, scope = "region", widen_with: "plan_route")
           # The label goes on the listing only when it actually constrained
           # it. Under `scope: "world"` the set spans every region the agent
           # has walked, and heading it "in Midgaard" would be false.
@@ -53,7 +77,7 @@ module Boukensha
             when "explore", "unknown" then render_frontier(plan, store, scoped)
             when "unreachable"      then render_unreachable(plan, store)
             when "exhausted"        then render_exhausted(plan)
-            when "region_exhausted" then render_region_exhausted(plan, region)
+            when "region_exhausted" then render_region_exhausted(plan, region, widen_with)
             else "[route] #{plan.query} — #{plan.status}"
             end
 
@@ -181,13 +205,13 @@ module Boukensha
         # question rather than a wall, so the widening call is printed as text
         # the agent can copy, and the count says how much is on the other side
         # of the answer.
-        def render_region_exhausted(plan, region)
+        def render_region_exhausted(plan, region, widen_with = "plan_route")
           n = plan.unexplored_total
           ["[route] #{plan.query} — region_exhausted",
            "reason: every unexplored exit still reachable from here leaves " \
            "#{region ? region[:label] : 'this region'}",
            "#{n} unexplored exit#{'s' unless n == 1} remain#{'s' if n == 1} outside it — to include them, call " \
-           "plan_route(destination: #{plan.query.inspect}, scope: \"world\")"].join("\n")
+           "#{widen_with}(destination: #{plan.query.inspect}, scope: \"world\")"].join("\n")
         end
 
         def room_label(room)

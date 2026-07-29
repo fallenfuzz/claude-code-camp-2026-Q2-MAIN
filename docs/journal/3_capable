@@ -155,11 +155,12 @@ I think I have been spinning my wheels around the same problem.
 And I think I might need to implement this now. The big problem is that
 by adding the planne we are opening the biggest can of worms.
 
-Aside, our main problem is `exmaine` and `move` becacause they are so generic
-that they can fired off when it doesn't make sense.
+docs/plans/week_2/planner
 
-Instead having `move` we could have `explore` which underneath would have to handle
-logic like region mapping.
+### Step 7 Move To
+
+
+### Step 8 Settings Sweep
 
 
 

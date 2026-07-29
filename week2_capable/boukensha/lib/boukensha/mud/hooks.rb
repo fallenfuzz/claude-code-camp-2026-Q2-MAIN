@@ -237,11 +237,22 @@ module Boukensha
       # Returns { ok: true, room_id:, room_name: } on a genuine arrival,
       # { ok: false, text: } on a rejected move (and records the failed
       # frontier attempt, exactly as `movement_outcome` does for a single
-      # model-issued move), or nil if something in reconciliation itself
-      # raised — `execute_route` should treat that the same as `ok: false`.
+      # model-issued move), { ok: false, died: true, text: } when the move
+      # killed us, or nil if something in reconciliation itself raised — the
+      # walker should treat that the same as `ok: false`.
       def reconcile_move!(direction:, text:)
         guard do
+          @died = false
           absorb_mud_text(text)
+          # `note_death` has just dropped position, and deliberately: the Void
+          # fingerprints like any other room and must never be recorded as an
+          # explored location. Resolving position off THIS text would put it in
+          # the map anyway, so the walk stops here instead. A single
+          # model-issued `move` reaches the same conclusion one iteration later,
+          # by way of `before_model` finding nothing it can trust; inside a
+          # batched walk there is no such pause, so it has to be said.
+          next { ok: false, died: true, text: text } if @died
+
           look = RoomParser.parse_look(text)
 
           unless look.complete?
@@ -555,6 +566,9 @@ module Boukensha
         # Dying costs experience and moves the character. Everything on the
         # sheet below the vitals is now a guess.
         @scored = false
+        # Read and cleared by `reconcile_move!`, the one caller that has to act
+        # on a death within the same call rather than on the next turn.
+        @died = true
         close_fight("died", RoomParser.parse_prompt(text)&.[](:hp))
         journal_event(stream: "milestone", op: "death", level: @store.level)
         # The Void fingerprints like any other room and must never be recorded as

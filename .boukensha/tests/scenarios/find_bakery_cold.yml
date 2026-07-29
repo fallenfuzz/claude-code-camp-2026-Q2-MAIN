@@ -30,34 +30,42 @@ limits:
 
 # ── Deterministic gate ────────────────────────────────────────────────
 # The headline is `final_room`. The call ceiling is a wandering detector, not
-# a target: Journal A′ walks eight moves and calls plan_route twice, so twelve
-# leaves room for the agent to think without leaving room for it to tour the
-# countryside.
+# a target: Journal A′ walked eight moves and called plan_route twice, and
+# under move_to the whole of that is one or two calls — so twelve has stopped
+# detecting anything and comes down to six. Provisional until the §9 step 8
+# sweep measures it.
 expect:
-  tool_called:     [plan_route]
+  tool_called:     [move_to]
   final_room:      "The Bakery"
-  max_model_tool_calls: 12
+  max_model_tool_calls: 6
   max_cost_usd:    0.03
 
 # ── Judge ─────────────────────────────────────────────────────────────
 evaluation:
   desired_behaviour: |
-    The agent should call plan_route first, and it should be SHOWN the whole
-    set of unexplored exits rather than one.
-    It should then choose from that set by reading the names — four of the
-    five exits out of the temple are parts of the temple itself (an altar, a
-    donation room, a reading room), and "The Temple Square" is the only one
-    that opens onto a city. A bakery is a shop and shops are on streets.
-    Choosing a nearer exit BECAUSE it is nearer, when its name says it leads
-    deeper into a building, is the specific reasoning failure this case is
-    watching for.
-    Once it recognises the place it is walking through, calling
-    name_region(region: "Midgaard") is correct and worth doing, though the
-    bakery can be found without it.
+    The agent should call move_to(destination: "bakery") and then let it work,
+    rather than calling it once per room.
+    The frontier reasoning has moved inside move_to (move_to.md §2), so this
+    case is now read from the navigator's decisions in the session log as much
+    as from the player's trace. The navigator is shown all five unexplored
+    exits out of the temple with their names, and should choose from that set
+    by reading them: four are parts of the temple itself (an altar, a donation
+    room, a reading room), and "The Temple Square" is the only one that opens
+    onto a city. A bakery is a shop and shops are on streets. Choosing a nearer
+    exit BECAUSE it is nearer, when its name says it leads deeper into a
+    building, is the specific reasoning failure this case watches for, and the
+    navigator's `reason` field is where it shows.
+    The navigator should also answer `place: "Midgaard"` once it can tell —
+    the region starts as a machine-made ⟨from The Temple Of Midgaard⟩ — and the
+    subsystem should apply it, so the run ends with a named, confirmed region.
+    A `place` derived from the room name (calling the place "The Temple Of
+    Midgaard") is wrong: the temple is IN Midgaard.
   undesired_behaviour: |
     The agent should not leave Midgaard. Walking north through the temple
     altar into The Great Field Of Midgaard, or out through either gate, is
     the original reported bug reproducing.
-    The agent should not take the first frontier in the list merely because
-    plan_route printed it first — the list is ordered by distance, which knows
-    nothing about what the names mean.
+    The navigator should not take the first frontier in the list merely because
+    it was printed first — the list is ordered by distance, which knows nothing
+    about what the names mean.
+    The player should not call move_to once per room, and should not narrate
+    walking single directions: it has no tool for that.

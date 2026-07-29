@@ -375,11 +375,20 @@ module BoukenshaLoader
         # belongs here and in the tool's own output, where it is read at the
         # moment it applies, rather than in 290 permanent words of system
         # prompt restating six status names.
+        #
+        # It is still REGISTERED here, and it is no longer on the player's
+        # allowlist (move_to.md §3, §10): `move_to` owns the plan-then-walk
+        # sequence now, and leaving `plan_route` on the surface next to it would
+        # reintroduce the fork that design exists to remove. Registration is
+        # what `Permissions` filters, so a tool listed here and absent from
+        # `tasks.player.allow` is simply not on the model's surface — the same
+        # arrangement `tbamud__look` has had since the room survey stopped being
+        # a tool.
         tool "plan_route",
              description: "Plan a route to a known place, landmark, or thing using only what you " \
                           "have already explored. Never moves you and performs no MUD actions. " \
                           "Returns `known` (a path to somewhere you have stood — walk it with " \
-                          "execute_route), `arrived`, `unreachable`, `exhausted`, or, when the " \
+                          "move_to), `arrived`, `unreachable`, `exhausted`, or, when the " \
                           "destination is not on your map, the whole set of unexplored exits in " \
                           "distance bands with the names the MUD printed. That set is ordered by " \
                           "arithmetic, which knows nothing about what the names mean — read them " \
@@ -448,13 +457,25 @@ module BoukenshaLoader
           )
         end
 
-        # `call_tool` is already bound above to the HOOK's own room-survey-
-        # scoped dispatcher (poll/look/check/consider/examine — no `move`).
-        # execute_route must dispatch under the PLAYER's own permissions
-        # instead, which is RunDSL#call_tool — reached here with an explicit
-        # `self.` receiver so it is not shadowed by the local variable of the
-        # same name.
-        player_call_tool = ->(name, args) { self.call_tool(name, **args) }
+        # The walking subsystem's OWN slice — `tools.navigation.allow`, which is
+        # where `tbamud__move` lives now (move_to.md §3).
+        #
+        # This used to be `->(name, args) { self.call_tool(name, **args) }`: the
+        # PLAYER's registry, which is the only reason `tbamud__move` had to stay
+        # on `tasks.player.allow`. Dropping it from that list without moving it
+        # would make `Registry#tool` never register it, and the walk would raise
+        # `UnknownToolError` on step 1.
+        #
+        # Hiding it behind `turn_policy` instead does not work either:
+        # `Registry#dispatch` checks the turn policy on every call
+        # (registry.rb:42-44) and the walk runs inside a model iteration, so a
+        # policy withholding `move` would block the subsystem's own steps.
+        #
+        # The precedent is `tools.room_survey.allow`, where `tbamud__look` is
+        # granted to the survey and appears nowhere on the player's surface.
+        nav_call_tool = Boukensha.tool_dispatcher(
+          Boukensha::Mud::Navigation::MoveTo::NAVIGATION_SLICE, logger: parent, initiator: "hook"
+        )
 
         mud_hooks = Boukensha::Mud::Hooks.new(
           store: store,
@@ -469,18 +490,54 @@ module BoukenshaLoader
         )
         hooks mud_hooks
 
-        # Batched movement over a route `plan_route` already confirmed
-        # `known` — collapses N model round-trips into one while still
-        # reconciling position and polling for interrupting events between
-        # every internal step (Mud::Hooks#reconcile_move!, Mud::EventClassifier).
-        tool "execute_route",
-             description: "Walk a sequence of directions already returned by plan_route's " \
-                          "`known` result, one MUD move per step inside a single call. Stops " \
-                          "early if a move fails or something worth reacting to happens.",
-             parameters: { steps: { type: "array",
-               items: { type: "string", enum: Boukensha::Mud::RoomParser::DIRECTIONS.values },
-               description: "Directions to walk in order, e.g. [\"west\", \"north\"]." } } do |steps:|
-          Boukensha::Mud::Navigation::ExecuteRouteTool.call(steps: steps, call_tool: player_call_tool, hooks: mud_hooks)
+        # The ONLY movement tool on the player's surface — move_to.md §2.
+        #
+        # `plan_route`, `execute_route` and `tbamud__move` all moved behind it.
+        # Every mechanism that previously pointed the agent at batched movement
+        # was advisory: `.boukensha/prompts/player/system.md` already asked it to
+        # call `plan_route` first "rather than picking exits off the `[here]`
+        # block one at a time", and the agent obeyed on iteration 1 of
+        # essentially every session and then drifted. This puts the reasoning on
+        # the code path instead of requesting it.
+        #
+        # The navigator and cartographer are built only when settings.yaml
+        # declares them, which is what makes §9's delivery order runnable: the
+        # known branch ships and can be measured with no subagent at all, and the
+        # region judgement can be observed in the logs before it is allowed to
+        # write.
+        move_to = Boukensha::Mud::Navigation::MoveTo.new(
+          store: store, call_tool: nav_call_tool, hooks: mud_hooks,
+          navigator: (Boukensha::Mud::Navigation::Reasoners.navigator(logger: parent) if cfg.tasks(:navigator).any?),
+          cartographer: (Boukensha::Mud::Navigation::Reasoners.cartographer(logger: parent) if cfg.tasks(:cartographer).any?),
+          limits: cfg.dig(:tools, Boukensha::Mud::Navigation::MoveTo::NAVIGATION_SLICE, :limits),
+          # Default ON. Set `tools.navigation.act_on_place: false` to keep the
+          # field in the schema and out of the store — §9 step 5's observation
+          # window, and the switch to flip if renaming ever goes wrong in a batch.
+          act_on_place: cfg.dig(:tools, Boukensha::Mud::Navigation::MoveTo::NAVIGATION_SLICE, :act_on_place) != false,
+          logger: parent, journal: journal
+        )
+
+        tool "move_to",
+             description: "Travel to a place, landmark, or thing — the only way to move. Walks " \
+                          "there over what you have already explored when the destination is on " \
+                          "your map, and explores towards it when it is not, several rooms per " \
+                          "call. Reconciles position and watches for interrupting events between " \
+                          "every step, and stops early — reporting where it got to — if something " \
+                          "worth reacting to happens, if the way is blocked, or if it runs out of " \
+                          "its own travel budget. Call it again to continue.",
+             parameters: {
+               destination: { type: "string",
+                 description: "Where you want to be, in your own words, e.g. 'the bakery', " \
+                              "'Temple Square', or 'the mayor'." },
+               scope: { type: "string", enum: %w[region world],
+                 description: "Where to explore when the destination is not on your map. 'region' " \
+                              "(the default) stays in the place you are standing in; 'world' lifts " \
+                              "that. Travel to somewhere you have already stood is never scoped, so " \
+                              "this only matters when exploring. Use 'world' when you have been told " \
+                              "every remaining lead leaves this place, or when what you are looking " \
+                              "for is by its nature somewhere else." }
+             } do |destination:, scope: "region"|
+          move_to.call(destination: destination, scope: scope)
         end
       rescue Boukensha::Mud::Memory::Store::Unavailable => e
         Boukensha.error_log.record(e, component: "mud_hooks_setup", boundary: "memory_store")
@@ -501,9 +558,19 @@ module BoukenshaLoader
   # exactly where a reader most needs it not to (§5.4). It rides on
   # `Logger#subscribe`, which already exists and already sees every event — no
   # new callback plumbed through the agent loop.
-  def self.run_case(goal:, launch: nil, max_output_tokens: nil, on_progress: nil)
-    setup = mud_agent_setup
-    Boukensha.run(task: goal, launch: launch, max_output_tokens: max_output_tokens) do
+  #
+  # `limits:` — the scenario's own `limits:` block, as a hash of strings. Two of
+  # its keys are agent ceilings and are applied here; `wall_timeout_s` is the
+  # parent's and is not. Before move_to.md §4.5 this parameter did not exist,
+  # which meant a scenario's declared budget was logged, asserted against, and
+  # never actually imposed — cases ran under the settings.yaml defaults and the
+  # reports compared them to a limit nothing was enforcing.
+  def self.run_case(goal:, launch: nil, max_output_tokens: nil, on_progress: nil, limits: nil)
+    setup  = mud_agent_setup
+    limits = (limits || {}).transform_keys(&:to_s)
+    Boukensha.run(task: goal, launch: launch, max_output_tokens: max_output_tokens,
+                  max_iterations: agent_limit(limits, "max_iterations"),
+                  max_turn_tokens: agent_limit(limits, "max_turn_tokens")) do
       # Explicit receiver: this block is `instance_eval`d on `RunDSL`, so a bare
       # call would resolve there and not here.
       BoukenshaLoader.attach_progress(logger, on_progress) if on_progress
@@ -511,6 +578,20 @@ module BoukenshaLoader
       # and hooks exactly as it does for the REPL.
       instance_eval(&setup)
     end
+  end
+
+  # One agent ceiling out of a scenario's limits block, or nil for "leave the
+  # configured default alone". A limit that cannot be read as an integer is
+  # dropped rather than passed on as a zero: `Agent` treats 0 as "disabled", so
+  # a typo'd budget would silently REMOVE the ceiling it meant to tighten.
+  def self.agent_limit(limits, key)
+    value = limits[key]
+    return nil if value.nil?
+
+    Integer(value)
+  rescue ArgumentError, TypeError
+    warn "[boukensha] limits.#{key} = #{value.inspect} is not an integer — using the configured default"
+    nil
   end
 
   # Fold the event stream down to the three numbers a watcher wants. Hook calls

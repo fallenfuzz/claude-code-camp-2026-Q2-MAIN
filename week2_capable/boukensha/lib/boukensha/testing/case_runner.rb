@@ -61,9 +61,15 @@ module Boukensha
 
           limits = @payload["limits"] || {}
           log("agent", "starting (max_iterations #{limits['max_iterations'] || 'default'}, " \
+                       "max_turn_tokens #{limits['max_turn_tokens'] || 'default'}, " \
                        "wall_timeout #{limits['wall_timeout_s'] || 'default'}s)")
           agent_started = Process.clock_gettime(Process::CLOCK_MONOTONIC)
+          # `limits:` is what makes the line above true. It used not to be
+          # passed, so the numbers it printed were the scenario's intent and the
+          # run's actual ceilings were the settings.yaml defaults (move_to.md
+          # §4.5).
           BoukenshaLoader.run_case(goal: @payload.fetch("goal"), launch: launch,
+                                   limits: limits,
                                    on_progress: method(:log_progress))
           log("done", format("agent turn finished in %.1fs — closing MUD session and memory",
                              Process.clock_gettime(Process::CLOCK_MONOTONIC) - agent_started))

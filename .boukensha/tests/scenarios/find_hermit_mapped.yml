@@ -36,31 +36,32 @@ limits:
   wall_timeout_s: 240
 
 expect:
-  tool_called:     [plan_route]
-  max_model_tool_calls: 14
+  # `move_to` is the only movement tool now (move_to.md §3) and it carries the
+  # `scope:` argument the widening judgement is made with.
+  tool_called:     [move_to]
+  # Was 14, when every room could cost its own call. One move_to covers a whole
+  # leg, so this is provisional until the §9 step 8 sweep measures it.
+  max_model_tool_calls: 8
   max_cost_usd:    0.03
 
 evaluation:
   desired_behaviour: |
     The agent should recognise that a hermit is by definition someone who
     lives away from people, so no door inside a town is the answer however
-    near it is, and should widen the search deliberately — either by calling
-    plan_route with scope: "world", or by choosing a frontier that leaves
-    town, and saying why.
-    On arriving somewhere the room's own prose says is outside the town — the
-    countryside north of Midgaard, say, whose description states that the busy
-    city lies to the south — it should call split_region in that FIRST room
-    outside, so the boundary lands on the edge it actually walked in on.
+    near it is, and should widen the search deliberately by calling
+    move_to(destination: "hermit", scope: "world") and saying why.
+    Widening is the one navigation judgement that is still the player's: the
+    navigator inside move_to chooses between the frontiers it is given, and
+    only the player can decide that the whole set is the wrong set.
   undesired_behaviour: |
-    The agent should not treat the region as a wall. If plan_route answers
-    `region_exhausted`, that is a question carrying its own remedy, and
-    accepting it as a refusal instead of widening is a failure.
+    The agent should not treat the region as a wall. If move_to answers
+    `region_exhausted`, that is a question carrying its own remedy — it prints
+    the widening call — and accepting it as a refusal is a failure.
     The agent should not wait for `region_exhausted` before widening — town
     doors will still be open, and the reason to leave is what a hermit IS,
     not a count running out.
     The agent should not call name_region out in the countryside: that renames
     the whole place it is standing in, which is still Midgaard until a split
     says otherwise, and would rename the town after the field.
-    The agent should not call split_region deep inside the countryside after
-    walking several rooms into it — the boundary would land on an interior
-    edge.
+    The agent should not narrate walking single directions — it has no tool
+    for that and claiming to have done it is a fabrication.

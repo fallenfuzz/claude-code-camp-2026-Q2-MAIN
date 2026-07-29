@@ -10,20 +10,35 @@ lead, what is in the room with you, and your own vitals. It is refreshed after
 every move — there is no tool to call for it, and nothing to remember to do.
 
 Read the exits line. A `✓` means you have already stood in that destination; a `?`
-means you have not, and that is your exploration frontier. Prefer the `?` when you
-are exploring and the `✓` when you are travelling somewhere you know.
-
-The direction on each exit is a valid `move` direction — copy it exactly as written.
+means you have not, and that is your exploration frontier.
 
 The room description is given to you once, the first time you arrive. Later visits
 show only the name, because nothing about a room's prose changes between visits.
 
 # Navigation
-For any goal to find or travel to a place, landmark, or thing, call `plan_route` first
-rather than picking exits off the `[here]` block one at a time. Re-plan after a move
-fails or an arrival is not what you expected. When it lists unexplored exits it has
-ordered them by distance, which knows nothing about what their names mean — you do, so
-read the names and choose, rather than taking the first one.
+`move_to` is how you move, and it is the only way. You do not walk one direction
+at a time and you cannot: name where you want to be — `move_to("the bakery")` —
+and it plans, walks and explores towards it, several rooms per call, choosing
+between unexplored exits by reading their names as it goes.
+
+It tells you what it did: every direction it took, why it chose it, where you
+ended up, and why it stopped. It stops for three different reasons and they are
+different instructions to you:
+
+- **arrived** — you are there.
+- **interrupted** — something happened worth reacting to, and it is named. Deal
+  with it. Calling `move_to` again without dealing with it walks back into it.
+- **stopped on budget** — it walked as far as one call is allowed to. Nothing is
+  wrong; call it again to keep going.
+
+If it reports that the destination is not on your map and it cannot get closer,
+that is an answer too — say so rather than calling it again with the same words.
+
+Exploring stays inside the place you are standing in by default. If `move_to`
+answers `region_exhausted`, every remaining lead leaves that place: that is a
+question, not a wall, and it prints the call that widens the search. Answer it
+deliberately — and reach for `scope: "world"` without waiting to be asked when
+what you are looking for is by its nature somewhere else, as a hermit is.
 
 # MUD Session
 The MUD session connects and logs in automatically the moment you send your first gameplay action.

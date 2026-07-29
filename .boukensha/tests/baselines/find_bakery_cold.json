@@ -1,0 +1,45 @@
+{
+  "_why": "move_to.md §8 Accounting: player-turn tokens and calls for find_bakery_cold, committed so a regression shows up as a diff rather than as a slowly worse batch report. Measured, not estimated — the run_id below is the session it came from and is reopenable in mud_monitor.",
+  "_what_changed": "The surface change of move_to.md §3: plan_route, execute_route and tbamud__move left the player's allowlist and move_to replaced all three. The `before` column is the plan's own reading of session 20260729T182950Z-c79e9b97, a run that FOUND the bakery and still failed its scenario, on 97.6% context re-send.",
+
+  "scenario": "find_bakery_cold",
+  "model": "claude-haiku-4-5",
+
+  "before": {
+    "run_id": "20260729T182950Z-c79e9b97",
+    "verdict": "fail",
+    "player_input_tokens": 49819,
+    "player_output_tokens": 1179,
+    "model_tool_calls": 14,
+    "iterations": 14,
+    "end_reason": "max_tokens",
+    "cost_usd": 0.0557,
+    "final_room": "The Bakery"
+  },
+
+  "after": {
+    "run_id": "20260729T231526Z-f756aaba",
+    "session_id": "20260729T231554Z-92a01b5f",
+    "verdict": "pass",
+    "player_input_tokens": 9247,
+    "player_output_tokens": 347,
+    "player_cost_usd": 0.011,
+    "navigator_calls": 8,
+    "navigator_input_tokens": 12436,
+    "navigator_output_tokens": 703,
+    "navigator_cost_usd": 0.016,
+    "model_tool_calls": 2,
+    "iterations": 3,
+    "end_reason": "completed",
+    "cost_usd": 0.026933,
+    "final_room": "The Bakery",
+    "rooms_known": 7
+  },
+
+  "_notes": [
+    "The player's budget landed where §2.1 estimated it would: 9,247 against a ~9,000 prediction, down 81% from 49,819, and the turn now ends on `completed` rather than on `max_tokens`.",
+    "The navigator's spend did not. §2.1 estimated ~3,000 elsewhere and it cost 12,436, because it was called eight times rather than three — six of those on the first move_to, which stopped on `max_decisions` rather than on arriving. That is the design working (the budget bound, and the player got a structured stop it could act on), but it is the number the §9 step 8 sweep should attack first.",
+    "Per navigator call: ~1,555 input tokens, against the ~600 §2.1 assumed. Worth checking whether the candidate listing or the scope question is carrying weight it does not earn.",
+    "`max_decisions` bound before `max_rooms` (6 decisions, 12 rooms allowed), which is §4.3's dense-town case exactly: few rooms, many decisions."
+  ]
+}

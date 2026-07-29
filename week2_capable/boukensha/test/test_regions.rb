@@ -276,12 +276,14 @@ class TestRegions < Minitest::Test
   end
 
   # The same guarantee plan_route.md §3 makes of `plan_route`: the signature
-  # takes a store and some strings, so there is no seam through which either
-  # could dispatch a MUD tool.
+  # takes a store, some strings and (for `split_region`) a room id, so there is
+  # no seam through which either could dispatch a MUD tool. `at_room_id` is
+  # move_to.md §5.6 — a room to place the boundary at instead of the one the
+  # player is standing in — and an integer is not a call_tool lambda.
   def test_neither_tool_has_a_mud_dispatch_seam
     assert_equal %i[store region within description],
                  T.method(:name_region).parameters.map { |(_, name)| name }
-    assert_equal %i[store region within description reason],
+    assert_equal %i[store region within description reason at_room_id],
                  T.method(:split_region).parameters.map { |(_, name)| name }
   end
 

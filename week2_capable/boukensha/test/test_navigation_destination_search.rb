@@ -36,6 +36,27 @@ class TestNavigationDestinationSearch < Minitest::Test
     assert_equal D::TIER_NAME_TOKEN, hits.first[:tier]
   end
 
+  # The regression that made `move_to` unusable. tbaMUD names most of its rooms
+  # "The …", so token overlap on "the" alone matched whatever room the agent was
+  # standing in — and `plan_route` answered `arrived` for "the bakery" in the
+  # temple. Session 20260729T231114Z-c569ab91 spent all twelve of its iterations
+  # on that.
+  def test_a_function_word_alone_is_not_a_match
+    rooms = [room(1, name: "The Temple Of Midgaard", description: "A large temple.")]
+
+    assert_empty D.search("the bakery", rooms: rooms)
+    assert_empty D.search("the", rooms: rooms)
+    assert_empty D.search("a bakery", rooms: rooms)
+  end
+
+  # …and the content word still matches through the same path.
+  def test_a_content_word_alongside_a_function_word_still_matches
+    rooms = [room(1, name: "The Temple Of Midgaard"), room(2, name: "Market Square")]
+    hits = D.search("the temple", rooms: rooms)
+
+    assert_equal 1, hits.first[:room_id]
+  end
+
   def test_match_through_description
     rooms = [room(1, name: "Side Street", description: "A quiet street near the bakery.")]
     hits = D.search("bakery", rooms: rooms)

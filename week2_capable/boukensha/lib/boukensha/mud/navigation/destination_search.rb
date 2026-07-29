@@ -20,6 +20,27 @@ module Boukensha
         TIER_DESCRIPTION      = 5
         TIER_EXIT_TARGET_NAME = 6
 
+        # Function words carry no evidence about WHERE something is, and token
+        # overlap on one of them alone is not a match.
+        #
+        # This is not tidiness. `move_to(destination: "the bakery")` from the
+        # temple used to answer `arrived`, because "the" overlaps the tokens of
+        # "The Temple Of Midgaard" and TIER_NAME_TOKEN fired on that one word.
+        # tbaMUD names most of its rooms "The …", so a query written the way
+        # anyone writes one matched whatever room the agent happened to be
+        # standing in.
+        #
+        # It survived while `plan_route` was advisory: the agent read `arrived`,
+        # disbelieved it, and moved anyway. Once `move_to` became the only way to
+        # move there was nothing to fall back to, and session
+        # 20260729T231114Z-c569ab91 spent all twelve of its iterations being told
+        # it had arrived in the room it started in.
+        #
+        # Whole-string comparisons (TIER_EXACT_NAME, TIER_NAME_PHRASE) are
+        # untouched: "The Reading Room" should still match its own name exactly.
+        STOPWORDS = %w[a an the of to in at on and or is it its you your this that
+                       these those from by with for into onto].freeze
+
         class << self
           # Unicode-normalize, lowercase, punctuation -> space, collapse
           # whitespace. The one normalization every field and the query both
@@ -60,7 +81,17 @@ module Boukensha
           def match_room(q, q_tokens, room, entities_by_room, exits_by_room)
             name_norm = normalize(room[:name])
 
+            # An EXACT name match is never filtered. A room can legitimately be
+            # called "A", and a query that is that room's whole name is the
+            # strongest evidence there is.
             return { room_id: room[:id], tier: TIER_EXACT_NAME, evidence: room[:name] } if name_norm == q
+
+            # Everything below this line is partial evidence, and partial
+            # evidence made of function words is none: "the" is a substring of
+            # most tbaMUD room names, so the phrase tier would match on it just
+            # as token overlap did.
+            return nil unless content?(q_tokens)
+
             return { room_id: room[:id], tier: TIER_NAME_PHRASE, evidence: room[:name] } if q.length.positive? && name_norm.include?(q)
             if token_overlap?(q_tokens, tokens(room[:name]))
               return { room_id: room[:id], tier: TIER_NAME_TOKEN, evidence: room[:name] }
@@ -79,10 +110,15 @@ module Boukensha
             nil
           end
 
+          # Does the query say anything at all about where something is? "the" and
+          # "a bakery" differ by exactly this.
+          def content?(q_tokens) = (q_tokens - STOPWORDS).any?
+
+          # At least one SHARED token that is not a function word.
           def token_overlap?(q_tokens, field_tokens)
             return false if q_tokens.empty? || field_tokens.empty?
 
-            (q_tokens & field_tokens).any?
+            ((q_tokens & field_tokens) - STOPWORDS).any?
           end
 
           def text_matches?(q, q_tokens, text)

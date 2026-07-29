@@ -1,0 +1,186 @@
+{
+  "schema": 1,
+  "run_id": "20260729T231045Z-d8485a46",
+  "kind": "scenario",
+  "name": "find_bakery_cold",
+  "started_at": "2026-07-29T23:10:45.499Z",
+  "ended_at": "2026-07-29T23:12:15.128Z",
+  "environment": {
+    "profile": "Derrano",
+    "provider": "anthropic",
+    "model": "claude-haiku-4-5",
+    "boukensha_version": "0.13.0",
+    "git_sha": "419929c",
+    "settings_digest": "sha256:9b272760b1573fd38e4bfb68acaf8c2c6b5eb03313e3f97ee92cd2c24a46c7c6",
+    "judge": {
+      "provider": "anthropic",
+      "model": "claude-sonnet-4-6"
+    }
+  },
+  "summary": {
+    "cases": 1,
+    "passed": 0,
+    "failed": 1,
+    "errored": 0,
+    "pass_rate": 0.0,
+    "cost_usd": {
+      "agent": 0.054151,
+      "judge": 0,
+      "total": 0.054151
+    },
+    "median": {
+      "model_tool_calls": 12,
+      "automatic_tool_calls": 19,
+      "iterations": 12,
+      "duration_ms": 24022,
+      "cost_usd": 0.054151
+    },
+    "p90": {
+      "model_tool_calls": 12,
+      "automatic_tool_calls": 19,
+      "iterations": 12,
+      "duration_ms": 24022,
+      "cost_usd": 0.054151
+    },
+    "failure_modes": {
+      "final_room: The Bakery": 1,
+      "max_model_tool_calls: 6": 1,
+      "max_cost_usd: 0.03": 1
+    }
+  },
+  "cases": [
+    {
+      "index": 1,
+      "scenario": "find_bakery_cold",
+      "session_id": "20260729T231114Z-c569ab91",
+      "session_name": "find_bakery_cold",
+      "profile": "Derrano",
+      "resolved_state": {
+        "description": "Level 10 cleric, banked, armed, standing in the Temple.",
+        "requires_class": "cleric",
+        "location": 3001,
+        "level": 10,
+        "money": {
+          "gold": 0,
+          "bank": 10000
+        },
+        "stats": {
+          "align": 0
+        },
+        "skills": {
+          "armor": 75,
+          "cure light": 75
+        },
+        "inventory": [
+          {
+            "vnum": 3001,
+            "keyword": "bottle",
+            "quantity": 2
+          }
+        ],
+        "equipment": [
+          {
+            "vnum": 3023,
+            "keyword": "club",
+            "quantity": 1,
+            "wear": "wield"
+          },
+          {
+            "vnum": 3043,
+            "keyword": "jacket",
+            "quantity": 1,
+            "wear": "wear"
+          }
+        ]
+      },
+      "base_initial_state": "cleric",
+      "map_memory": {
+        "mode": "none",
+        "archived_to": "/home/andrew/Sites/omenking/claude-code-camp-2026-Q2/.boukensha/profiles/Derrano/knowledge.archive/20260729T231045Z.sqlite3",
+        "rooms_at_start": 0,
+        "room_exits_at_start": 0,
+        "entities_at_start": 0
+      },
+      "seed_log": "/home/andrew/Sites/omenking/claude-code-camp-2026-Q2/.boukensha/tests/reports/.work/20260729T231045Z-d8485a46/case-1-seed.log",
+      "facts": {
+        "model_tool_calls": 12,
+        "automatic_tool_calls": 19,
+        "has_provenance": true,
+        "iterations": 12,
+        "turns": 0,
+        "end_reason": "max_tokens",
+        "duration_ms": 24022,
+        "input_tokens": 46031,
+        "output_tokens": 1624,
+        "cost_usd": 0.054151,
+        "final_room": "The Temple Of Midgaard",
+        "rooms_known": 1,
+        "rooms_known_delta": 1,
+        "db_reads": 218,
+        "db_writes": 19,
+        "db_ms": 7,
+        "journal_lines": 29,
+        "inference_ms": 15,
+        "mud_ms": 2542,
+        "mud_calls": 31
+      },
+      "errors": [],
+      "expectations": [
+        {
+          "kind": "tool_called",
+          "rule": "move_to",
+          "ok": true,
+          "detail": "called at call_1be80c696dba"
+        },
+        {
+          "kind": "final_room",
+          "rule": "The Bakery",
+          "ok": false,
+          "detail": "The Temple Of Midgaard"
+        },
+        {
+          "kind": "max_model_tool_calls",
+          "rule": "6",
+          "ok": false,
+          "detail": "12"
+        },
+        {
+          "kind": "max_cost_usd",
+          "rule": "0.03",
+          "ok": false,
+          "detail": "0.054151"
+        }
+      ],
+      "judge": {
+        "verdict": "fail",
+        "confidence": 0.97,
+        "reasoning": "The agent called move_to twelve times in a loop rather than once, violating the explicit 'call once and let it work' requirement. The bakery was never found, no region was identified as Midgaard, and the run ended at max_tokens still in the temple with nothing accomplished.",
+        "desired": [
+          {
+            "behaviour": "move_to(destination: \"bakery\") called once and allowed to navigate, with navigator choosing Temple Square over interior temple exits",
+            "met": false,
+            "evidence": null
+          },
+          {
+            "behaviour": "Navigator answers place: \"Midgaard\" (not the temple name) and run ends with named confirmed region",
+            "met": false,
+            "evidence": null
+          }
+        ],
+        "undesired": [
+          {
+            "behaviour": "Agent calls move_to once per room / repeatedly rather than letting it work",
+            "occurred": true,
+            "evidence": "call_d95d4ebb327a"
+          },
+          {
+            "behaviour": "Navigator takes first frontier merely because it was printed first / leaves Midgaard",
+            "occurred": false
+          }
+        ],
+        "session_id": "20260729T231114Z-c569ab91"
+      },
+      "status": "fail"
+    }
+  ]
+}

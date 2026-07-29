@@ -41,14 +41,14 @@ class TestMcpClient < Minitest::Test
   def test_call_tool_reaches_the_mud
     client = spawn_client
     assert_match(/You do: look/, client.call_tool("look")[:text])
-    assert_match(/You do: kill dragon/, client.call_tool("attack", "target" => "dragon")[:text])
+    assert_match(/You do: kill dragon/, client.call_tool("attack", { "target" => "dragon" })[:text])
   end
 
   # A tool-level failure is data (isError), not an exception — the agent loop
   # must be able to keep going.
   def test_tool_error_comes_back_as_data
     client = spawn_client
-    result = client.call_tool("move", "direction" => "sideways")
+    result = client.call_tool("move", { "direction" => "sideways" })
     assert result[:error], "expected isError to be set"
     assert_match(/argument_error/, result[:text])
   end

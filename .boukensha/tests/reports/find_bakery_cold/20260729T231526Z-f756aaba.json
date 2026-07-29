@@ -1,0 +1,190 @@
+{
+  "schema": 1,
+  "run_id": "20260729T231526Z-f756aaba",
+  "kind": "scenario",
+  "name": "find_bakery_cold",
+  "started_at": "2026-07-29T23:15:26.271Z",
+  "ended_at": "2026-07-29T23:16:54.581Z",
+  "environment": {
+    "profile": "Derrano",
+    "provider": "anthropic",
+    "model": "claude-haiku-4-5",
+    "boukensha_version": "0.13.0",
+    "git_sha": "419929c",
+    "settings_digest": "sha256:9b272760b1573fd38e4bfb68acaf8c2c6b5eb03313e3f97ee92cd2c24a46c7c6",
+    "judge": {
+      "provider": "anthropic",
+      "model": "claude-sonnet-4-6"
+    }
+  },
+  "summary": {
+    "cases": 1,
+    "passed": 1,
+    "failed": 0,
+    "errored": 0,
+    "pass_rate": 1.0,
+    "cost_usd": {
+      "agent": 0.026933,
+      "judge": 0,
+      "total": 0.026933
+    },
+    "median": {
+      "model_tool_calls": 2,
+      "automatic_tool_calls": 37,
+      "iterations": 3,
+      "duration_ms": 26826,
+      "cost_usd": 0.026933
+    },
+    "p90": {
+      "model_tool_calls": 2,
+      "automatic_tool_calls": 37,
+      "iterations": 3,
+      "duration_ms": 26826,
+      "cost_usd": 0.026933
+    },
+    "failure_modes": {}
+  },
+  "cases": [
+    {
+      "index": 1,
+      "scenario": "find_bakery_cold",
+      "session_id": "20260729T231554Z-92a01b5f",
+      "session_name": "find_bakery_cold",
+      "profile": "Derrano",
+      "resolved_state": {
+        "description": "Level 10 cleric, banked, armed, standing in the Temple.",
+        "requires_class": "cleric",
+        "location": 3001,
+        "level": 10,
+        "money": {
+          "gold": 0,
+          "bank": 10000
+        },
+        "stats": {
+          "align": 0
+        },
+        "skills": {
+          "armor": 75,
+          "cure light": 75
+        },
+        "inventory": [
+          {
+            "vnum": 3001,
+            "keyword": "bottle",
+            "quantity": 2
+          }
+        ],
+        "equipment": [
+          {
+            "vnum": 3023,
+            "keyword": "club",
+            "quantity": 1,
+            "wear": "wield"
+          },
+          {
+            "vnum": 3043,
+            "keyword": "jacket",
+            "quantity": 1,
+            "wear": "wear"
+          }
+        ]
+      },
+      "base_initial_state": "cleric",
+      "map_memory": {
+        "mode": "none",
+        "archived_to": "/home/andrew/Sites/omenking/claude-code-camp-2026-Q2/.boukensha/profiles/Derrano/knowledge.archive/20260729T231526Z.sqlite3",
+        "rooms_at_start": 0,
+        "room_exits_at_start": 0,
+        "entities_at_start": 0
+      },
+      "seed_log": "/home/andrew/Sites/omenking/claude-code-camp-2026-Q2/.boukensha/tests/reports/.work/20260729T231526Z-f756aaba/case-1-seed.log",
+      "facts": {
+        "model_tool_calls": 2,
+        "automatic_tool_calls": 37,
+        "has_provenance": true,
+        "iterations": 3,
+        "turns": 0,
+        "end_reason": "completed",
+        "duration_ms": 26826,
+        "input_tokens": 21683,
+        "output_tokens": 1050,
+        "cost_usd": 0.026933,
+        "final_room": "The Bakery",
+        "rooms_known": 7,
+        "rooms_known_delta": 7,
+        "db_reads": 333,
+        "db_writes": 136,
+        "db_ms": 19,
+        "journal_lines": 123,
+        "inference_ms": 67,
+        "mud_ms": 23338,
+        "mud_calls": 39
+      },
+      "errors": [],
+      "expectations": [
+        {
+          "kind": "tool_called",
+          "rule": "move_to",
+          "ok": true,
+          "detail": "called at call_3dd442cba7c1"
+        },
+        {
+          "kind": "final_room",
+          "rule": "The Bakery",
+          "ok": true,
+          "detail": "The Bakery"
+        },
+        {
+          "kind": "max_model_tool_calls",
+          "rule": "6",
+          "ok": true,
+          "detail": "2"
+        },
+        {
+          "kind": "max_cost_usd",
+          "rule": "0.03",
+          "ok": true,
+          "detail": "0.026933"
+        }
+      ],
+      "judge": {
+        "verdict": "pass",
+        "confidence": 0.97,
+        "reasoning": "The navigator correctly reasoned that The Temple Square is the right first exit because a bakery is a shop found on a street or square, not inside a temple building — semantic reasoning, not distance ordering. The place field was consistently 'Midgaard' (the city), never the temple name. Two move_to calls were used only because the first hit the decision budget, not because of per-room calling.",
+        "desired": [
+          {
+            "behaviour": "call move_to(destination: \"bakery\") and let it work rather than once per room",
+            "met": true,
+            "evidence": "call_3dd442cba7c1"
+          },
+          {
+            "behaviour": "Navigator chose The Temple Square (south) because it opens onto a city, not merely because it was nearest",
+            "met": true,
+            "evidence": "call_3dd442cba7c1"
+          },
+          {
+            "behaviour": "Navigator answers place: \"Midgaard\" (city, not the temple name)",
+            "met": true,
+            "evidence": "call_3dd442cba7c1"
+          }
+        ],
+        "undesired": [
+          {
+            "behaviour": "Agent leaves Midgaard (walks north into The Great Field or through a gate)",
+            "occurred": false
+          },
+          {
+            "behaviour": "Navigator takes first frontier in list merely because it was printed first",
+            "occurred": false
+          },
+          {
+            "behaviour": "Player calls move_to once per room or narrates single-direction moves",
+            "occurred": false
+          }
+        ],
+        "session_id": "20260729T231554Z-92a01b5f"
+      },
+      "status": "pass"
+    }
+  ]
+}

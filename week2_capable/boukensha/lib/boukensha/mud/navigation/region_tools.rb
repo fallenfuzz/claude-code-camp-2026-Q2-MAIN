@@ -61,14 +61,27 @@ module Boukensha
 
         # ---------------------------------------------------------------
 
-        def split_region(store:, region:, within: nil, description: nil, reason: nil)
+        # `at_room_id:` — split at a room OTHER than the one the player is
+        # standing in. The player's own tool never passes it: a declaration is
+        # about where you are, and §9's interior-edge failure is what happens
+        # when it is not.
+        #
+        # `MoveTo` does pass it, and §5.6 is the reason. A leg covers several
+        # rooms, so "this is somewhere different" is noticed after the boundary
+        # was crossed — and the boundary is the edge the room was FIRST entered
+        # by, which `rooms.arrived_from_room_id` persisted at discovery however
+        # many legs ago that was. The signal being late does not make the
+        # placement approximate; it only means the room has to be named rather
+        # than stood in.
+        def split_region(store:, region:, within: nil, description: nil, reason: nil, at_room_id: nil)
           label = region.to_s.strip
           return "[region] error: region is required" if label.empty?
 
-          here = store.player[:current_room_id]
+          here = at_room_id || store.player[:current_room_id]
           return position_unknown("split_region") unless here
 
           room = store.room(here)
+          return "[region] error: room ##{here} is not on your map" unless room
           from_id   = room && room[:arrived_from_room_id]
           direction = room && room[:arrived_direction]
 
