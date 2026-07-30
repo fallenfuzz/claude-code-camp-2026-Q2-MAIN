@@ -53,6 +53,13 @@ const TABS = [
   { to: "/knowledge/entities", end: true, label: "Entities", memory: true },
   { to: "/knowledge/frontier", end: true, label: "Frontier", memory: true },
   { to: "/knowledge/regions", end: true, label: "Regions", memory: true },
+  // ONE tab for the whole claim ledger — claims, their evidence, the feature
+  // chains three predicates are computed over, and the surveyor's frontier
+  // hints. Four tables, but one investigation, and four tabs would have made a
+  // reader join by hand what the writer already relates. Presumed exits are on
+  // Frontier for the same reason: they are precisely the exits that stopped
+  // being frontier, and that only reads if the two lists are side by side.
+  { to: "/knowledge/survey", end: true, label: "Survey", memory: true },
   { to: "/knowledge/player", end: true, label: "Player", memory: true },
   { to: "/knowledge/progression", end: true, label: "Progression", memory: false },
 ];

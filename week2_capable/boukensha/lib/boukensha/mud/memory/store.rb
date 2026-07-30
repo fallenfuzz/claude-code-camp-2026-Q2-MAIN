@@ -1,8 +1,10 @@
 require "json"
+require "set"
 require "time"
 require_relative "schema"
 require_relative "fingerprint"
 require_relative "regions"
+require_relative "exit_resolution"
 
 module Boukensha
   module Mud
@@ -358,6 +360,12 @@ module Boukensha
             # target_name lands.
             jupsert("exit", "#{room_id}:#{dir}:target_name", name)
           end
+          # Both inputs to name resolution have just changed — this room is new
+          # or newly named, and its exits may name rooms recorded long ago while
+          # rooms recorded long ago may name this one. The pass is over the whole
+          # map for that second reason: a new room satisfies exits ELSEWHERE, and
+          # a pass scoped to this room's own exits would never find them.
+          resolve_exit_names!
         end
 
         # We walked it and arrived somewhere known: the edge is now real. This
@@ -366,15 +374,93 @@ module Boukensha
         def link_exit!(room_id, direction, target_room_id)
           return unless room_id && direction && target_room_id
 
+          # The presumption is cleared in the same statement that earns the edge.
+          # An earned target always supersedes a presumed one, and leaving both
+          # set would mean every reader had to know which wins.
           @db.execute(
             "INSERT INTO room_exits (room_id, direction, target_room_id, traversals, last_seen_at) " \
             "VALUES (?, ?, ?, 1, ?) " \
             "ON CONFLICT(room_id, direction) DO UPDATE SET " \
-            "target_room_id = excluded.target_room_id, traversals = room_exits.traversals + 1, " \
-            "last_seen_at = excluded.last_seen_at",
+            "target_room_id = excluded.target_room_id, presumed_target_id = NULL, " \
+            "traversals = room_exits.traversals + 1, last_seen_at = excluded.last_seen_at",
             [room_id, direction.to_s, target_room_id, now]
           )
           jupsert("exit", "#{room_id}:#{direction}:target_room_id", target_room_id)
+        end
+
+        # ---------- exit name resolution ------------------------------------
+        # docs/plans/week_3/exit_name_resolution.md. The MUD names the room
+        # behind an exit and we have been throwing that away; this matches those
+        # names against rooms already in memory and records a PRESUMED link.
+        #
+        # `presumed_target_id` is a separate column from `target_room_id` and the
+        # separation is the whole design. An earned edge was walked; a presumed
+        # edge was merely named, and the two must stay distinguishable in the
+        # frontier calculation, in routing preference, and in what the model is
+        # shown. Nothing here ever writes `target_room_id` — `link_exit!` remains
+        # its only writer.
+
+        # Recompute every presumption over the whole map. Cheap by design: at the
+        # room counts this project measures the pass is a few dozen normalised
+        # string comparisons, and a full pass is the only version that handles
+        # the case that matters — a newly discovered room satisfying an exit
+        # recorded several rooms ago, somewhere else entirely.
+        #
+        # Returns the number of presumptions that CHANGED, so a caller can tell a
+        # pass that did something from one that confirmed the status quo.
+        def resolve_exit_names!
+          exits = all_exits
+          known = rooms
+          # A name observed on two distinct rooms is not an identifier, and it
+          # stays not-an-identifier: the finding is persisted rather than only
+          # derived, so a later map where one of the two rooms has been merged
+          # away cannot quietly make the name trustworthy again.
+          ExitResolution.ambiguous_names(rooms: known).each do |name|
+            note_ambiguous_exit_name!(name, reason: "names more than one known room")
+          end
+
+          resolved = ExitResolution.resolve(rooms: known, exits: exits, ambiguous: ambiguous_exit_names)
+          current  = exits.to_h { |e| [[e[:room_id], e[:direction].to_s], e[:presumed_target_id]] }
+
+          changed = 0
+          @db.transaction do
+            resolved.each do |(room_id, direction), target_id|
+              next if current[[room_id, direction]] == target_id
+
+              @db.execute("UPDATE room_exits SET presumed_target_id = ? WHERE room_id = ? AND direction = ?",
+                          [target_id, room_id, direction])
+              jupsert("exit", "#{room_id}:#{direction}:presumed_target_id", target_id)
+              changed += 1
+            end
+          end
+          changed
+        end
+
+        def ambiguous_exit_names
+          @db.execute("SELECT name FROM exit_name_ambiguity").map { |r| r["name"] }
+        end
+
+        def note_ambiguous_exit_name!(name, reason:)
+          normalized = ExitResolution::Search.normalize(name)
+          return if normalized.empty?
+
+          @db.execute(
+            "INSERT INTO exit_name_ambiguity (name, reason, noted_at) VALUES (?, ?, ?) " \
+            "ON CONFLICT(name) DO NOTHING", [normalized, reason.to_s, now]
+          )
+        end
+
+        # A presumption that walking proved wrong. The edge is cleared and the
+        # NAME is poisoned, which is what gives the mechanism its useful
+        # property: a wrong guess costs exactly one move and then never recurs,
+        # where the sparse graph it replaced cost every future route that needed
+        # the edge.
+        def refute_presumed_target!(room_id, direction, target_name: nil)
+          @db.execute("UPDATE room_exits SET presumed_target_id = NULL WHERE room_id = ? AND direction = ?",
+                      [room_id, direction.to_s])
+          note_ambiguous_exit_name!(target_name, reason: "walking the exit did not lead to the named room") if target_name
+          jevent("exit", "presumption_refuted", room_id: room_id, direction: direction.to_s,
+                                                target_name: target_name)
         end
 
         # We walked this way and landed somewhere the exits table did not name.
@@ -655,6 +741,178 @@ module Boukensha
           ).each_with_object({}) { |r, h| h[[r["room_id"], r["direction"]]] = r["n"].to_i }
         end
 
+        # ---------- claims (EARNED, and the survey's whole memory) -----------
+        # docs/plans/week_3/movement_revisited/claims.md.
+        #
+        # The ledger is keyed by region and outlives the `move_to` call that
+        # opened it, which is the single strongest argument for the model. A
+        # coverage counter reading "fourteen rooms walked" means nothing at the
+        # start of the next session; a `circuit_closes` claim standing at three
+        # sides confirmed and one side unexplored tells the next survey exactly
+        # where to resume.
+
+        OPEN_STATUSES = %w[open parked].freeze
+
+        def claims(region_id: nil, status: nil)
+          sql    = "SELECT * FROM claims"
+          where  = []
+          params = []
+          if region_id
+            where << "region_id = ?"
+            params << region_id
+          end
+          if status
+            where << "status IN (#{(['?'] * Array(status).size).join(', ')})"
+            params.concat(Array(status).map(&:to_s))
+          end
+          sql += " WHERE #{where.join(' AND ')}" if where.any?
+          @db.execute("#{sql} ORDER BY id", params).map { |r| claim_row(r) }
+        end
+
+        def claim(id)
+          return nil unless id
+
+          claim_row(@db.execute("SELECT * FROM claims WHERE id = ?", [id]).first)
+        end
+
+        # The merge key is (region, predicate, subject) and not the statement,
+        # because two surveys will phrase the same proposition differently and a
+        # ledger that forked on wording would spread one claim's evidence across
+        # several rows where none of them was decisive.
+        def claim_by_subject(region_id:, predicate:, subject:)
+          claim_row(@db.execute(
+            "SELECT * FROM claims WHERE region_id IS ? AND predicate = ? AND subject IS ? ORDER BY id LIMIT 1",
+            [region_id, predicate.to_s, subject&.to_s]
+          ).first)
+        end
+
+        def create_claim!(region_id:, statement:, predicate:, subject: nil, status: "open",
+                          confidence: 0.5, priority: 0.5, answers: nil, decisive_when: nil,
+                          args: nil, room_budget: nil, objective: nil)
+          t = now
+          @db.execute(
+            "INSERT INTO claims (region_id, ref, statement, predicate, subject, status, confidence, " \
+            "priority, answers, decisive_when, args, room_budget, objective, created_at, updated_at) " \
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            [region_id, next_claim_ref(region_id), statement.to_s, predicate.to_s, subject&.to_s,
+             status.to_s, confidence.to_f, priority.to_f, answers, decisive_when,
+             args && JSON.generate(args), room_budget, objective, t, t]
+          )
+          id = @db.last_insert_row_id
+          jevent("claim", "open", id: id, predicate: predicate.to_s, subject: subject,
+                                  statement: statement, priority: priority)
+          id
+        end
+
+        def update_claim!(id, **fields)
+          fields = fields.compact
+          return if fields.empty?
+
+          fields[:args] = JSON.generate(fields[:args]) if fields[:args].is_a?(Hash)
+          fields[:updated_at] = now
+          @db.execute("UPDATE claims SET #{fields.keys.map { |k| "#{k} = ?" }.join(', ')} WHERE id = ?",
+                      fields.values + [id])
+          jevent("claim", "revise", id: id, **fields.slice(:status, :confidence, :priority, :settled_reason))
+        end
+
+        # A settled claim leaves the ledger's working set but never the file.
+        # `unresolved` is a successful outcome and not a failure — "the wall road
+        # runs along the north, east and south sides, and the western
+        # continuation was not reached" answers the player's question far better
+        # than a room count — and `refuted` is a finding in its own right.
+        def settle_claim!(id, status:, reason: nil)
+          update_claim!(id, status: status.to_s, settled_reason: reason)
+          jevent("claim", "settle", id: id, status: status.to_s, reason: reason)
+        end
+
+        def add_claim_evidence!(claim_id:, polarity:, room_id: nil, note: nil)
+          @db.execute(
+            "INSERT INTO claim_evidence (claim_id, room_id, polarity, note, observed_at) VALUES (?, ?, ?, ?, ?)",
+            [claim_id, room_id, polarity.to_s, note, now]
+          )
+          jevent("claim", "evidence", claim_id: claim_id, room_id: room_id,
+                                      polarity: polarity.to_s, note: note)
+        end
+
+        def claim_evidence(claim_id)
+          @db.execute("SELECT * FROM claim_evidence WHERE claim_id = ? ORDER BY id", [claim_id])
+             .map { |r| row(r) }
+        end
+
+        # { claim_id => [evidence, …] }, one query — the report renders every
+        # claim with its evidence and would otherwise issue a query per claim.
+        def claim_evidence_by_claim(region_id: nil)
+          sql = "SELECT e.* FROM claim_evidence e JOIN claims c ON c.id = e.claim_id"
+          sql += " WHERE c.region_id IS ?" if region_id
+          @db.execute("#{sql} ORDER BY e.id", region_id ? [region_id] : [])
+             .group_by { |r| r["claim_id"] }
+             .transform_values { |rs| rs.map { |r| row(r) } }
+        end
+
+        # ---------- features (the one durable per-room tag) -------------------
+        # `circuit_closes`, `connects` and `bounds` all turn on deciding that
+        # several separately observed rooms belong to ONE road or ONE wall. That
+        # is not a property of any room, so it is a join table and not a column.
+
+        def feature(region_id:, slug:)
+          row(@db.execute("SELECT * FROM features WHERE region_id IS ? AND slug = ?",
+                          [region_id, slug.to_s]).first)
+        end
+
+        def upsert_feature!(region_id:, slug:, label: nil)
+          t = now
+          @db.execute(
+            "INSERT INTO features (region_id, slug, label, first_seen_at, updated_at) VALUES (?, ?, ?, ?, ?) " \
+            "ON CONFLICT(region_id, slug) DO UPDATE SET " \
+            "label = COALESCE(excluded.label, features.label), updated_at = excluded.updated_at",
+            [region_id, slug.to_s, label, t, t]
+          )
+          feature(region_id: region_id, slug: slug)[:id]
+        end
+
+        def tag_feature_room!(feature_id:, room_id:, note: nil)
+          @db.execute(
+            "INSERT INTO feature_rooms (feature_id, room_id, note, observed_at) VALUES (?, ?, ?, ?) " \
+            "ON CONFLICT(feature_id, room_id) DO UPDATE SET note = COALESCE(excluded.note, feature_rooms.note)",
+            [feature_id, room_id, note, now]
+          )
+          jevent("feature", "tag", feature_id: feature_id, room_id: room_id, note: note)
+        end
+
+        # { slug => [room_id, …] } for one region — what the predicates that
+        # reason over chains need, in one query.
+        def feature_rooms(region_id: nil)
+          sql = "SELECT f.slug, fr.room_id FROM feature_rooms fr JOIN features f ON f.id = fr.feature_id"
+          sql += " WHERE f.region_id IS ?" if region_id
+          @db.execute(sql, region_id ? [region_id] : [])
+             .group_by { |r| r["slug"] }
+             .transform_values { |rs| rs.map { |r| r["room_id"] }.uniq.sort }
+        end
+
+        # ---------- frontier hints -------------------------------------------
+        # The surveyor's guess about what lies behind an unwalked exit. The
+        # planner cannot compute this — it sees only the exit's name — and the
+        # surveyor is already reading those exits when it revises the ledger, so
+        # the annotation is free and the semantic guess sits in the component
+        # that should be making semantic guesses.
+
+        def record_frontier_hint!(room_id:, direction:, expected_class: nil, note: nil)
+          @db.execute(
+            "INSERT INTO frontier_hints (room_id, direction, expected_class, note, updated_at) " \
+            "VALUES (?, ?, ?, ?, ?) ON CONFLICT(room_id, direction) DO UPDATE SET " \
+            "expected_class = COALESCE(excluded.expected_class, frontier_hints.expected_class), " \
+            "note = COALESCE(excluded.note, frontier_hints.note), updated_at = excluded.updated_at",
+            [room_id, direction.to_s, expected_class&.to_s, note, now]
+          )
+        end
+
+        # { [room_id, direction] => expected_class }
+        def frontier_hints
+          @db.execute("SELECT * FROM frontier_hints").each_with_object({}) do |r, h|
+            h[[r["room_id"], r["direction"]]] = r["expected_class"]
+          end
+        end
+
         # ---------- encounters --------------------------------------------
 
         def record_encounter!(outcome:, room_id: nil, entity_id: nil, hp_before: nil, hp_after: nil)
@@ -725,6 +983,27 @@ module Boukensha
 
             jupsert("stat", col, val)
           end
+        end
+
+        # Claim rows carry one JSON column. Parsing it here rather than at every
+        # read site is what lets the predicates treat `args` as a plain hash —
+        # and a row whose JSON was written by a build that has since changed
+        # degrades to an empty hash rather than taking the survey down with it.
+        def claim_row(hash)
+          r = row(hash) or return nil
+          r[:args] = begin
+            r[:args] ? JSON.parse(r[:args]) : {}
+          rescue JSON::ParserError
+            {}
+          end
+          r
+        end
+
+        # "C1", "C2" — per region, and never reused, so a ref that appears in a
+        # journal line or an old report always means the claim it meant then.
+        def next_claim_ref(region_id)
+          n = @db.execute("SELECT COUNT(*) AS n FROM claims WHERE region_id IS ?", [region_id]).first["n"].to_i
+          "C#{n + 1}"
         end
 
         def scalar(sql) = @db.execute(sql).first.values.first.to_i

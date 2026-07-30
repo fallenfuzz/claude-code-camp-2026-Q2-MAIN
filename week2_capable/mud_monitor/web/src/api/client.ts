@@ -10,6 +10,7 @@ import type {
   KnowledgeRegionsPage,
   KnowledgeRoomDetail,
   KnowledgeRoomsPage,
+  KnowledgeSurveyPage,
   JournalPage,
   ManagerPage,
   MessagesTimeline,
@@ -206,6 +207,14 @@ export function fetchKnowledgeEntities(
 
 export function fetchKnowledgeFrontier(session?: string | null): Promise<KnowledgeFrontierPage> {
   return get(withSession("/knowledge/frontier", session));
+}
+
+// The claim ledger, its evidence, the feature chains and the surveyor's hints —
+// one request, because they are one investigation seen from four sides. Four
+// endpoints would make the client join what the writer already relates, and
+// four tabs would make the reader do it.
+export function fetchKnowledgeSurvey(session?: string | null): Promise<KnowledgeSurveyPage> {
+  return get(withSession("/knowledge/survey", session));
 }
 
 // Its own endpoint rather than more keys on /knowledge, for the same reason

@@ -1,0 +1,189 @@
+{
+  "schema": 2,
+  "run_id": "20260730T201534Z-791c06b2",
+  "kind": "scenario",
+  "name": "explore_midgaard",
+  "started_at": "2026-07-30T20:15:34.656Z",
+  "ended_at": "2026-07-30T20:19:21.446Z",
+  "environment": {
+    "profile": "Derrano",
+    "provider": "anthropic",
+    "model": "claude-haiku-4-5",
+    "boukensha_version": "0.13.0",
+    "git_sha": "b9dc88b",
+    "settings_digest": "sha256:42f08bebf87f12448079efbf55c0b970231f30c588b947521cbf2233a029d3a0",
+    "judge": {
+      "provider": "anthropic",
+      "model": "claude-sonnet-4-6"
+    }
+  },
+  "summary": {
+    "cases": 1,
+    "passed": 0,
+    "failed": 1,
+    "errored": 0,
+    "pass_rate": 0.0,
+    "cost_usd": {
+      "agent": 0.275435,
+      "judge": 0,
+      "total": 0.275435
+    },
+    "median": {
+      "model_tool_calls": 23,
+      "automatic_tool_calls": 68,
+      "iterations": 23,
+      "duration_ms": 133812,
+      "cost_usd": 0.275435
+    },
+    "p90": {
+      "model_tool_calls": 23,
+      "automatic_tool_calls": 68,
+      "iterations": 23,
+      "duration_ms": 133812,
+      "cost_usd": 0.275435
+    },
+    "failure_modes": {
+      "judge": 1
+    }
+  },
+  "cases": [
+    {
+      "index": 1,
+      "scenario": "explore_midgaard",
+      "session_id": "20260730T201603Z-ff25f010",
+      "session_name": "explore_midgaard",
+      "profile": "Derrano",
+      "resolved_state": {
+        "description": "Level 10 cleric, banked, armed, standing in the Temple.",
+        "requires_class": "cleric",
+        "location": 3001,
+        "level": 10,
+        "money": {
+          "gold": 0,
+          "bank": 10000
+        },
+        "stats": {
+          "align": 0
+        },
+        "skills": {
+          "armor": 75,
+          "cure light": 75
+        },
+        "inventory": [
+          {
+            "vnum": 3001,
+            "keyword": "bottle",
+            "quantity": 2
+          }
+        ],
+        "equipment": [
+          {
+            "vnum": 3023,
+            "keyword": "club",
+            "quantity": 1,
+            "wear": "wield"
+          },
+          {
+            "vnum": 3043,
+            "keyword": "jacket",
+            "quantity": 1,
+            "wear": "wear"
+          }
+        ]
+      },
+      "base_initial_state": "cleric",
+      "map_memory": {
+        "mode": "none",
+        "archived_to": "/home/andrew/Sites/omenking/claude-code-camp-2026-Q2/.boukensha/profiles/Derrano/knowledge.archive/20260730T201534Z.sqlite3",
+        "rooms_at_start": 0,
+        "room_exits_at_start": 0,
+        "entities_at_start": 0,
+        "regions_at_start": 0
+      },
+      "arm": "default",
+      "settings": null,
+      "settings_digest": "sha256:42f08bebf87f12448079efbf55c0b970231f30c588b947521cbf2233a029d3a0",
+      "stage": null,
+      "seed_log": "/home/andrew/Sites/omenking/claude-code-camp-2026-Q2/.boukensha/tests/reports/.work/20260730T201534Z-791c06b2/case-1-seed.log",
+      "facts": {
+        "model_tool_calls": 23,
+        "automatic_tool_calls": 68,
+        "has_provenance": true,
+        "iterations": 23,
+        "turns": 0,
+        "end_reason": "max_tokens",
+        "duration_ms": 133812,
+        "input_tokens": 148718,
+        "output_tokens": 7375,
+        "cost_usd": 0.275435,
+        "final_room": "The Dump",
+        "rooms_known": 5,
+        "rooms_known_delta": 5,
+        "regions_known": 1,
+        "regions_delta": 1,
+        "region_labels": [
+          "⟨from The Temple Of Midgaard⟩"
+        ],
+        "region_splits": [],
+        "journal_ops": {
+          "room.create": 5,
+          "region.create": 1,
+          "feature.tag": 8,
+          "claim.open": 10,
+          "claim.evidence": 19,
+          "move_to.ledger_revised": 5,
+          "frontier_attempt.succeeded": 4,
+          "claim.revise": 23,
+          "survey.claim_parked": 3,
+          "claim.settle": 4,
+          "survey.claim_settled": 3,
+          "survey.claim_unparked": 3,
+          "frontier_attempt.failed": 22,
+          "move_to.decision": 1
+        },
+        "db_reads": 643,
+        "db_writes": 231,
+        "db_ms": 49,
+        "journal_lines": 187,
+        "inference_ms": 52,
+        "mud_ms": 94172,
+        "mud_calls": 91
+      },
+      "errors": [],
+      "expectations": [
+        {
+          "kind": "tool_called",
+          "rule": "move_to",
+          "ok": true,
+          "detail": "called at call_999f2a530e0f"
+        }
+      ],
+      "judge": {
+        "verdict": "fail",
+        "confidence": 0.97,
+        "reasoning": "After an initial survey call and one move to the sewer, the agent became stuck in The Dump and spent virtually all remaining calls retrying 'The Common Square' from the same room — 20+ identical failed attempts. Coverage was never achieved; only a tiny slice of the south end was visited, and the bulk of the budget was consumed in one stuck location.",
+        "desired": [
+          {
+            "behaviour": "Use move_to repeatedly with different destinations to spread the walk across the frontier",
+            "met": false,
+            "evidence": null
+          },
+          {
+            "behaviour": "Name the region (confirm label from the starting point)",
+            "met": false,
+            "evidence": null
+          }
+        ],
+        "undesired": [
+          {
+            "behaviour": "Spend the whole budget on one quarter instead of achieving coverage",
+            "occurred": true,
+            "evidence": "call_e6c273371f58"
+          }
+        ],
+        "session_id": "20260730T201603Z-ff25f010"
+      },
+      "status": "fail"
+    }
+  ]
+}

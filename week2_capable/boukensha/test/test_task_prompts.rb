@@ -1,5 +1,6 @@
 require_relative "helper"
 require "boukensha/tasks/judge"
+require "boukensha/tasks/surveyor"
 
 # Default prompts are DATA the library reads at runtime, and a missing one fails
 # silently: `read_file` returns nil, the task runs with no system prompt, and
@@ -30,6 +31,20 @@ class TestTaskPrompts < Minitest::Test
     refute_nil prompt, "the judge has no bundled default system prompt"
     assert_match(/verdict/i, prompt)
     assert_match(/JSON/, prompt)
+  end
+
+  # The surveyor's prompt has to teach the closed predicate vocabulary, because
+  # a claim classified under a predicate the planner does not know is rejected
+  # before it reaches the ledger — a surveyor that had never been shown the list
+  # would have its whole answer thrown away, silently.
+  def test_the_surveyor_default_prompt_resolves_and_carries_the_predicate_vocabulary
+    prompt = Boukensha::Tasks::Surveyor.system_prompt({}, default_prompts_dir: PROMPTS)
+
+    refute_nil prompt, "the surveyor has no bundled default system prompt"
+    Boukensha::Mud::Navigation::Predicates::NAMES.each do |predicate|
+      assert_match(/#{predicate}/, prompt, "the surveyor is never told about `#{predicate}`")
+    end
+    assert_match(/decisive_when/, prompt)
   end
 
   # `Base.read_default_prompt` reads `<prompts>/<name>.md` — the PLAYER's file.

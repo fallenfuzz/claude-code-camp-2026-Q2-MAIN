@@ -40,6 +40,16 @@ question, not a wall, and it prints the call that widens the search. Answer it
 deliberately — and reach for `scope: "world"` without waiting to be asked when
 what you are looking for is by its nature somewhere else, as a hermit is.
 
+When what you want is to understand a place rather than to reach one thing in
+it, ask for that directly: `move_to(survey: "walk around town and work out how
+big it is and what it offers")`. Do not invent a series of destinations to
+explore towards — that is the thing a survey exists to replace, and it is how
+an hour gets spent walking around one inn. A survey decides where to walk from
+what the question needs, and it answers with what it established, what it ruled
+out, and what is still open. Those open lines are not failures: they say
+precisely what would settle them, and calling `move_to(survey:)` again picks up
+from there rather than starting over.
+
 # MUD Session
 The MUD session connects and logs in automatically the moment you send your first gameplay action.
 There is no connect tool.  A status check reporting "disconnected" just means no action has been sent yet,  

@@ -98,10 +98,42 @@ module Api
       end
 
       # GET /knowledge/frontier
+      #
+      # Two lists, one request. Presumed exits are what USED to be counted here
+      # and no longer is — the MUD named a room the agent has already stood in,
+      # so the exit is routable and is not exploration. Serving them apart on
+      # the same tab is what lets a reader tell "nobody has been there" from
+      # "something believes it knows, on a name alone", and the ambiguity set
+      # explains the exits that look resolvable and were deliberately refused.
       def frontier
         with_reader do |reader|
-          exits = reader.frontier
-          render json: reader.envelope.merge(frontier: exits, count: exits.length)
+          exits    = reader.frontier
+          presumed = reader.presumed_exits
+          render json: reader.envelope.merge(
+            frontier: exits, count: exits.length,
+            presumed: presumed, presumed_count: presumed.length,
+            ambiguous_names: reader.ambiguous_exit_names
+          )
+        end
+      end
+
+      # GET /knowledge/survey
+      #
+      # The claim ledger, its evidence, the feature chains three predicates are
+      # computed over, and the surveyor's expected-class hints — one payload,
+      # because they are one investigation seen from four sides and a reader
+      # asked to join them across four tabs would be doing the writer's work.
+      #
+      # A snapshot like every other knowledge read. A claim's confidence moves
+      # by UPDATE and cannot be expressed as "entries after seq N", so there is
+      # nothing to tail here any more than there is for a room's visit count.
+      def survey
+        with_reader do |reader|
+          payload = reader.survey
+          render json: reader.envelope.merge(payload).merge(
+            count: payload[:claims].length,
+            open_count: payload[:claims].count { |c| %w[open parked].include?(c[:status]) }
+          )
         end
       end
 

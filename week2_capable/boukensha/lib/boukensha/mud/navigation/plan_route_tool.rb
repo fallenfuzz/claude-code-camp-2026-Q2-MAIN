@@ -111,8 +111,20 @@ module Boukensha
           lines = ["[route] #{plan.query} — known", "to: #{room_label(room)}"]
           lines << "path: #{path_line(plan.steps)}"
           lines << chain_line(plan, store)
+          lines << presumed_line(plan) if plan.presumed
           lines << alternatives_line(plan) if plan.alternatives.any?
           lines.join("\n")
+        end
+
+        # A route resting on at least one edge the MUD named and nobody walked.
+        # Said out loud because the difference matters to whoever reads it: the
+        # step is worth taking (it is what gets the agent back out of a room
+        # whose only exit was never traversed), and if it turns out to be wrong
+        # the walk simply lands somewhere else and re-plans.
+        def presumed_line(plan)
+          n = plan.steps.count { |s| s[:presumed] }
+          "note: #{n} step#{'s' unless n == 1} of this route #{n == 1 ? 'is' : 'are'} presumed from the " \
+            "destination name#{'s' unless n == 1} the MUD printed, not from having walked #{n == 1 ? 'it' : 'them'}"
         end
 
         # The destination is not mapped. What used to be printed here was ONE

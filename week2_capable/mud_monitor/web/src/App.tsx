@@ -14,6 +14,7 @@ import Progression from "./pages/knowledge/Progression";
 import Regions from "./pages/knowledge/Regions";
 import RoomDetail from "./pages/knowledge/RoomDetail";
 import Rooms from "./pages/knowledge/Rooms";
+import Survey from "./pages/knowledge/Survey";
 import Manager from "./pages/Manager";
 import ReportDetail from "./pages/ReportDetail";
 import Reports from "./pages/Reports";
@@ -47,6 +48,7 @@ export default function App() {
           <Route path="entities" element={<Entities />} />
           <Route path="frontier" element={<Frontier />} />
           <Route path="regions" element={<Regions />} />
+          <Route path="survey" element={<Survey />} />
           <Route path="player" element={<Player />} />
           <Route path="progression" element={<Progression />} />
         </Route>

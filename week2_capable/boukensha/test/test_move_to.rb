@@ -177,11 +177,16 @@ class TestMoveTo < Minitest::Test
     assert_empty mud.move_calls
   end
 
-  def test_an_empty_destination_is_refused_before_anything_moves
+  # `move_to` now has two objective modes and both are optional parameters, so
+  # the empty case has to name both — a call giving neither is not a travel
+  # request missing its destination, it is a call with no objective at all.
+  def test_a_call_with_no_objective_is_refused_before_anything_moves
     mud = ScriptedMud.new(start_fixtures: MARKET_SQUARE)
     hooks = hooks_at_market_square(mud)
 
-    assert_match(/destination is required/, move_to(mud, hooks).call(destination: "   "))
+    assert_match(/destination to travel to or a survey question/,
+                 move_to(mud, hooks).call(destination: "   "))
+    assert_match(/destination to travel to or a survey question/, move_to(mud, hooks).call)
     assert_empty mud.move_calls
   end
 

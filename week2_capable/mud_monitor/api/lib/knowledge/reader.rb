@@ -23,7 +23,7 @@ module Knowledge
     # anyway — memory/schema.rb migrations are additive by construction ("append
     # to MIGRATIONS, never edit an applied one") — but the number is reported so
     # a surprise is visible rather than silent.
-    KNOWN_SCHEMA_VERSION = 5
+    KNOWN_SCHEMA_VERSION = 7
 
     # V2 added the player half — the score sheet's other two thirds, plus
     # `player_skills` and `player_items`. Additive DDL means a NEWER file is
@@ -39,6 +39,15 @@ module Knowledge
     # SELECT against a missing table raises. One monitor serves an agent that
     # has never declared a region and one that has.
     REGIONS_VERSION = 5
+
+    # V6 added presumed exit targets — an exit whose MUD-reported name was
+    # matched to a room already in memory. V7 added the claim ledger. Both are
+    # gated the same way as the two above and for the same reason: a named
+    # SELECT against a table that does not exist raises, and named columns are
+    # the whole drift-detection mechanism, so one monitor has to serve an agent
+    # that has never surveyed anything and one that has.
+    PRESUMED_VERSION = 6
+    SURVEY_VERSION   = 7
 
     # A SELECT that the file's schema can't answer. Carries the version so the
     # UI can say *which* schema it choked on.
@@ -164,12 +173,30 @@ module Knowledge
                (SELECT COUNT(*) FROM player_items)  AS items
       SQL
 
-      EMPTY_STATS.merge(row.transform_keys(&:to_sym).transform_values(&:to_i))
+      # A third and fourth statement, gated the same way and for the same
+      # reason: a pre-V6 file has neither table, and one missing table takes the
+      # whole statement — and therefore the whole Overview — with it.
+      row = row.merge(query_one(<<~SQL) || {}) if presumed?
+        SELECT (SELECT COUNT(*) FROM room_exits WHERE presumed_target_id IS NOT NULL
+                  AND target_room_id IS NULL)                                  AS presumed
+      SQL
+      row = row.merge(query_one(<<~SQL) || {}) if survey?
+        SELECT (SELECT COUNT(*) FROM claims)                                   AS claims,
+               (SELECT COUNT(*) FROM claims WHERE status IN ('open','parked')) AS claims_open,
+               (SELECT COUNT(*) FROM features)                                 AS features
+      SQL
+
+      # `frontier` above counts every unlinked exit including the presumed ones,
+      # which is not what the tab shows. Subtract here so the tile and the table
+      # under it can never disagree.
+      stats = EMPTY_STATS.merge(row.transform_keys(&:to_sym).transform_values(&:to_i))
+      stats.merge(frontier: stats[:frontier] - stats[:presumed])
     end
 
     EMPTY_STATS = {
       rooms: 0, surveyed: 0, provisional: 0, entities: 0, mobs: 0, objects: 0,
-      exits: 0, frontier: 0, traversed: 0, encounters: 0, skills: 0, items: 0
+      exits: 0, frontier: 0, traversed: 0, encounters: 0, skills: 0, items: 0,
+      presumed: 0, claims: 0, claims_open: 0, features: 0
     }.freeze
 
     # ---------- the player ----------------------------------------------
@@ -485,15 +512,21 @@ module Knowledge
 
     # The query `idx_exits_frontier` exists to serve, and the single most useful
     # number on the tab: exits the agent has seen named but never walked.
+    #
+    # An exit carrying a PRESUMED target is excluded, because something already
+    # knows what is behind it and counting it here would overstate how much of
+    # the world is left. Those are listed separately by `presumed_exits`, on the
+    # same tab, so the difference is visible rather than merely applied.
     def frontier
       return [] unless attached?
 
+      presumed_clause = presumed? ? "AND e.presumed_target_id IS NULL" : ""
       sql = <<~SQL
         SELECT e.room_id, e.direction, e.target_name, e.last_seen_at,
                r.name AS room_name, r.surveyed_at
           FROM room_exits e
           JOIN rooms r ON r.id = e.room_id
-         WHERE e.target_room_id IS NULL
+         WHERE e.target_room_id IS NULL #{presumed_clause}
          ORDER BY r.id, e.direction
       SQL
 
@@ -553,6 +586,198 @@ module Knowledge
     end
 
     def regions? = schema_version.to_i >= REGIONS_VERSION
+
+    # ---------- survey: the claim ledger --------------------------------
+
+    # What the agent is trying to ESTABLISH about a place, as opposed to what it
+    # has recorded about one — docs/plans/week_3/movement_revisited/claims.md.
+    #
+    # Everything else on this tab is observation: a room was entered, an entity
+    # was seen, an exit was walked. A claim is an investigation, and it is the
+    # only thing in this file that can be WRONG in an interesting way — it
+    # carries a confidence, it accumulates evidence for and against, and it can
+    # end up `refuted`. That is why the evidence travels with it here rather
+    # than behind a second request: a verdict without the rooms that produced it
+    # is exactly as reviewable as a region boundary without its reason, which is
+    # to say not at all.
+    #
+    # Served as one payload with features and hints because they are the same
+    # investigation seen from three sides. Feature membership is what
+    # `circuit_closes` and `connects` are computed over, and a hint is the guess
+    # that moved the survey somewhere; splitting them across three tabs would
+    # make the reader assemble by hand what the writer already relates.
+    def survey
+      return EMPTY_SURVEY unless attached? && survey?
+
+      { claims: claims, features: features, hints: frontier_hints }
+    end
+
+    EMPTY_SURVEY = { claims: [], features: [], hints: [] }.freeze
+
+    CLAIM_COLUMNS = "c.id, c.region_id, c.ref, c.statement, c.predicate, c.subject, c.status, " \
+                    "c.confidence, c.priority, c.answers, c.decisive_when, c.args, c.room_budget, " \
+                    "c.rooms_spent, c.settled_reason, c.objective, c.created_at, c.updated_at".freeze
+
+    def claims
+      evidence = claim_evidence
+
+      query(<<~SQL).map do |row|
+        SELECT #{CLAIM_COLUMNS}, g.label AS region_label
+          FROM claims c
+          LEFT JOIN regions g ON g.id = c.region_id
+         ORDER BY c.region_id, c.id
+      SQL
+        rows = evidence.fetch(row["id"], [])
+        {
+          id: row["id"],
+          ref: row["ref"],
+          region_id: row["region_id"],
+          region_label: row["region_label"],
+          statement: row["statement"],
+          # The predicate is what the deterministic planner actually ran, and the
+          # statement is prose for a human. Both, always — a statement without
+          # its predicate cannot be checked against what the survey did.
+          predicate: row["predicate"],
+          subject: row["subject"],
+          status: row["status"],
+          confidence: row["confidence"],
+          priority: row["priority"],
+          answers: row["answers"],
+          decisive_when: row["decisive_when"],
+          # The class lists a `composition` is tracking, the `n` of a
+          # `count_at_least`, the feature a `circuit_closes` is following.
+          args: parse_json_object(row["args"]),
+          room_budget: row["room_budget"],
+          rooms_spent: row["rooms_spent"],
+          settled_reason: row["settled_reason"],
+          objective: row["objective"],
+          created_at: row["created_at"],
+          updated_at: row["updated_at"],
+          evidence: rows,
+          # Counted here rather than in the client because "three for, one
+          # against" is the shape of the claim and every view wants it.
+          support_count: rows.count { |e| e[:polarity] == "support" },
+          contradict_count: rows.count { |e| e[:polarity] == "contradict" }
+        }
+      end
+    end
+
+    # { claim_id => [{ room_id:, room_name:, polarity:, note: }] }, one statement
+    # for the whole ledger.
+    def claim_evidence
+      sql = <<~SQL
+        SELECT e.id, e.claim_id, e.room_id, e.polarity, e.note, e.observed_at, r.name AS room_name
+          FROM claim_evidence e
+          LEFT JOIN rooms r ON r.id = e.room_id
+         ORDER BY e.id
+      SQL
+
+      query(sql).each_with_object(Hash.new { |h, k| h[k] = [] }) do |row, out|
+        out[row["claim_id"]] << {
+          id: row["id"],
+          room_id: row["room_id"], room_name: row["room_name"],
+          # `contradict` is first-class and not an absence of support:
+          # establishing that a town has no second bridge is a finding.
+          polarity: row["polarity"], note: row["note"], observed_at: row["observed_at"]
+        }
+      end
+    end
+
+    # The one durable per-room tag the claim model needs: which separately
+    # observed rooms belong to ONE road or ONE wall. Three predicates are
+    # computed over these chains, so a chain assembled wrongly is the most
+    # likely reason a survey walked somewhere strange.
+    def features
+      members = query(<<~SQL).each_with_object(Hash.new { |h, k| h[k] = [] }) do |row, out|
+        SELECT fr.feature_id, fr.room_id, fr.note, fr.observed_at, r.name AS room_name
+          FROM feature_rooms fr
+          LEFT JOIN rooms r ON r.id = fr.room_id
+         ORDER BY fr.feature_id, fr.room_id
+      SQL
+        out[row["feature_id"]] << { room_id: row["room_id"], room_name: row["room_name"],
+                                    note: row["note"], observed_at: row["observed_at"] }
+      end
+
+      query("SELECT f.id, f.region_id, f.slug, f.label, f.first_seen_at, f.updated_at, " \
+            "g.label AS region_label FROM features f LEFT JOIN regions g ON g.id = f.region_id " \
+            "ORDER BY f.id").map do |row|
+        rooms = members.fetch(row["id"], [])
+        {
+          id: row["id"], slug: row["slug"], label: row["label"],
+          region_id: row["region_id"], region_label: row["region_label"],
+          first_seen_at: row["first_seen_at"], updated_at: row["updated_at"],
+          rooms: rooms, room_count: rooms.length
+        }
+      end
+    end
+
+    # The surveyor's guess about what lies behind an unwalked exit — the one
+    # thing the deterministic scorer cannot work out for itself, and therefore
+    # the field that explains most surprising frontier choices.
+    def frontier_hints
+      sql = <<~SQL
+        SELECT h.room_id, h.direction, h.expected_class, h.note, h.updated_at,
+               r.name AS room_name, e.target_name
+          FROM frontier_hints h
+          LEFT JOIN rooms r ON r.id = h.room_id
+          LEFT JOIN room_exits e ON e.room_id = h.room_id AND e.direction = h.direction
+         ORDER BY h.room_id, h.direction
+      SQL
+
+      query(sql).map do |row|
+        {
+          room_id: row["room_id"], room_name: row["room_name"],
+          direction: row["direction"], target_name: row["target_name"],
+          expected_class: row["expected_class"], note: row["note"], updated_at: row["updated_at"]
+        }
+      end
+    end
+
+    def survey? = schema_version.to_i >= SURVEY_VERSION
+
+    # ---------- presumed edges ------------------------------------------
+
+    # Exits the MUD NAMED as a room already in memory, matched by name and never
+    # walked. They sit beside the frontier rather than on a tab of their own
+    # because they are precisely the exits that stopped being frontier: reading
+    # the two lists apart is how you tell "the agent has not been there" from
+    # "the agent believes it knows, on a name alone".
+    def presumed_exits
+      return [] unless attached? && presumed?
+
+      sql = <<~SQL
+        SELECT e.room_id, e.direction, e.target_name, e.presumed_target_id, e.last_seen_at,
+               r.name AS room_name, t.name AS presumed_target_name
+          FROM room_exits e
+          JOIN rooms r ON r.id = e.room_id
+          LEFT JOIN rooms t ON t.id = e.presumed_target_id
+         WHERE e.presumed_target_id IS NOT NULL AND e.target_room_id IS NULL
+         ORDER BY e.room_id, e.direction
+      SQL
+
+      query(sql).map do |row|
+        {
+          room_id: row["room_id"], room_name: row["room_name"],
+          direction: row["direction"], target_name: row["target_name"],
+          presumed_target_id: row["presumed_target_id"],
+          presumed_target_name: row["presumed_target_name"],
+          last_seen_at: row["last_seen_at"]
+        }
+      end
+    end
+
+    # Names that identified more than one room, or that walking disproved. A
+    # name in here is never resolved again, so this is the list that explains
+    # why an obviously-matching exit was left as frontier.
+    def ambiguous_exit_names
+      return [] unless attached? && presumed?
+
+      query("SELECT name, reason, noted_at FROM exit_name_ambiguity ORDER BY name").map do |row|
+        { name: row["name"], reason: row["reason"], noted_at: row["noted_at"] }
+      end
+    end
+
+    def presumed? = schema_version.to_i >= PRESUMED_VERSION
 
     private
 
@@ -676,6 +901,18 @@ module Knowledge
     # `look_candidates` and `equipment` are both JSON array strings. One
     # malformed row must not blank the whole table, so a parse failure is an
     # empty list, not an exception.
+    # `args` on a claim is a JSON OBJECT, not a list — the class lists a
+    # composition is tracking, the `n` of a count_at_least. Same posture as
+    # `parse_json_list`: one malformed row must not blank the ledger.
+    def parse_json_object(raw)
+      return {} if raw.nil? || raw.to_s.strip.empty?
+
+      parsed = JSON.parse(raw)
+      parsed.is_a?(Hash) ? parsed : {}
+    rescue JSON::ParserError
+      {}
+    end
+
     def parse_json_list(raw)
       return [] if raw.nil? || raw.to_s.strip.empty?
 

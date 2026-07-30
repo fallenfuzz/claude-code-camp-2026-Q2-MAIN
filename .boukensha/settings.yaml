@@ -105,6 +105,31 @@ tools:
       # judgement.
       min_rooms_for_scope_check: 3
 
+      # --- survey mode (claims.md, surveyor_architecture.md) -----------------
+      # A survey walks further than a trip to the bakery, so it gets its own
+      # ceilings rather than borrowing the travel ones. These bound RESOURCES;
+      # they no longer describe intent, which is the difference between them and
+      # the `min_rooms` floor the superseded design used to judge completion by.
+      # Completion is now the condition that no open claim has a decisive test
+      # left within budget, and that is computed rather than configured.
+      survey_max_rooms: 30
+      survey_max_legs: 14
+      # Surveyor calls, which run away from legs independently: the surveyor is
+      # called only when a leg discovered a room or settled a claim, so a dense
+      # interior can consume several legs and no calls at all.
+      survey_max_reasoner_calls: 8
+      # How many claims may be open at once. Over the cap the lowest-priority
+      # ones are PARKED — kept, with their evidence, and eligible to come back
+      # when budget frees — rather than dropped.
+      max_open_claims: 6
+      # The `composition` saturation rule: rooms spent since the observed class
+      # list last grew, after which the survey has seen enough kinds of place.
+      # claims.md flags this as the number most needing calibration against real
+      # sessions, because setting it badly reproduces the arbitrariness of
+      # `min_rooms` in a less legible form. It is here, and not in Ruby, so the
+      # batch harness can sweep it.
+      survey_saturation_rooms: 6
+
     # Whether the navigator's `place` field is allowed to WRITE. false keeps the
     # field in the schema and out of the store, which is §9 step 5's observation
     # window — read the answers in the logs before anything acts on them. It is
@@ -185,6 +210,37 @@ tasks:
     max_iterations: 1
     # A room id, a label, and the reasoning for the boundary — or a refusal.
     max_output_tokens: 512
+    prompt_override:
+      system: true
+
+  # The claim ledger's keeper — claims.md, surveyor_architecture.md.
+  #
+  # It runs for `move_to(survey:)` and never for travel. It does NOT choose a
+  # frontier: it opens, revises, parks and retires claims, and deterministic
+  # code scores every unexplored exit against the open ones. That split is what
+  # makes survey behaviour reproducible — the same ledger and the same map
+  # always produce the same next leg — and it is why a surveyor failure
+  # mid-survey is survivable, where a mid-survey failure of the superseded
+  # design removed the only component able to move at all.
+  #
+  # Delete this block and survey mode is not offered: `move_to` says so plainly
+  # and travel is untouched. That is the observation window, and it matters
+  # because the claim tables are durable and a confidently wrong ledger would be
+  # inherited by every later survey of the same region.
+  #
+  # Sonnet rather than Haiku, and this is the one place in the movement
+  # subsystem where the extra cost is defensible. The navigator answers a
+  # one-shot question about four exit names; the surveyor is deciding what a
+  # whole investigation is FOR, and its output persists across sessions. It is
+  # also called a handful of times per survey rather than once per leg.
+  surveyor:
+    provider: anthropic
+    model: claude-sonnet-4-6
+    max_iterations: 1
+    # Larger than the navigator's 384 by some way: the answer is a set of ledger
+    # operations with statements, decisive tests and evidence notes, and a
+    # surveyor that runs out of tokens mid-JSON has its whole answer discarded.
+    max_output_tokens: 2048
     prompt_override:
       system: true
 

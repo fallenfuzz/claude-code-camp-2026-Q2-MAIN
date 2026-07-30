@@ -502,13 +502,22 @@ export interface KnowledgeStats {
   mobs: number;
   objects: number;
   exits: number;
-  /** Exits whose destination the agent has never stood in. */
+  /**
+   * Exits whose destination NOBODY knows — presumed ones are excluded, because
+   * an exit the MUD named as a room already in memory is not exploration.
+   */
   frontier: number;
   traversed: number;
   encounters: number;
   /** Both 0 against a pre-V2 agent file, which has neither table. */
   skills: number;
   items: number;
+  /** 0 against a pre-V6 file: unwalked exits resolved to a known room by name. */
+  presumed: number;
+  /** All 0 against a pre-V7 file, which has no claim ledger. */
+  claims: number;
+  claims_open: number;
+  features: number;
 }
 
 export interface RoomRef {
@@ -718,9 +727,140 @@ export interface FrontierExit {
   room_surveyed: boolean;
 }
 
+/**
+ * An exit the MUD NAMED as a room already in memory, matched by name and never
+ * walked. It is routable and it is not exploration, which is why it is served
+ * beside the frontier rather than inside it — reading the two lists apart is
+ * how you tell "nobody has been there" from "something believes it knows, on a
+ * name alone".
+ */
+export interface PresumedExit {
+  room_id: number;
+  room_name: string;
+  direction: string;
+  /** What the MUD printed, which is what was matched. */
+  target_name: string | null;
+  presumed_target_id: number;
+  presumed_target_name: string | null;
+  last_seen_at: string;
+}
+
+/** A name that identified more than one room, or that walking disproved. */
+export interface AmbiguousExitName {
+  name: string;
+  reason: string;
+  noted_at: string;
+}
+
 export interface KnowledgeFrontierPage extends KnowledgeEnvelope {
   frontier: FrontierExit[];
   count: number;
+  /** Empty against a pre-V6 file, which cannot presume anything. */
+  presumed: PresumedExit[];
+  presumed_count: number;
+  ambiguous_names: AmbiguousExitName[];
+}
+
+// --- Survey ----------------------------------------------------------------
+// The claim ledger. Everything else under Knowledge is observation — a room was
+// entered, an entity was seen. A claim is an INVESTIGATION: it carries a
+// confidence, it accumulates evidence for and against, and it can end up
+// refuted. It is also the only thing in the agent's memory that outlives the
+// call that created it by design, which is what lets a second survey of a place
+// resume rather than restart.
+
+/** One of the nine predicates the deterministic planner knows how to run. */
+export type ClaimPredicate =
+  | "composition"
+  | "exists"
+  | "count_at_least"
+  | "extent_bounded"
+  | "circuit_closes"
+  | "bounds"
+  | "region_distinct"
+  | "connects"
+  | "spans";
+
+export type ClaimStatus = "open" | "parked" | "confirmed" | "refuted" | "unresolved";
+
+export interface ClaimEvidence {
+  id: number;
+  /** null when the room that produced it has since been removed. */
+  room_id: number | null;
+  room_name: string | null;
+  /** `contradict` is a finding, not an absence of one. */
+  polarity: "support" | "contradict" | "neutral";
+  note: string | null;
+  observed_at: string;
+}
+
+export interface Claim {
+  id: number;
+  /** "C1" — the handle the surveyor addresses it by. */
+  ref: string;
+  region_id: number | null;
+  region_label: string | null;
+  /** Prose for a human. The predicate below is what actually ran. */
+  statement: string;
+  predicate: ClaimPredicate | string;
+  subject: string | null;
+  status: ClaimStatus;
+  confidence: number;
+  /** What decided whether the survey traced a wall or investigated a quarter. */
+  priority: number;
+  answers: string | null;
+  /** What would settle it, in terms of rooms and exits. */
+  decisive_when: string | null;
+  /** Predicate arguments: class lists, the `n` of a count, the feature slug. */
+  args: Record<string, unknown>;
+  room_budget: number | null;
+  rooms_spent: number;
+  /** Why it ended up in the status it is in. */
+  settled_reason: string | null;
+  /** The question the survey was asked, verbatim. */
+  objective: string | null;
+  created_at: string;
+  updated_at: string;
+  evidence: ClaimEvidence[];
+  support_count: number;
+  contradict_count: number;
+}
+
+/**
+ * Which separately observed rooms belong to ONE road or ONE wall. Three
+ * predicates are computed over these chains, so a chain assembled wrongly is
+ * the likeliest reason a survey walked somewhere strange.
+ */
+export interface SurveyFeature {
+  id: number;
+  slug: string;
+  label: string | null;
+  region_id: number | null;
+  region_label: string | null;
+  rooms: { room_id: number; room_name: string | null; note: string | null; observed_at: string }[];
+  room_count: number;
+  first_seen_at: string;
+  updated_at: string;
+}
+
+/** The surveyor's guess about what is behind an unwalked exit. */
+export interface FrontierHint {
+  room_id: number;
+  room_name: string | null;
+  direction: string;
+  target_name: string | null;
+  expected_class: string | null;
+  note: string | null;
+  updated_at: string;
+}
+
+export interface KnowledgeSurveyPage extends KnowledgeEnvelope {
+  claims: Claim[];
+  features: SurveyFeature[];
+  hints: FrontierHint[];
+  count: number;
+  /** `open` and `parked` both: a parked claim keeps its evidence. */
+  open_count: number;
 }
 
 // --- Regions ---------------------------------------------------------------

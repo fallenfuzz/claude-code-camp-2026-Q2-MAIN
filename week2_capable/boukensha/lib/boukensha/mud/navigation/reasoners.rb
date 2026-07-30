@@ -1,6 +1,7 @@
 require "json"
 require_relative "../../tasks/navigator"
 require_relative "../../tasks/cartographer"
+require_relative "../../tasks/surveyor"
 
 module Boukensha
   module Mud
@@ -38,6 +39,16 @@ module Boukensha
 
         def cartographer(logger: nil)
           reasoner(Tasks::Cartographer, logger: logger)
+        end
+
+        # The survey's ledger keeper. Same shape as the other two and for the
+        # same reasons, with one difference worth naming: this one is called
+        # CONDITIONALLY rather than once per leg, because a leg that discovered
+        # no room and settled no claim has nothing to tell it. That is what
+        # bounds its cost, and it is why a survey through a dense interior can
+        # walk six rooms on a single call.
+        def surveyor(logger: nil)
+          reasoner(Tasks::Surveyor, logger: logger)
         end
 
         def reasoner(task_class, logger: nil)

@@ -72,11 +72,7 @@ module Boukensha
             {
               name: tool.name,
               description: tool.description,
-              parameters: {
-                type: "object",
-                properties: tool.parameters,
-                required: tool.parameters.keys.map(&:to_s)
-              }
+              parameters: tool.json_schema
             }
           end
         }]

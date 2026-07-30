@@ -516,6 +516,12 @@ module BoukenshaLoader
           store: store, call_tool: nav_call_tool, hooks: mud_hooks,
           navigator: (Boukensha::Mud::Navigation::Reasoners.navigator(logger: parent) if cfg.tasks(:navigator).any?),
           cartographer: (Boukensha::Mud::Navigation::Reasoners.cartographer(logger: parent) if cfg.tasks(:cartographer).any?),
+          # Same switch as the other two: delete `tasks.surveyor` from
+          # settings.yaml and survey mode is simply not offered. The claim tables
+          # stay in the schema and stay empty, and `move_to(destination:)` is
+          # unaffected — which is what makes surveying something a deployment can
+          # turn on after watching it, rather than a change to how movement works.
+          surveyor: (Boukensha::Mud::Navigation::Reasoners.surveyor(logger: parent) if cfg.tasks(:surveyor).any?),
           limits: cfg.dig(:tools, Boukensha::Mud::Navigation::MoveTo::NAVIGATION_SLICE, :limits),
           # Default ON. Set `tools.navigation.act_on_place: false` to keep the
           # field in the schema and out of the store — §9 step 5's observation
@@ -525,26 +531,37 @@ module BoukenshaLoader
         )
 
         tool "move_to",
-             description: "Travel to a place, landmark, or thing — the only way to move. Walks " \
-                          "there over what you have already explored when the destination is on " \
-                          "your map, and explores towards it when it is not, several rooms per " \
-                          "call. Reconciles position and watches for interrupting events between " \
-                          "every step, and stops early — reporting where it got to — if something " \
-                          "worth reacting to happens, if the way is blocked, or if it runs out of " \
-                          "its own travel budget. Call it again to continue.",
+             description: "The only way to move, in one of two modes. Give `destination` to travel " \
+                          "to a place, landmark, or thing: it walks there over what you have already " \
+                          "explored, and explores towards it when it is not on your map. Give " \
+                          "`survey` instead to investigate the place you are in — a question in your " \
+                          "own words, such as how big the town is and what it offers — and it walks " \
+                          "where the answer is, then reports what it established, what it ruled out, " \
+                          "and what is left to settle. Both modes reconcile position and watch for " \
+                          "interrupting events between every step, and stop early — reporting where " \
+                          "they got to — if something worth reacting to happens, if the way is " \
+                          "blocked, or if the travel budget runs out. Call it again to continue; a " \
+                          "survey resumes from what the last one established.",
              parameters: {
-               destination: { type: "string",
-                 description: "Where you want to be, in your own words, e.g. 'the bakery', " \
-                              "'Temple Square', or 'the mayor'." },
-               scope: { type: "string", enum: %w[region world],
-                 description: "Where to explore when the destination is not on your map. 'region' " \
-                              "(the default) stays in the place you are standing in; 'world' lifts " \
-                              "that. Travel to somewhere you have already stood is never scoped, so " \
-                              "this only matters when exploring. Use 'world' when you have been told " \
-                              "every remaining lead leaves this place, or when what you are looking " \
-                              "for is by its nature somewhere else." }
-             } do |destination:, scope: "region"|
-          move_to.call(destination: destination, scope: scope)
+               destination: { type: "string", optional: true,
+                 description: "Travel mode. Where you want to be, in your own words, e.g. 'the " \
+                              "bakery', 'Temple Square', or 'the mayor'. Give this or `survey`, " \
+                              "not both." },
+               survey: { type: "string", optional: true,
+                 description: "Survey mode. What you want to find out about the place you are in, " \
+                              "as a question, e.g. 'walk around town and work out how big it is and " \
+                              "what it offers'. Use this instead of inventing a series of " \
+                              "destinations to explore towards — it decides where to walk from what " \
+                              "the question needs and stops when it can answer it." },
+               scope: { type: "string", enum: %w[region world], optional: true,
+                 description: "Where to explore when the destination is not on your map, or how far " \
+                              "a survey may range. 'region' (the default) stays in the place you are " \
+                              "standing in; 'world' lifts that. Travel to somewhere you have already " \
+                              "stood is never scoped. Use 'world' when you have been told every " \
+                              "remaining lead leaves this place, or when what you are looking for is " \
+                              "by its nature somewhere else." }
+             } do |destination: nil, survey: nil, scope: "region"|
+          move_to.call(destination: destination, survey: survey, scope: scope)
         end
       rescue Boukensha::Mud::Memory::Store::Unavailable => e
         Boukensha.error_log.record(e, component: "mud_hooks_setup", boundary: "memory_store")

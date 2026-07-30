@@ -13,7 +13,29 @@ kept). Both logs are off by default (`MUD_MANAGER_LOG_DIR` /
 world pages yet — those land in later phases.
 
 The **Knowledge** page reads the agent's world memory (`knowledge.sqlite3`) —
-Overview, Rooms, Entities, Frontier, **Player** and Progression.
+Overview, Rooms, Map, Entities, Frontier, Regions, **Survey**, Player and
+Progression.
+
+- **Knowledge → Survey** subtab (`/knowledge/survey`, served by
+  `GET /api/v1/knowledge/survey`) — the claim ledger a `move_to(survey: …)`
+  builds, which is the only thing in the agent's memory that is an
+  *investigation* rather than an observation: a claim carries a confidence,
+  accumulates evidence for **and against**, and can end up `refuted`. The page
+  keeps three things visible that a status column would hide — the predicate
+  that actually ran (the statement beside it is prose and proves nothing), the
+  evidence on both sides, and what would still settle anything unfinished. The
+  feature chains and the surveyor's frontier hints are on the same tab rather
+  than tabs of their own, because they are the same investigation seen from two
+  more sides: three predicates are computed over those chains, so a chain
+  assembled wrongly is the likeliest reason a survey walked somewhere strange.
+
+- **Knowledge → Frontier** also lists **presumed destinations** — exits the MUD
+  named as a room already in memory. They are routable and are *not*
+  exploration, so they are excluded from the frontier count and listed beneath
+  it; reading the two apart is how you tell "nobody has been there" from
+  "something believes it knows, on a name alone". A third table names the
+  destination names refused as identifiers, which is what explains an
+  obviously-matching exit that stayed frontier.
 
 - **Knowledge → Player** subtab (`/knowledge/player`, served by
   `GET /api/v1/knowledge/player`) — the character sheet the map half never had:

@@ -1,6 +1,7 @@
 require_relative "plan_route_tool"
 require_relative "execute_route_tool"
 require_relative "region_tools"
+require_relative "survey"
 require_relative "../../operation"
 
 module Boukensha
@@ -94,13 +95,17 @@ module Boukensha
         #               from step 5 so it can be watched in the logs before it
         #               is allowed to write, because §7.6 makes a wrong boundary
         #               durable.
-        def initialize(store:, call_tool:, hooks:, navigator: nil, cartographer: nil,
+        # surveyor:     ->(payload_hash) { answer_hash }, or nil to leave survey
+        #               mode off. It keeps the claim ledger for `survey:` calls
+        #               and is never consulted for destination travel.
+        def initialize(store:, call_tool:, hooks:, navigator: nil, cartographer: nil, surveyor: nil,
                        limits: nil, logger: nil, journal: nil, act_on_place: true)
           @store        = store
           @call_tool    = call_tool
           @hooks        = hooks
           @navigator    = navigator
           @cartographer = cartographer
+          @surveyor     = surveyor
           @logger       = logger
           @journal      = journal
           @act_on_place = act_on_place
@@ -132,9 +137,24 @@ module Boukensha
         # A subsystem that silently widened on every exhausted region would mean
         # scope never constrained anything, which is the property boundaries_revised
         # built it for.
-        def call(destination:, scope: "region")
+        # `survey:` is the second objective mode, and it is a parameter on this
+        # tool rather than a tool of its own — movement_revisited/README.md is
+        # explicit about why. A separate `survey_region` tool would recreate the
+        # fork this design exists to remove: the agent would drift back to
+        # treating `move_to` as raw movement, exactly as it drifted back to
+        # `move` when `plan_route` and `execute_route` sat beside it.
+        #
+        # The two modes share the whole walking engine and differ only in the
+        # objective and the termination test. Destination mode stops when the
+        # current room matches a name. Survey mode stops when the claim ledger
+        # has no settleable open claim. The navigator is not called during a
+        # survey, and the surveyor is not called during travel.
+        def call(destination: nil, survey: nil, scope: "region")
+          question = survey.to_s.strip
+          return run_survey(question, scope) unless question.empty?
+
           query = destination.to_s.strip
-          return "[move_to] error: destination is required" if query.empty?
+          return "[move_to] error: give either a destination to travel to or a survey question" if query.empty?
 
           @scope        = %w[region world].include?(scope.to_s) ? scope.to_s : "region"
           @query        = query
@@ -150,6 +170,21 @@ module Boukensha
         end
 
         private
+
+        # Survey mode is built per call rather than held as state, because a
+        # survey's own state is the ledger and the ledger lives in the store.
+        # Two surveys of the same region a session apart are the same
+        # investigation continued, and nothing in this object needs to know that.
+        def run_survey(question, scope)
+          unless @surveyor
+            return "[move_to] survey — no surveyor is configured in this deployment, " \
+                   "so surveying is unavailable. Travel to a named place instead."
+          end
+
+          Survey.new(store: @store, call_tool: @call_tool, hooks: @hooks, surveyor: @surveyor,
+                     cartographer: @cartographer, limits: @limits, logger: @logger, journal: @journal)
+                .call(question: question, scope: scope)
+        end
 
         # The loop. Every exit from it sets @status, so `render` never has to
         # guess what happened.

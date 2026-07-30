@@ -10,16 +10,19 @@ source_of_truth:
   - week2_capable/boukensha/lib/boukensha/mud/navigation/move_to.rb
   - week2_capable/boukensha/lib/boukensha/mud/navigation/route_planner.rb
   - week2_capable/boukensha/lib/boukensha/mud/navigation/execute_route_tool.rb
+  - week2_capable/boukensha/lib/boukensha/mud/navigation/survey.rb
+  - week2_capable/boukensha/lib/boukensha/mud/navigation/claim_planner.rb
+  - week2_capable/boukensha/lib/boukensha/mud/memory/exit_resolution.rb
 related_plans:
   - docs/plans/week_3/move_to.md
   - docs/plans/week_3/movement_revisited/README.md
   - docs/plans/week_3/exit_name_resolution.md
 review_when:
   - move_to's public parameters or statuses change
-  - Navigator or Cartographer responsibilities change
-  - exploration missions or persistent movement preferences are implemented
+  - Navigator, Surveyor or Cartographer responsibilities change
+  - the predicate vocabulary changes
   - destination matching or terminal recovery is fixed
-  - exit name resolution or presumed edges are implemented
+  - presumed-edge resolution guards or ranking change
 ---
 
 # How `move_to` Works
@@ -30,13 +33,19 @@ reconstruct the architecture from implementation comments and planning notes.
 
 The most important fact is:
 
-> `move_to` is a bounded, destination-seeking loop over the agent's remembered
-> room graph.
+> `move_to` is a bounded loop over the agent's remembered room graph, in one of
+> two objective modes.
 
-It is not currently a general exploration mission system. It can explore while
-looking for an unknown destination, but it has no representation of a goal such
-as "map Midgaard broadly," no persistent exploration preferences, and no
-"mapped enough" completion test.
+**Destination mode** (`move_to(destination:)`) seeks a named place and stops
+when a room matches it. **Survey mode** (`move_to(survey:)`) investigates the
+place the agent is standing in and stops when a ledger of falsifiable claims has
+no settleable open claim left. The two share the whole walking engine — the same
+breadth-first search, the same bounded legs, the same per-step reconciliation
+and interruption polling — and differ only in the objective and the termination
+test.
+
+Survey mode is described in section 18. Everything before it describes
+destination mode, which is unchanged.
 
 ## 1. Why `move_to` exists
 
@@ -107,13 +116,32 @@ The components have deliberately different responsibilities:
 | `Mud::Hooks` | Identifies each arrived room and updates memory immediately | No |
 | `RegionTools` | Applies region names and exact first-arrival boundaries | No |
 
+Survey mode adds three more, all covered in section 15:
+
+| Component | Responsibility | Uses an LLM? |
+|---|---|---:|
+| `Survey` | Owns the survey loop, its budgets, and its terminal status | No |
+| `ClaimPlanner` | Evaluates decisive conditions and scores frontiers against open claims | No |
+| Surveyor | Opens, revises, parks and retires claims — and never picks a frontier | Yes |
+
 ## 3. The public contract
 
-The player sees one movement tool:
+The player sees one movement tool, taking one of two objectives:
 
 ```ruby
-move_to(destination:, scope: "region")
+move_to(destination:, scope: "region")   # travel
+move_to(survey:,      scope: "region")   # investigate
 ```
+
+All three parameters are optional in the advertised schema, which is what lets
+the two modes be alternatives rather than both being demanded on every call. A
+call giving neither objective is refused.
+
+Survey mode is a parameter rather than a second tool deliberately. A separate
+`survey_region` tool would recreate the fork this design exists to remove: with
+two movement tools on the surface the agent drifts back to treating `move_to` as
+raw movement, exactly as it drifted back to `move` when `plan_route` and
+`execute_route` sat beside it.
 
 ### `destination`
 
@@ -563,7 +591,7 @@ Between steps, the walker polls for interrupting events. Combat, death, or
 another classified interruption stops the route and returns control to the
 player instead of blindly completing the remaining directions.
 
-### Directed-edge consequence
+### Directed-edge consequence, and presumed edges
 
 The traversed edge is linked only in the direction walked. Walking:
 
@@ -577,30 +605,50 @@ does not create:
 B --north--> A
 ```
 
-unless that reverse direction is separately traversed and reconciled. Because
-BFS uses linked directed edges, missing reverse links can make a previously
-visited room appear unreachable from the current position.
+unless that reverse direction is separately traversed and reconciled.
 
 This is deliberate rather than a defect. `docs/plans/week_2/plan_route.md`
 states the rule directly—"Do not infer a reverse edge"—on the grounds that MUD
 exits may be one-way, gated, or non-Euclidean, so a manufactured return edge
 would produce routes the agent cannot walk. The decision is enforced by
-`test_one_way_exits_are_not_reversed` and by the store invariant at
-`memory/store.rb:365`, where `link_exit!` is the only writer of
-`target_room_id`.
+`test_one_way_exits_are_not_reversed` and by the store invariant that
+`link_exit!` is the only writer of `target_room_id`.
 
-What is genuinely defective is adjacent to it. The MUD's `exits` output names
-the room behind each exit, and `room_parser.rb:113` already parses those names
-into `room_exits.target_name`, but nothing compares them against rooms already
-in memory. An exit leading to a thoroughly mapped room is therefore stored and
-planned exactly like an exit leading somewhere unknown. In the recorded
-Midgaard map five of fifteen unlinked exits name rooms already visited, which
-both inflates the frontier set and leaves the agent unable to plan a route out
-of the room it finished in.
+What was genuinely defective was adjacent to it, and is now fixed. The MUD's
+`exits` output names the room behind each exit and `room_parser.rb` has always
+parsed those names into `room_exits.target_name`, but nothing compared them
+against rooms already in memory, so an exit leading to a thoroughly mapped room
+was stored and planned exactly like an exit leading somewhere unknown.
 
-The fix is exit name resolution rather than reverse inference, and it recovers
-structure that symmetry assumptions cannot—room 1 has both a `south` and a
-`down` exit to The Temple Square, and only `south` was ever walked. See
+Exit name resolution matches those names against known rooms and records a
+**presumed** link in `room_exits.presumed_target_id`—a separate column from
+`target_room_id`, so a name match never becomes indistinguishable from a walked
+traversal. Three guards decide when a name is an identifier:
+
+1. the normalised name must match exactly one room in memory;
+2. no two exits from the same source room may share a target name, which is what
+   stops the two ends of Main Street from being fused into one vertex;
+3. a name that has ever identified two rooms is recorded in
+   `exit_name_ambiguity` and never resolved again.
+
+Presumed edges are traversable by BFS but ranked strictly after earned ones, so
+a route made entirely of walked steps always beats a shorter one resting on a
+name, and a plan that depends on a presumption says so. An exit holding a
+presumed target is no longer counted as a frontier. The state block renders it
+`~`, distinct from `✓` (walked) and `?` (unknown).
+
+Walking a presumed edge settles it: arriving where the name said promotes it
+through `link_exit!`, and arriving anywhere else clears the presumption and
+poisons the name, so a wrong guess costs one move once rather than every future
+route that needed the edge.
+
+This is not reverse inference. Nothing asserts symmetry, an exit the MUD did not
+print is never created, and it recovers structure symmetry assumptions cannot—
+room 1 has both a `south` and a `down` exit to The Temple Square, and only
+`south` was ever walked. On the recorded Midgaard map it turns four of fifteen
+unlinked exits into edges, drops the frontier set from fifteen to eleven, and
+takes the set of rooms reachable from The Dump from **zero to eight**. The fifth
+candidate row, room 1's `down`, is correctly refused by guard two. See
 `docs/plans/week_3/exit_name_resolution.md`.
 
 ## 11. Budgets and stopping conditions
@@ -613,6 +661,22 @@ One `move_to` call is intentionally bounded:
 | `max_decisions` | 6 | Navigator calls |
 | `max_steps_per_leg` | 4 | Distance walked before replanning |
 | `min_rooms_for_scope_check` | 3 | When region-scope suspicion may be requested |
+
+Survey mode has its own, because a survey walks further than a trip to the
+bakery and borrowing the travel ceilings would make it useless:
+
+| Setting | Default | What it bounds |
+|---|---:|---|
+| `survey_max_rooms` | 30 | Total successfully walked rooms in one survey |
+| `survey_max_legs` | 14 | Legs before the survey reports on budget |
+| `survey_max_reasoner_calls` | 8 | Surveyor calls |
+| `max_open_claims` | 6 | Claims open at once; the rest are parked |
+| `survey_saturation_rooms` | 6 | Rooms without a new class before `composition` saturates |
+
+These bound resources. They do not describe intent, which is the difference
+between them and the `min_rooms` floor an earlier design used to judge
+completion by — completion is now the condition that no open claim has a
+decisive test left within budget, and that is computed.
 
 `max_rooms` and `max_decisions` protect different resources. A long known
 corridor may consume many rooms with no Navigator calls. A dense unknown area
@@ -692,26 +756,37 @@ Understanding this boundary explains much of the current behavior.
 - `walked_so_far` sent to the Navigator;
 - budget status.
 
+### Persistent, and added by survey mode
+
+- the claim ledger (`claims`, `claim_evidence`), keyed by region;
+- feature membership (`features`, `feature_rooms`), which is how several
+  separately observed rooms are decided to belong to one road or one wall;
+- frontier hints (`frontier_hints`), the Surveyor's expected-class annotations;
+- presumed exit targets and the exit-name ambiguity set.
+
+This is what makes a survey resumable. A second survey of Midgaard is handed the
+first one's ledger and usually opens no new claims at all.
+
 ### Not represented today
 
-- a durable exploration mission;
-- mission preferences;
 - chronological cross-call movement history for the Navigator;
-- branch-level coverage;
-- outdoor/interior classification;
-- semantic progress such as "both banks of the river";
-- a definition of "this area is mapped enough."
+- a stored per-room `place_type` ontology — class labels live in the
+  `composition` claim that is using them, not on rooms, because the class
+  vocabulary arrives with the objective;
+- semantic progress such as "both banks of the river" beyond what the `spans`
+  predicate can compute from graph components.
 
 ## 14. Current limitations and known defects
 
 These are architectural facts or observed defects, not capabilities supplied by
 the prompts.
 
-### `move_to` is destination-shaped
+### Destination mode is destination-shaped
 
-Every successful call is trying to make a room match `destination`. Asking it
-to "map Midgaard" forces the player to invent successive destination names
-because there is no coverage objective or coverage completion condition.
+Every successful `move_to(destination:)` call is trying to make a room match a
+name. That is no longer the only mode — `move_to(survey:)` carries an
+investigation objective and its own completion condition — but the limitation
+still describes destination travel exactly.
 
 ### Bare directions are accepted as destinations
 
@@ -733,8 +808,16 @@ preferences and does not choose the next frontier.
 ### Semantic constraints lack metadata
 
 There is no stored, trustworthy `interior`, `street`, `square`, `quarter`, or
-`river_bank` classification. A rule such as "stay outdoors" cannot currently be
-enforced mechanically.
+`river_bank` classification on rooms, so a rule such as "stay outdoors" still
+cannot be enforced mechanically for destination travel.
+
+Survey mode does not need one and deliberately does not add one. A `composition`
+claim carries the classes it is looking for and the ones it has observed, and
+each `claim_evidence` row points at the room that contributed one, so the
+classification lives with the claim and persists with it. The vocabulary arrives
+with the objective rather than being fixed in advance, which is why a global
+room ontology was rejected: it would have to be the union of every question
+anyone might ask.
 
 ### Destination matching can produce false `arrived`
 
@@ -743,63 +826,197 @@ words such as "square" or "temple" can therefore identify the wrong remembered
 room. Tightening this rule is proposed but not yet reflected in the current
 implementation.
 
-### Exit target names are never resolved against known rooms
+### A presumed edge can still be wrong
 
-Only traversed directions are linked, which is intended. The defect is that an
-unlinked exit whose MUD-reported `target_name` matches a room already in memory
-is still treated as unexplored. This damages backtracking, inflates the
-frontier set, and can turn a reachable remembered destination into
-`unreachable`. See the directed-edge discussion in section 10 and
-`docs/plans/week_3/exit_name_resolution.md`.
+Exit name resolution has replaced the defect that used to sit here, but it
+introduces a smaller one of its own: a presumed edge is a guess, and walking it
+can land somewhere else. That case is handled — the presumption is cleared and
+the name poisoned — but it costs one move, and a route planned over several
+presumptions can be re-planned several times before it settles. Presumed edges
+are ranked after earned ones precisely to keep that rare.
+
+Guard two also refuses correct resolutions. Room 1 of the recorded map has both
+`south` and `down` leading to The Temple Square and only `south` was walked, so
+the `down` edge is genuinely recoverable — but it is indistinguishable from the
+Market Square case where `east` and `west` both name Main Street and mean two
+different rooms. The conservative reading is deliberate: fusing two rooms
+corrupts the graph, where refusing a resolution merely leaves it sparse.
 
 ### Some terminal results offer no recovery action
 
 `unreachable` and false `arrived` outcomes can repeat because they currently
 return before offering the frontiers that might repair the map.
 
-## 15. Where an exploration objective would fit
+## 15. Survey mode
 
-A future exploration feature does not need a different walking engine. It would
-reuse:
+`move_to(survey: "…")` runs the second objective mode. It reuses the walking
+engine unchanged — the same room graph, the same BFS paths to frontier sources,
+the same bounded legs, the same per-step reconciliation and interruption
+handling. What differs is the objective and the termination test, and both come
+from a ledger of falsifiable claims.
 
-- the room graph;
-- BFS paths to frontier sources;
-- frontier candidates;
-- Navigator or deterministic frontier selection;
-- bounded legs;
-- per-step reconciliation;
-- interruption handling.
+### What a claim is
 
-The architectural difference is the objective and termination test:
+A proposition about the region paired with a machine-checkable condition
+describing what would settle it. The natural-language statement is for the
+player and for the Surveyor's own reasoning; the **predicate** is what the
+planner acts on.
 
-```mermaid
-flowchart LR
-    A["Shared engine"] --> P["Plan reachable frontiers"]
-    P --> C["Choose frontier"]
-    C --> W["Walk bounded leg"]
-    W --> U["Update graph"]
-
-    U --> D{"Destination mode"}
-    D -->|"current room matches target"| DA["Arrived"]
-    D -->|"not yet"| P
-
-    U --> E{"Exploration mode"}
-    E -->|"coverage is enough"| EA["Survey complete"]
-    E -->|"not yet"| P
+```json
+{
+  "ref": "C5",
+  "statement": "A road runs inside Midgaard's wall and forms a closed circuit",
+  "predicate": "circuit_closes",
+  "subject": "feature:wall_road",
+  "status": "open",
+  "confidence": 0.5,
+  "priority": 0.85,
+  "decisive_when": "a wall-road room is re-entered from an edge not previously walked, or a wall-road segment terminates with no wall-adjacent continuation",
+  "room_budget": 14,
+  "rooms_spent": 3
+}
 ```
 
-The unresolved work is not how to walk to a frontier. It is:
+Claims live in `claims` and `claim_evidence`, keyed by region, and outlive the
+call that opened them. That is the point: a record of fourteen rooms walked
+means nothing at the start of the next session, whereas a `circuit_closes` claim
+standing at three sides confirmed and one unexplored says exactly where to
+resume.
 
-1. how a user request becomes durable exploration preferences;
-2. what history or derived branch metrics frontier selection receives;
-3. which preferences are enforceable facts versus subjective guidance;
-4. what observable condition means "mapped enough";
-5. whether the Navigator remains the chooser or a separate exploration
-   strategist is introduced.
+### The predicate vocabulary
 
-Until those are implemented, `move_to` should be understood and evaluated as a
-destination-seeking tool that can perform incidental exploration—not as a
-general regional survey tool.
+Closed, nine names, in `predicates.rb`. The Surveyor may write any statement it
+likes but must classify it under one of these, and a claim whose statement
+cannot be expressed as a predicate over the room graph is rejected before it
+enters the ledger.
+
+| Predicate | Settled when | Frontier scoring |
+|---|---|---|
+| `composition` | every named class has an instance, or no new class appears for `survey_saturation_rooms` | prefers frontiers whose expected class is not yet observed; falling back to structure when there is no hint |
+| `exists` | an instance of the class is classified, or frontiers empty | prefers frontiers hinted or lexically clueing that class |
+| `count_at_least` | `n` distinct instances observed | as `exists`, but continues past the first |
+| `extent_bounded` | frontier set drains, or a stated ceiling is exceeded | prefers the nearest frontier |
+| `circuit_closes` | the feature subgraph contains a cycle, or the chain terminates | prefers frontiers at the ends of the feature chain |
+| `bounds` | every frontier on the feature has been walked | prefers frontiers on feature-tagged rooms |
+| `region_distinct` | the subset hangs off a single entrance | prefers frontiers leading deeper into the subset |
+| `connects` | the chain reaches both named endpoints, or terminates | as `circuit_closes` |
+| `spans` | classified rooms appear on two sides of the feature | prefers frontiers crossing the feature |
+
+Strategy is the second column and nobody selects it. A ledger holding an open
+`circuit_closes` produces perimeter following; one holding an open `composition`
+produces spread sampling; and the behaviour changes by itself as claims settle.
+
+### Who decides what
+
+| Component | Responsibility | Uses an LLM? |
+|---|---|---:|
+| Player Agent | States the survey question in natural language | Yes |
+| `Survey` | Owns the loop, budgets, walking, and terminal status | No |
+| `ClaimPlanner` | Evaluates decisive conditions and scores frontiers | No |
+| `SurveyGraph` | One read of distances, frontiers, feature chains, articulation points | No |
+| Surveyor | Opens, revises, parks and retires claims | Yes |
+| Cartographer | Places a boundary once a `region_distinct` claim is confirmed | Yes |
+| `ExecuteRouteTool` | Walks the selected route and polls for interruptions | No |
+
+The Surveyor **does not select frontiers**. That is the most consequential fact
+about the design: movement selection is arithmetic over the ledger, so the same
+ledger and the same graph always produce the same next leg, and a mid-survey
+reasoner failure costs the ledger's freshness rather than the survey's ability
+to move at all.
+
+### Frontier arbitration
+
+Each open claim contributes `priority × predicate_score(frontier)` to every
+candidate. The totals are divided by the walking cost of reaching each
+candidate, and canonical direction order then source room id break ties. The
+cost divisor is what stops one loud claim marching the survey across the map for
+a single observation: a claim has to outweigh the distance as well as the other
+claims.
+
+### The loop
+
+```mermaid
+flowchart TD
+    START["move_to(survey:)"] --> SEED["Surveyor seeds claims, or the ledger already exists"]
+    SEED --> EVAL["Evaluate decisive conditions against the graph"]
+    EVAL --> RETIRE["Settle the claims that fired"]
+    RETIRE --> GATE{"Terminal?"}
+
+    GATE -->|"no open claim is settleable"| DONE["surveyed"]
+    GATE -->|"room or leg budget"| BUDGET["budget"]
+    GATE -->|"no reachable in-scope frontier"| EX["exhausted / region_exhausted"]
+    GATE -->|"continue"| SCORE["Score frontiers against open claims"]
+
+    SCORE --> ROUTE["Build known path to the winner"]
+    ROUTE --> WALK["Walk a bounded leg"]
+    WALK --> CHANGED{"New room, or a claim settled?"}
+    CHANGED -->|"yes"| ASK["Call the Surveyor to revise"]
+    CHANGED -->|"no"| EVAL
+    ASK --> EVAL
+```
+
+The Surveyor is called **conditionally**, not once per leg. A leg that
+discovered no room and settled no claim tells it nothing it could act on, so the
+planner continues against the ledger it already has. This bounds reasoner cost
+the way `max_decisions` bounds Navigator calls, and in practice means dense
+interiors consume very few calls.
+
+### Terminal statuses
+
+- `surveyed` — no open claim has a decisive test reachable within budget;
+- `budget` — `survey_max_rooms` or `survey_max_legs` reached, claims still open;
+- `exhausted` — no reachable in-scope frontier remains;
+- `region_exhausted` — frontiers remain but all lie outside the surveyed region;
+- `interrupted` — walking stopped on combat, death, or another event;
+- `surveyor_failed` — the Surveyor failed on the seeding call, leaving no ledger.
+
+Only the seeding failure is fatal.
+
+### The report
+
+The report is the ledger. Every line is falsifiable, names its evidence, and —
+for the incomplete ones — says precisely what would settle it, which is what
+makes the next session cheap. Coverage numbers appear as context rather than as
+the answer.
+
+```text
+[move_to] survey of Midgaard — stopped on budget
+
+Findings
+  CONFIRMED  Midgaard's offerings span commercial, civic and residential places
+             no new class of place in 7 rooms
+             evidence: Market Square, The Common Square, Main Street
+  REFUTED    There is a second bridge
+             against:  The Common Square
+  OPEN       A road runs inside the wall and forms a closed circuit
+             evidence: Along The Northern Wall
+             to settle: a wall-road room is re-entered by an unwalked edge
+
+walked 26 rooms in 13 legs, 5 surveyor calls
+here: Along The Northern Wall (#31)
+```
+
+### Hygiene
+
+`max_open_claims` bounds the working set; over the cap the lowest-priority
+claims are **parked** rather than dropped, keeping their evidence, and unparked
+when budget frees. A claim must name a decisive condition, which rejects
+unfalsifiable statements at validation time. A proposal whose predicate and
+subject match an existing claim **merges** into it, so evidence accumulates in
+one place. Argument lists grow rather than being replaced.
+
+### Known weaknesses
+
+`circuit_closes`, `connects` and `bounds` all depend on feature chains being
+assembled correctly, and assembly is the Surveyor's judgement recorded in
+`feature_rooms`. Where chains are assembled unreliably those three predicates
+degrade towards ordinary nearest-frontier walking.
+
+The `composition` saturation threshold (`survey_saturation_rooms`) is the number
+most in need of calibration against real sessions; setting it badly reproduces
+the arbitrariness of a `min_rooms` floor in a less legible form. Claim priority
+is set by the Surveyor against a rubric in its prompt rather than derived, which
+is the other open question the plan documents flag.
 
 ## 16. Code map
 
@@ -808,7 +1025,13 @@ The main implementation is under `week2_capable/boukensha`:
 | File | Purpose |
 |---|---|
 | `lib/boukensha_loader.rb` | Registers the public tool, permissions, and dependencies |
-| `lib/boukensha/mud/navigation/move_to.rb` | Main loop, budgets, Navigator and Cartographer orchestration, rendering |
+| `lib/boukensha/mud/navigation/move_to.rb` | Objective-mode fork, destination loop, budgets, Navigator and Cartographer orchestration, rendering |
+| `lib/boukensha/mud/navigation/survey.rb` | Survey loop, budgets, Surveyor cadence, ledger report |
+| `lib/boukensha/mud/navigation/claim_planner.rb` | Decisive-condition evaluation, frontier arbitration, claim budgets, parking |
+| `lib/boukensha/mud/navigation/claim_ledger.rb` | Validating and applying the Surveyor's ledger operations |
+| `lib/boukensha/mud/navigation/predicates.rb` | The closed predicate vocabulary: settlement and scoring |
+| `lib/boukensha/mud/navigation/survey_graph.rb` | One read of distances, frontiers, feature chains, articulation points |
+| `lib/boukensha/mud/memory/exit_resolution.rb` | Exit name resolution and its three guards |
 | `lib/boukensha/mud/navigation/plan_route_tool.rb` | Store snapshot and plan rendering |
 | `lib/boukensha/mud/navigation/route_planner.rb` | BFS, statuses, frontier ranking and grouping |
 | `lib/boukensha/mud/navigation/destination_search.rb` | Lexical destination search |
@@ -820,6 +1043,8 @@ The main implementation is under `week2_capable/boukensha`:
 | `prompts/navigator/system.md` | Navigator decision contract |
 | `lib/boukensha/tasks/cartographer.rb` | Cartographer task definition |
 | `prompts/cartographer/system.md` | Cartographer boundary-placement contract |
+| `lib/boukensha/tasks/surveyor.rb` | Surveyor task definition |
+| `prompts/surveyor/system.md` | Surveyor ledger contract and predicate vocabulary |
 | `.boukensha/settings.yaml` | Models, permission slice, limits, and feature switches |
 
 ## 17. A practical debugging checklist
@@ -845,5 +1070,18 @@ answer:
    `split_region`.
 9. **Wrong region boundary:** inspect `scope_suspect`, the Cartographer graph
    payload, `split_at_room_id`, and that room's first-arrival edge.
-10. **Repetitive regional survey:** do not assume Cartographer failure; persistent
-    exploration intent and cross-call coverage history do not exist yet.
+10. **Repetitive regional survey:** check whether the call used `survey:` at all.
+    A `destination:` call has no coverage objective and will happily re-walk one
+    building; that is the failure survey mode exists to remove, not a Navigator
+    or Cartographer bug.
+11. **A survey that walks somewhere odd:** the choice is arithmetic, so it is
+    reproducible and inspectable. Read the ledger's open claims and their
+    priorities, then the `expected_class` hints on the frontiers it passed over.
+12. **A survey that ends immediately:** either every claim settled, or no open
+    claim scores any reachable frontier. The `surveyed` detail line says which.
+13. **A survey that opens no claims:** the Surveyor's proposals were rejected.
+    The journal's `claim_rejected` lines carry the reason — almost always an
+    unknown predicate or a missing `decisive_when`.
+14. **A route that lands in the wrong room:** check whether the step was
+    presumed. A presumed edge that proves wrong is an ordinary map correction,
+    logged as `presumed_edge_wrong`, not an interruption.

@@ -35,7 +35,13 @@ module Boukensha
           # { count:, rooms:, min_distance:, max_distance: }, or nil when the
           # whole set is on screen.
           :withheld,
-          :unexplored_total
+          :unexplored_total,
+          # True when at least one step of `steps` crosses a presumed edge — a
+          # destination the MUD named that was matched to a room in memory, but
+          # that nothing has walked. The route is worth offering (it is the only
+          # thing that gets the agent back out of The Dump) and the caller is
+          # entitled to know it rests on a name.
+          :presumed
         )
 
         # How many unexplored exits go on screen before the rest are withheld.
@@ -70,16 +76,16 @@ module Boukensha
         # needs "how far is every room from here" — the region shape line, for
         # one — asks the same function the routes do rather than growing a
         # second implementation that can disagree with this one.
-        def distances(exits:, from:)
+        def distances(exits:, from:, presumed: true)
           return {} unless from
 
-          linked = exits.select { |e| e[:target_room_id] }.group_by { |e| e[:room_id] }
+          linked = traversable(exits, presumed: presumed).group_by { |e| e[:room_id] }
           dist   = { from => 0 }
           queue  = [from]
           until queue.empty?
             room_id = queue.shift
             (linked[room_id] || []).each do |edge|
-              target = edge[:target_room_id]
+              target = target_of(edge)
               next if dist.key?(target)
 
               dist[target] = dist[room_id] + 1
@@ -89,6 +95,25 @@ module Boukensha
           dist
         end
 
+        # Exits BFS may walk. Earned edges always; presumed ones — an exit whose
+        # MUD-reported destination name resolved to a room already in memory —
+        # only when the caller wants them, and always ranked after earned edges
+        # so a route made entirely of walked steps beats a shorter one leaning on
+        # a guess. See docs/plans/week_3/exit_name_resolution.md.
+        def traversable(exits, presumed: true)
+          exits.select { |e| e[:target_room_id] || (presumed && e[:presumed_target_id]) }
+        end
+
+        def target_of(exit) = exit[:target_room_id] || exit[:presumed_target_id]
+
+        def presumed?(exit) = exit[:target_room_id].nil? && !exit[:presumed_target_id].nil?
+
+        # An exit is a FRONTIER only when nobody knows what is behind it. An exit
+        # the MUD has named as a room the agent has stood in is not exploration,
+        # and counting it as one is what inflated the recorded Midgaard map's
+        # frontier set by a third with rooms that needed no exploring.
+        def frontier?(exit) = exit[:target_room_id].nil? && exit[:presumed_target_id].nil?
+
         # The algorithm, instantiated per call so the BFS/search results and
         # the room/exit snapshot can live as ivars instead of being re-threaded
         # through every private method as arguments.
@@ -97,8 +122,11 @@ module Boukensha
                          regions_by_room: {}, scope_region_ids: nil)
             @rooms_by_id      = rooms.each_with_object({}) { |r, h| h[r[:id]] = r }
             @exits_by_room    = exits.group_by { |e| e[:room_id] }
-            @linked_by_room   = exits.select { |e| e[:target_room_id] }.group_by { |e| e[:room_id] }
-            @frontiers        = exits.reject { |e| e[:target_room_id] }
+            @linked_by_room   = RoutePlanner.traversable(exits).group_by { |e| e[:room_id] }
+            # Exits with a presumed target are no longer frontier: something
+            # already knows what is behind them. Removing them is what deletes
+            # the phantom third of the recorded map's frontier set.
+            @frontiers        = exits.select { |e| RoutePlanner.frontier?(e) }
             @entities_by_room = entities_by_room
             @attempt_counts   = frontier_attempt_counts
             @region_of        = regions_by_room
@@ -142,25 +170,43 @@ module Boukensha
           private
 
           # ---------------------------------------------------------------
-          # BFS, unit-cost, deterministic: canonical direction order breaks
-          # ties among a room's own edges, and predecessor *edges* (not just
-          # rooms) reconstruct steps — plan_route.md §5.
+          # Shortest known route, deterministic: canonical direction order
+          # breaks ties among a room's own edges, and predecessor *edges* (not
+          # just rooms) reconstruct steps — plan_route.md §5.
+          #
+          # It was a plain unit-cost BFS until presumed edges existed. It is now
+          # a two-key search, and the keys are lexicographic: how many PRESUMED
+          # edges the route crosses first, hops second. That ordering is the
+          # whole of exit_name_resolution.md's "ranked strictly after earned
+          # ones" — a nine-step route over walked edges beats a two-step route
+          # resting on a name the agent has never tested, and among routes of
+          # equal presumption the shorter still wins.
+          #
+          # A scan for the minimum rather than a heap: this runs over rooms the
+          # agent has personally stood in, which is dozens, and a dependency-free
+          # loop anyone can read is worth more here than an asymptote.
           def bfs(start)
-            dist = { start => 0 }
-            pred = {}
-            queue = [start]
-            until queue.empty?
-              room_id = queue.shift
-              outgoing(room_id).each do |edge|
-                target = edge[:target_room_id]
-                next if dist.key?(target)
+            cost    = { start => [0, 0] }
+            pred    = {}
+            settled = {}
+            loop do
+              room_id, here = cost.reject { |id, _| settled[id] }.min_by { |id, c| [c, id] }
+              break unless room_id
 
-                dist[target] = dist[room_id] + 1
+              settled[room_id] = true
+              outgoing(room_id).each do |edge|
+                target = RoutePlanner.target_of(edge)
+                step   = RoutePlanner.presumed?(edge) ? [here[0] + 1, here[1] + 1] : [here[0], here[1] + 1]
+                next if cost[target] && (cost[target] <=> step) <= 0
+
+                cost[target] = step
                 pred[target] = edge
-                queue << target
               end
             end
-            [dist, pred]
+            # Every caller of this map means hops when it says distance. The
+            # presumption count has done its work by ordering the search and does
+            # not belong in an answer about how far away something is.
+            [cost.transform_values { |c| c[1] }, pred]
           end
 
           def outgoing(room_id)
@@ -171,7 +217,8 @@ module Boukensha
             steps = []
             cur = room_id
             while (edge = predecessors[cur])
-              steps.unshift({ direction: edge[:direction], from_room_id: edge[:room_id], to_room_id: cur })
+              steps.unshift({ direction: edge[:direction], from_room_id: edge[:room_id], to_room_id: cur,
+                              presumed: RoutePlanner.presumed?(edge) })
               cur = edge[:room_id] # room_exits rows key off room_id -> direction: the edge's own source
             end
             steps
@@ -378,7 +425,12 @@ module Boukensha
             RoutePlan.new(status: status, query: q, start_room: current_room_id,
                           destination_room: destination_room, steps: steps, frontier: frontier,
                           evidence: evidence, alternatives: alternatives,
-                          unexplored: unexplored, withheld: withheld, unexplored_total: unexplored_total)
+                          unexplored: unexplored, withheld: withheld, unexplored_total: unexplored_total,
+                          # Derived rather than passed: every construction site
+                          # would otherwise have to remember to compute it, and
+                          # the one that forgot would silently claim a walked
+                          # route it had not earned.
+                          presumed: steps.any? { |s| s[:presumed] })
           end
         end
         private_constant :Planner

@@ -359,7 +359,170 @@ module Boukensha
           CREATE INDEX idx_room_regions_region ON room_regions(region_id);
         SQL
 
-        MIGRATIONS = [V1, V2, V3, V4, V5].freeze
+        # Exit name resolution — docs/plans/week_3/exit_name_resolution.md.
+        #
+        # The MUD's `exits` output prints "direction - Destination" per line and
+        # `room_parser.rb` has parsed it into `room_exits.target_name` since week
+        # 2, but nothing ever compared that name against the rooms already in
+        # memory. In the recorded Midgaard map five of fifteen unlinked exits
+        # name rooms the agent has stood in, so a third of what the planner calls
+        # frontier is phantom — and the run that ended in The Dump could not plan
+        # a route out of the room it finished in, because the only way back was
+        # an exit the MUD had named and the graph did not hold.
+        #
+        # The presumption goes in its OWN column rather than into
+        # `target_room_id`. V1 documents that NULL as being the exploration
+        # frontier itself and `state_block.rb` renders `✓`/`?` off it, so writing
+        # a name match there would make a guess indistinguishable from a walked
+        # traversal in both the frontier calculation and the model's view of the
+        # world. An earned target always supersedes a presumed one.
+        #
+        # This is NOT reverse-edge inference, which week 2 rejected on the
+        # grounds that MUD exits may be one-way, gated, or non-Euclidean. Nothing
+        # here asserts symmetry: an exit the MUD does not list is never created,
+        # a one-way passage stays one-way because no return exit exists to
+        # resolve, and room 1's `down` to The Temple Square — an edge no walked
+        # traversal implies — is recovered precisely because the game said so.
+        V6 = <<~SQL.freeze
+          ALTER TABLE room_exits ADD COLUMN presumed_target_id INTEGER REFERENCES rooms(id);
+          CREATE INDEX idx_exits_presumed ON room_exits(presumed_target_id) WHERE presumed_target_id IS NOT NULL;
+
+          -- Guard three: names that have proven ambiguous ANYWHERE are never
+          -- resolved again, even where only one candidate room is currently
+          -- known. Generic MUD room names recur heavily across a world, and a
+          -- name that identified two rooms once is not an identifier.
+          --
+          -- Rows arrive two ways: a name observed on two or more distinct rooms,
+          -- and a presumption that walking proved wrong. The second is what
+          -- makes a bad guess cost one move and then never repeat.
+          CREATE TABLE exit_name_ambiguity (
+            name     TEXT PRIMARY KEY,   -- DestinationSearch.normalize'd
+            reason   TEXT NOT NULL,
+            noted_at TEXT NOT NULL
+          );
+        SQL
+
+        # The claim ledger — docs/plans/week_3/movement_revisited/claims.md.
+        #
+        # A survey used to be modelled as coverage: walk enough rooms, then ask a
+        # reasoner whether that felt like enough. A count of fourteen rooms
+        # carries no information about whether the player's question was
+        # answered, which is why that design had to negotiate completion between
+        # an arbitrary floor and an unfalsifiable judgement call. A claim states
+        # what would settle it, so frontier selection and termination both follow
+        # from one structure.
+        #
+        # These tables exist rather than call-local counters for one reason:
+        # `docs/architecture/move_to.md` lists everything a `move_to` call knows
+        # about its own exploration under "Local to one move_to call", and none
+        # of it survives the call boundary. A record of fourteen rooms walked
+        # means nothing at the start of the next session; a `circuit_closes`
+        # claim standing at three sides confirmed and one side unexplored tells
+        # the next survey exactly where to resume.
+        V7 = <<~SQL.freeze
+          -- The ledger, keyed by region so a survey of Midgaard resumes from
+          -- what the last survey of Midgaard established. `predicate` is drawn
+          -- from a closed vocabulary the planner knows how to run; a claim whose
+          -- statement cannot be expressed as one is rejected before it gets a
+          -- row here, which is what keeps "gather evidence" from being a vague
+          -- instruction.
+          CREATE TABLE claims (
+            id             INTEGER PRIMARY KEY,
+            region_id      INTEGER REFERENCES regions(id) ON DELETE CASCADE,
+            -- The handle the surveyor addresses a claim by, stable within a
+            -- region ("C1"). Surrogate `id` is identity; this is what appears in
+            -- a payload small enough for a reasoner to reference reliably.
+            ref            TEXT NOT NULL,
+            statement      TEXT NOT NULL,
+            predicate      TEXT NOT NULL,
+            -- What the predicate is about: "feature:wall_road", "class:lodging",
+            -- "Midgaard". Together with `predicate` it is the merge key, so a
+            -- re-proposed claim accumulates evidence in one place instead of
+            -- forking the ledger.
+            subject        TEXT,
+            status         TEXT NOT NULL DEFAULT 'open'
+                             CHECK (status IN ('open','parked','confirmed','refuted','unresolved')),
+            confidence     REAL NOT NULL DEFAULT 0.5,
+            priority       REAL NOT NULL DEFAULT 0.5,
+            answers        TEXT,
+            decisive_when  TEXT,
+            -- Predicate arguments as JSON: the class list a `composition` is
+            -- looking for and the ones it has seen, the `n` of a
+            -- `count_at_least`, the ceiling of an `extent_bounded`. Class labels
+            -- live HERE and not on rooms, deliberately — the vocabulary arrives
+            -- with the objective, so a survey asking what a town offers seeds
+            -- different classes from one asking whether it is defensible, and a
+            -- global room ontology would have to be the union of every question
+            -- anyone might ask.
+            args           TEXT,
+            room_budget    INTEGER,
+            rooms_spent    INTEGER NOT NULL DEFAULT 0,
+            settled_reason TEXT,
+            objective      TEXT,
+            created_at     TEXT NOT NULL,
+            updated_at     TEXT NOT NULL,
+            UNIQUE (region_id, ref)
+          );
+          CREATE INDEX idx_claims_region ON claims(region_id, status);
+
+          -- One row per observation. `polarity` is explicit so the ledger can
+          -- accumulate DISCONFIRMATION rather than only support — establishing
+          -- that Midgaard has no second bridge is a finding, and a schema that
+          -- could only record agreement could not hold it. The room reference is
+          -- what keeps evidence attached to the graph, so a claim can be
+          -- re-evaluated if the room graph is later corrected.
+          CREATE TABLE claim_evidence (
+            id          INTEGER PRIMARY KEY,
+            claim_id    INTEGER NOT NULL REFERENCES claims(id) ON DELETE CASCADE,
+            room_id     INTEGER REFERENCES rooms(id) ON DELETE SET NULL,
+            polarity    TEXT NOT NULL CHECK (polarity IN ('support','contradict','neutral')),
+            note        TEXT,
+            observed_at TEXT NOT NULL
+          );
+          CREATE INDEX idx_claim_evidence_claim ON claim_evidence(claim_id);
+
+          -- The one durable per-room tag the claim model requires, and the
+          -- reason it is a join table rather than a column: `circuit_closes`,
+          -- `connects` and `bounds` all depend on deciding that several
+          -- separately observed rooms belong to ONE road or ONE wall, which is
+          -- entity resolution over rooms and not a property of any single room.
+          CREATE TABLE features (
+            id            INTEGER PRIMARY KEY,
+            region_id     INTEGER REFERENCES regions(id) ON DELETE CASCADE,
+            slug          TEXT NOT NULL,          -- "wall_road", as named in claims.subject
+            label         TEXT,
+            first_seen_at TEXT NOT NULL,
+            updated_at    TEXT NOT NULL,
+            UNIQUE (region_id, slug)
+          );
+
+          CREATE TABLE feature_rooms (
+            feature_id  INTEGER NOT NULL REFERENCES features(id) ON DELETE CASCADE,
+            room_id     INTEGER NOT NULL REFERENCES rooms(id) ON DELETE CASCADE,
+            note        TEXT,
+            observed_at TEXT NOT NULL,
+            PRIMARY KEY (feature_id, room_id)
+          );
+          CREATE INDEX idx_feature_rooms_room ON feature_rooms(room_id);
+
+          -- What the planner genuinely cannot compute: a guess about the room
+          -- behind an unwalked exit, since it sees only the exit's target name.
+          -- Rather than a deterministic classifier for that, the surveyor
+          -- annotates open frontiers while it is revising the ledger — it is
+          -- already reading those exits, so the annotation is free, and it puts
+          -- the semantic guess in the component that should be making semantic
+          -- guesses.
+          CREATE TABLE frontier_hints (
+            room_id        INTEGER NOT NULL REFERENCES rooms(id) ON DELETE CASCADE,
+            direction      TEXT NOT NULL,
+            expected_class TEXT,
+            note           TEXT,
+            updated_at     TEXT NOT NULL,
+            PRIMARY KEY (room_id, direction)
+          );
+        SQL
+
+        MIGRATIONS = [V1, V2, V3, V4, V5, V6, V7].freeze
 
         LATEST_VERSION = MIGRATIONS.size
 

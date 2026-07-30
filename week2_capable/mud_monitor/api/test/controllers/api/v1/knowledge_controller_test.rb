@@ -15,7 +15,7 @@ module Api
         body = response.parsed_body
         assert body["attached"]
         assert body["live"], "a just-written fixture is inside the live window"
-        assert_equal 3, body["schema_version"]
+        assert_equal 7, body["schema_version"]
         assert body["last_write_at"].present?
       end
 
@@ -57,7 +57,9 @@ module Api
 
         body = response.parsed_body
         assert_equal 5, body["stats"]["rooms"]
-        assert_equal 4, body["stats"]["frontier"]
+        assert_equal 3, body["stats"]["frontier"]
+        assert_equal 1, body["stats"]["presumed"]
+        assert_equal 3, body["stats"]["claims_open"]
         assert_equal 1, body["stats"]["provisional"]
 
         player = body["player"]
@@ -177,11 +179,30 @@ module Api
 
         assert_response :success
         body = response.parsed_body
-        assert_equal 4, body["count"]
+        assert_equal 3, body["count"]
         assert_equal body["count"], body["frontier"].length
-        assert_equal [ [ 1, "east" ], [ 1, "north" ], [ 3, "west" ], [ 5, "down" ] ],
+        assert_equal [ [ 1, "east" ], [ 1, "north" ], [ 3, "west" ] ],
                      body["frontier"].map { |e| [ e["room_id"], e["direction"] ] }
         assert_equal "The Temple Of Midgaard", body["frontier"].first["room_name"]
+      end
+
+      # The exits that STOPPED being frontier, served beside it rather than on a
+      # tab of their own — the difference between "nobody has been there" and
+      # "something believes it knows, on a name alone" only reads if the two
+      # lists are next to each other.
+      test "frontier also carries the presumed exits and the names refused as identifiers" do
+        use_knowledge_db
+        get api_v1_knowledge_frontier_path
+
+        assert_response :success
+        body = response.parsed_body
+        assert_equal 1, body["presumed_count"]
+        presumed = body["presumed"].first
+        assert_equal [ 5, "down" ], [ presumed["room_id"], presumed["direction"] ]
+        assert_equal "A Dark Alley", presumed["target_name"]
+        assert_equal 4, presumed["presumed_target_id"]
+        assert_equal "A Dark Alley", presumed["presumed_target_name"]
+        assert_equal [ "main street" ], body["ambiguous_names"].map { |n| n["name"] }
       end
 
       # ---------- the player ------------------------------------------------
@@ -337,6 +358,75 @@ module Api
         assert_equal "invalid_session", response.parsed_body["error"]["code"]
       end
 
+      # ---------- the survey ledger -----------------------------------------
+
+      test "the survey action serves the ledger, its evidence, the features and the hints" do
+        use_knowledge_db
+        get api_v1_knowledge_survey_path
+
+        assert_response :success
+        body = response.parsed_body
+        assert_equal 6, body["count"]
+        # `open` and `parked` both still count as open: a parked claim keeps its
+        # evidence and comes back when budget frees.
+        assert_equal 3, body["open_count"]
+        assert_equal 2, body["features"].length
+        assert_equal 2, body["hints"].length
+      end
+
+      test "a claim carries its predicate, its verdict reason and both polarities of evidence" do
+        use_knowledge_db
+        get api_v1_knowledge_survey_path
+
+        claims = response.parsed_body["claims"].index_by { |c| c["ref"] }
+
+        composition = claims.fetch("C1")
+        assert_equal "composition", composition["predicate"]
+        assert_equal %w[commercial civic religious], composition["args"]["classes"]
+        assert_equal 2, composition["support_count"]
+        # Disconfirmation is first-class and not an absence of support.
+        assert_equal 1, composition["contradict_count"]
+        assert_equal "Market Square", composition["evidence"].first["room_name"]
+
+        # A refuted claim is a finding, and the reason it was settled is the
+        # whole value of the row.
+        assert_equal "refuted", claims.fetch("C3")["status"]
+        assert_equal "no bridge was found and no in-scope frontier remains",
+                     claims.fetch("C3")["settled_reason"]
+
+        # An unresolved claim says what would still settle it — which is what
+        # lets the next survey resume rather than rediscover.
+        unresolved = claims.fetch("C5")
+        assert_equal "unresolved", unresolved["status"]
+        assert_equal "a wall-road room is re-entered from an edge not previously walked",
+                     unresolved["decisive_when"]
+        assert_equal 2, unresolved["evidence"].length
+      end
+
+      # One malformed args blob must cost its own row's arguments, never the
+      # whole ledger — the same posture look_candidates has had since V1.
+      test "a claim whose args are malformed degrades to an empty object" do
+        use_knowledge_db
+        get api_v1_knowledge_survey_path
+
+        assert_response :success
+        malformed = response.parsed_body["claims"].find { |c| c["ref"] == "C6" }
+        assert_equal({}, malformed["args"])
+      end
+
+      # A pre-V7 file has no claims table at all. Served, not rejected: the same
+      # rule that lets one monitor serve an agent that never named a region.
+      test "a file older than the ledger answers empty rather than failing" do
+        use_knowledge_db(sql: File.read(Rails.root.join("test/fixtures/knowledge/seed_v1.sql")))
+        get api_v1_knowledge_survey_path
+
+        assert_response :success
+        body = response.parsed_body
+        assert_equal 0, body["count"]
+        assert_equal [], body["claims"]
+        assert_equal [], body["features"]
+      end
+
       # ---------- schema drift ----------------------------------------------
 
       test "a schema the reader cannot query is 503 with a named code, not a 500" do
@@ -348,7 +438,7 @@ module Api
         assert_response :service_unavailable
         error = response.parsed_body["error"]
         assert_equal "knowledge_schema_mismatch", error["code"]
-        assert_equal 3, error["schema_version"]
+        assert_equal 7, error["schema_version"]
       end
     end
   end

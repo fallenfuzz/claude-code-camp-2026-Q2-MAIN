@@ -71,11 +71,21 @@ module Boukensha
       # back a failed round trip. Loosening the schema instead was rejected —
       # one canonical spelling is what keeps policy pinning, validation, memory
       # keys and logs consistent with each other.
+      # A third glyph joined the two above once exit name resolution existed,
+      # because `✓` and `?` had exhausted the vocabulary and a presumption is
+      # neither. `~` is an exit the MUD named as a room the agent has stood in,
+      # matched by name and never walked: routable, and honestly weaker than a
+      # traversal. Collapsing it into `✓` would tell the model it had been
+      # somewhere it has not; collapsing it into `?` would advertise exploration
+      # that is not there.
       def exits_line(exits)
         rendered = exits.map do |e|
           dir  = e[:direction].to_s
           name = e[:target_name]
-          mark = e[:target_room_id] ? "✓" : "?"
+          mark = if e[:target_room_id] then "✓"
+                 elsif e[:presumed_target_id] then "~"
+                 else "?"
+                 end
           name ? "#{dir}→#{name} #{mark}" : "#{dir} #{mark}"
         end
         "exits: #{rendered.join(' | ')}"

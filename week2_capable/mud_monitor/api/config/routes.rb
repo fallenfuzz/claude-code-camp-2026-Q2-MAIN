@@ -51,6 +51,10 @@ Rails.application.routes.draw do
       get "knowledge/player",    to: "knowledge#player"
       get "knowledge/frontier",  to: "knowledge#frontier"
       get "knowledge/regions",   to: "knowledge#regions"
+      # The claim ledger, with its evidence, feature chains and frontier hints.
+      # One route rather than four: they are one investigation, and four tabs
+      # would make a reader join what the writer already relates.
+      get "knowledge/survey",    to: "knowledge#survey"
     end
   end
 

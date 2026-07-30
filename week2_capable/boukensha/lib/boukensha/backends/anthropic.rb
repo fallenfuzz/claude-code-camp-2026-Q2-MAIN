@@ -65,11 +65,7 @@ module Boukensha
           {
             name: tool.name,
             description: tool.description,
-            input_schema: {
-              type: "object",
-              properties: tool.parameters,
-              required: tool.parameters.keys.map(&:to_s)
-            }
+            input_schema: tool.json_schema
           }
         end
       end

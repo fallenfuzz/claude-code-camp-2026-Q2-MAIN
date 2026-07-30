@@ -444,6 +444,20 @@ module Boukensha
                                      expected: known[:target_room_id], found: room[:id])
           @store.demote_exit!(from_id, direction)
         end
+
+        # A presumed edge settles the first time it is walked, which is the
+        # property that makes name resolution safe to plan over. Landing where
+        # the presumption said promotes it — `link_exit!` below earns the target
+        # and clears the guess in one statement. Landing somewhere else means the
+        # name was not the identifier we took it for, so the guess is dropped and
+        # the NAME is poisoned: one wasted move, once, rather than a wrong edge
+        # every route planner reads forever.
+        if known && known[:presumed_target_id] && known[:presumed_target_id] != room[:id]
+          log_conflict("presumed_edge_wrong", from: from_id, direction: direction,
+                                              expected: known[:presumed_target_id], found: room[:id])
+          @store.refute_presumed_target!(from_id, direction, target_name: known[:target_name])
+        end
+
         @store.link_exit!(from_id, direction, room[:id])
 
         # `check(exits)` said this way led somewhere else. Walking it is the

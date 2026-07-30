@@ -108,7 +108,7 @@ module Knowledge
 
       r = reader
       error = assert_raises(Reader::SchemaMismatch) { r.rooms }
-      assert_equal 3, error.schema_version
+      assert_equal 7, error.schema_version
     ensure
       r&.close
     end
@@ -261,8 +261,11 @@ module Knowledge
       r = reader
       front = r.frontier
 
-      assert_equal 4, front.length
-      assert_equal [ [ 1, "east" ], [ 1, "north" ], [ 3, "west" ], [ 5, "down" ] ],
+      # Room 5's `down` is NOT here: the MUD named "A Dark Alley" behind it and
+      # that is room 4, so something already knows what is through that door.
+      # Counting it would overstate how much of the world is left.
+      assert_equal 3, front.length
+      assert_equal [ [ 1, "east" ], [ 1, "north" ], [ 3, "west" ] ],
                    front.map { |e| [ e[:room_id], e[:direction] ] }
       assert_equal "The Temple Of Midgaard", front.first[:room_name]
       # An exit the MUD never named is still frontier — it just has no label.
@@ -276,9 +279,13 @@ module Knowledge
       use_knowledge_db
       r = reader
 
+      # `frontier` is 3 and not 4 because one of the eight exits carries a
+      # presumed target. The tile and the table under it are computed from the
+      # same subtraction, so they cannot disagree.
       assert_equal({ rooms: 5, surveyed: 3, provisional: 1, entities: 4, mobs: 3, objects: 1,
-                     exits: 8, frontier: 4, traversed: 4, encounters: 1,
-                     skills: 4, items: 5 }, r.stats)
+                     exits: 8, frontier: 3, traversed: 4, encounters: 1,
+                     skills: 4, items: 5, presumed: 1,
+                     claims: 6, claims_open: 3, features: 2 }, r.stats)
     ensure
       r&.close
     end
@@ -439,7 +446,7 @@ module Knowledge
                 .sub("player_class     TEXT CHECK (player_class IN ('magic_user','cleric','thief','warrior')),",
                      "char_class       TEXT,")
                 .sub("gender           TEXT CHECK (gender IN ('m','f','n')),", "race             TEXT,")
-                .sub("PRAGMA user_version = 3;", "PRAGMA user_version = 2;")
+                .sub("PRAGMA user_version = 7;", "PRAGMA user_version = 2;")
                 .sub("title, player_class, gender, gold_bank", "title, char_class, race, gold_bank")
                 .sub("'Derrano the Minister', 'cleric', 'm', NULL",
                      "'Derrano the Minister', 'thief', 'elf', NULL")
