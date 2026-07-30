@@ -1,0 +1,168 @@
+# RUN A — mocking_messages.md §1. The first live cartographer call this system
+# has ever made.
+#
+# The cartographer has never executed against a real model. Every line of
+# evidence for it comes from `ScriptedReasoner` in test_move_to.rb, because it
+# only runs once the navigator has volunteered `scope_suspect: true` and the
+# navigator has never done so in a measured run. That is not a hard thing to
+# observe, it is an EXPENSIVE thing to observe: it needs a player that walked
+# far enough to build a sprawling region and a navigator that then read the
+# region's shape line the way §5 hopes it will.
+#
+# So this case stages both of them and leaves the cartographer live. The whole
+# run is one model call. What it measures is the only question worth asking
+# first: given a real Midgaard graph and a plausible reason to split it, does a
+# real cartographer place a defensible boundary, or does it place a bad one?
+#
+# If it cannot, then runs B, C and D are all measuring the downstream of
+# something broken, and the cheapest way to find that out is here.
+#
+# ── PREREQUISITE ───────────────────────────────────────────────────────
+#
+# `snapshot:midgaard` — see `explore_midgaard.yml`, which exists to produce it.
+# The staged navigator answer below claims sixteen doors at a median of six.
+# Against a seven-room map that claim is false, the cartographer will decline,
+# and declining will have been correct — so the run would report a pass and
+# measure nothing. §5 is the argument for why the map is half the fixture and
+# the staged answers are the other half.
+#
+#   bk -ts split_the_bridge_quarter --dry-run   # free: prints the resolved stage
+#   bk -ts split_the_bridge_quarter --batch 5   # one model call per case
+#
+# ── WHAT TO WRITE DOWN ─────────────────────────────────────────────────
+#
+# Not the pass rate. How many of the five placed a boundary the graph justifies
+# — a single entrance to a genuinely distinct quarter, nested inside Midgaard
+# rather than replacing it. `region_splits` in the report row carries the room
+# and the edge; that is the column to read.
+session_name: split_the_bridge_quarter
+player_profile: Derrano
+goal: "Find the mayor's office."
+
+base_initial_state: cleric
+initial_state_overrides:
+  money:
+    gold: 0
+
+map_memory: snapshot:midgaard
+
+limits:
+  # High enough that the turn ends because the player's staged queue ran to its
+  # last answer rather than because a ceiling tripped — a tripped ceiling calls
+  # `Agent#wrap_up`, which is one more staged player answer the queue would have
+  # to hold. `stop_when:` (§8) is the eventual answer to this; until it exists,
+  # headroom is.
+  max_iterations: 20
+  max_turn_tokens: 40000
+  wall_timeout_s: 240
+
+stage:
+  # Required, and prose. A staged run is a claim about what the other agents
+  # would have said, and the claim needs an author.
+  because: |
+    Run A of mocking_messages.md §1. The cartographer has never executed
+    against a live model; this puts a real one in front of the real Midgaard
+    graph and leaves everything upstream of it scripted. The navigator's
+    `scope_suspect: true` is the assertion under test in run B and is taken as
+    given here, because run A is asking a question about PLACEMENT and run B is
+    asking the question about DETECTION.
+
+  # A staged assistant turn may carry tool calls, and the tools really run:
+  # `Agent#handle_tool_calls` dispatches whatever blocks the response contains,
+  # so this walks the real character through the real subsystem and writes the
+  # real store. That is why staging supersedes prefilling the transcript with a
+  # fabricated tool result — a fabricated result is fiction, this is a code path.
+  player:
+    - tools:
+        - name: move_to
+          args: { destination: "the mayor's office" }
+    # Whatever it says once move_to returns ends the turn.
+    - text: "That is as far as the walk got; the office should be off the square."
+
+  # `move_to` calls the navigator once per leg and stops at
+  # `tools.navigation.limits.max_decisions`, which is 6. Running off the end of
+  # a queue is an error and never a silent fall-through to the network, so the
+  # queue is sized to the ceiling rather than to the number of legs anyone
+  # expects. The first answer is the one that matters; the rest exist so a walk
+  # that keeps going does not fail the case for the wrong reason.
+  navigator:
+    - direction: "north"
+      reason: "The promenade is the only civic-sounding exit on the list, and a mayor's office is civic."
+      place: "Midgaard"
+      scope_suspect: true
+      scope_reason: |
+        Sixteen unexplored exits at a median of six moves, half of them across
+        the bridge. This has stopped meaning "here".
+    - direction: "north"
+      reason: "Still heading for the civic quarter."
+      place: "unchanged"
+      scope_suspect: false
+    - direction: "east"
+      reason: "The promenade turns east at the square."
+      place: "unchanged"
+      scope_suspect: false
+    - direction: "east"
+      reason: "Continuing along the square."
+      place: "unchanged"
+      scope_suspect: false
+    - direction: "south"
+      reason: "Trying the far side of the square."
+      place: "unchanged"
+      scope_suspect: false
+    - direction: "south"
+      reason: "Last decision before the budget runs out."
+      place: "unchanged"
+      scope_suspect: false
+
+  # cartographer: not listed, therefore LIVE. This is the whole point of the run.
+  # judge: not listed either — the rubric below is the second measurement, and it
+  # is the one that reads the placement rather than counting it.
+
+# ── Deterministic gate ────────────────────────────────────────────────
+#
+# Deliberately thin, and none of it is a budget. Run A is a DIAGNOSTIC, not a
+# gate: a green row here means the pipeline reached the cartographer, and
+# nothing about whether the boundary was any good. The judge answers that, and
+# so does `region_splits` in the report row.
+#
+# `region_split` is asserted true rather than left open because the one outcome
+# that would make this run worthless is the cartographer never being reached at
+# all — a closed scope gate, a staged direction that fell off the candidate
+# list, a walk that arrived before the first decision. Any of those produces a
+# run that cost a model call and observed nothing, and this is the rule that
+# says so out loud.
+expect:
+  tool_called: [move_to]
+  journal_op: [move_to.decision]
+  region_split: true
+  no_provisional_regions: true
+
+evaluation:
+  desired_behaviour: |
+    This case measures ONE model call — the cartographer's — so read the
+    cartographer's turn in the session log and the navigation journal, and
+    ignore the player and navigator turns entirely: they are staged, and
+    grading them would be grading the fixture.
+    The cartographer is given the region's whole room graph: every room with the
+    edge it was first entered by, how far it is from here, and which rooms still
+    hold unexplored exits. A defensible boundary sits on a SINGLE ENTRANCE to a
+    part of the graph that hangs off it — a bridge, a gate, a stair — so that
+    cutting that one edge separates the quarter cleanly.
+    `within:` should name Midgaard, so the quarter nests inside the town rather
+    than replacing it. A search starting anywhere else in town must still scope
+    to the whole of it.
+    Declining is a legitimate answer and should be judged as one. If the graph
+    shows a dense little town whose rooms interconnect in every direction, then
+    there is no single entrance, and a cartographer that says so and places
+    nothing has read the graph correctly.
+  undesired_behaviour: |
+    The boundary should not land on an interior edge — one where the two sides
+    still connect by several other routes. The cartographer is given the whole
+    edge list precisely so it can check this, and a split it cannot justify
+    from a single entrance should have been declined instead.
+    It should not take the staged `scope_reason` at face value. The reason it
+    was handed says sixteen doors at a median of six; if the graph in front of
+    it does not show that, the honest answer is to decline, and agreeing with a
+    claim the data contradicts is the failure mode this staged run is most
+    likely to induce.
+    The label should not be a rename of the whole town. A quarter is a quarter.

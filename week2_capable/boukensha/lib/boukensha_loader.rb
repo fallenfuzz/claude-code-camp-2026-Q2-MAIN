@@ -228,6 +228,7 @@ module BoukenshaLoader
   #   boukensha --test-scenario find_bakery
   #   boukensha -ts find_bakery --batch 20       # same scenario, 20 times
   #   boukensha -tsp banking                     # a plan
+  #   boukensha -ts find_bakery --setting tools.navigation.limits.max_decisions=10
   def self.extract_test_arguments
     # Internal: one child process running exactly one case (§5.2). Checked
     # first because it is the one form that must never be confused with a
@@ -260,6 +261,12 @@ module BoukenshaLoader
       batch:      extract_option("--batch", "-batch")&.to_i,
       profile:    extract_option("--profile"),
       set:        extract_repeated_option("--set"),
+      # `--setting KEY=VALUE` reaches settings.yaml; `--set KEY=VALUE` reaches
+      # the case's initial world (settings_sweep.md §3.1). Two flags rather than
+      # one, because a single flag whose target depended on whether the key
+      # happened to match a settings key would be guessing at intent. Both are
+      # matched exactly by `extract_option`, so neither swallows the other.
+      setting:    extract_repeated_option("--setting"),
       map_memory: extract_option("--map-memory"),
       report:     extract_option("--report"),
       no_judge:   extract_flag("--no-judge"),

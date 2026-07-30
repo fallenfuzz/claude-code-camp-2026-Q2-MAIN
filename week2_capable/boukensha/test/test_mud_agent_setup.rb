@@ -73,8 +73,8 @@ class TestMudAgentSetup < Minitest::Test
             - name_region
             - split_region
             - tbamud__poll
-      #{"    navigator:\n      provider: anthropic\n      model: claude-haiku-4-5\n" if navigator}
-      #{"    cartographer:\n      provider: anthropic\n      model: claude-haiku-4-5\n" if cartographer}
+      #{task_block("navigator") if navigator}
+      #{task_block("cartographer") if cartographer}
       mcp_servers:
         mud:
           command: #{mud_manager_command}
@@ -86,6 +86,16 @@ class TestMudAgentSetup < Minitest::Test
             MUD_NAME:     Gandalf
             MUD_PASSWORD: secret
     YAML
+  end
+
+  # One reasoner's block, indented to sit under `tasks:` — TWO spaces, not four.
+  # It used to be a four-space literal inside the heredoc's interpolation, which
+  # put both reasoners under `tasks.player` instead. `cfg.tasks(:navigator)` was
+  # therefore always empty, so the setup proc never built a reasoner and
+  # `test_the_reasoners_are_built_from_configuration` asserted nothing in either
+  # direction.
+  def task_block(name)
+    "  #{name}:\n    provider: anthropic\n    model: claude-haiku-4-5\n    max_iterations: 1\n"
   end
 
   # Boukensha.run minus the model: resolve the player's permissions, register the
@@ -168,5 +178,81 @@ class TestMudAgentSetup < Minitest::Test
     assert_equal 7, subject.limit("max_rooms")
     assert_equal Boukensha::Mud::Navigation::MoveTo::DEFAULT_LIMITS["max_decisions"],
                  subject.limit("max_decisions"), "an unset knob falls back to its default"
+  end
+
+  # ---------- per-run settings overrides (settings_sweep.md §9) --------------
+
+  # The one assertion that makes the feature real: a knob set by override is the
+  # number the walking subsystem actually enforces. Asserted through the REAL
+  # setup proc and the MoveTo it builds, rather than by constructing one here,
+  # because the plumbing is the point — `install_settings_overrides!` reaching
+  # every `cfg.dig` with none of them modified is the whole design (§2).
+  def test_an_overridden_limit_is_the_number_the_subsystem_enforces
+    Boukensha.config.install_settings_overrides!(
+      "tools" => { SLICE => { "limits" => { "max_rooms" => 30, "max_decisions" => 10 } } }
+    )
+
+    subject = capture_move_to { build_player_registry }
+
+    refute_nil subject, "the setup proc has to have built a MoveTo"
+    assert_equal 30, subject.limit("max_rooms"), "the override, not the file's 7"
+    assert_equal 10, subject.limit("max_decisions")
+  end
+
+  # "Is Haiku good enough to pick a frontier" is the question §1 exists for, and
+  # it is answerable only if the navigator's model can be varied per run.
+  def test_an_overridden_task_model_is_the_model_the_navigator_reports
+    Boukensha.config.install_settings_overrides!(
+      "tasks" => { "navigator" => { "model" => "claude-sonnet-4-6" } }
+    )
+
+    settings = Boukensha.config.tasks("navigator")
+
+    assert_equal "claude-sonnet-4-6", Boukensha::Tasks::Navigator.model(settings)
+    assert_equal "anthropic", Boukensha::Tasks::Navigator.provider(settings),
+                 "an override carries only what it changes"
+    assert_equal "claude-haiku-4-5", Boukensha.config.dig(:tasks, :player, :model),
+                 "and it reaches only the task it named"
+  end
+
+  # §8.2. The injection window is not enforced by anything upstream, so it is
+  # enforced by Config, and it raises rather than warns: an override that arrived
+  # late produces a case that ran under one configuration and reported another.
+  def test_an_override_arriving_after_configuration_was_read_raises
+    Boukensha.config.dig(:tasks, :player, :model)
+
+    error = assert_raises(Boukensha::Config::SettingsOverrideError) do
+      Boukensha.config.install_settings_overrides!("tasks" => { "navigator" => { "model" => "x" } })
+    end
+
+    assert_match(/after configuration had already been read/, error.message)
+  end
+
+  # An empty override is a no-op rather than a read, so the ordinary interactive
+  # path never trips the guard on its way past.
+  def test_an_empty_override_neither_raises_nor_closes_the_window
+    Boukensha.config.install_settings_overrides!({})
+    Boukensha.config.install_settings_overrides!(nil)
+
+    Boukensha.config.install_settings_overrides!("memory" => { "turn_policy" => true })
+
+    assert_equal true, Boukensha.config.dig(:memory, :turn_policy)
+  end
+
+  private
+
+  # The MoveTo the real setup proc builds, caught on its way out of the
+  # constructor. Dispatching `move_to` to find out would walk the character.
+  def capture_move_to
+    klass    = Boukensha::Mud::Navigation::MoveTo
+    original = klass.method(:new)
+    caught   = nil
+    klass.define_singleton_method(:new) do |**kwargs|
+      caught = original.call(**kwargs)
+    end
+    yield
+    caught
+  ensure
+    klass.define_singleton_method(:new, original)
   end
 end

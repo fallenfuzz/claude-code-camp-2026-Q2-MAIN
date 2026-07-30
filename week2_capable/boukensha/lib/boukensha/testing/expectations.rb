@@ -24,7 +24,9 @@ module Boukensha
       end
 
       KINDS = %w[tool_called tool_not_called final_room max_model_tool_calls
-                 max_automatic_tool_calls max_iterations max_cost_usd max_duration_ms].freeze
+                 max_automatic_tool_calls max_iterations max_cost_usd max_duration_ms
+                 region_named region_split region_split_at_room no_provisional_regions
+                 journal_op journal_op_not].freeze
 
       module_function
 
@@ -43,6 +45,12 @@ module Boukensha
         results << at_most("max_iterations", expect["max_iterations"], facts.iterations)                           if expect.key?("max_iterations")
         results << at_most("max_cost_usd", expect["max_cost_usd"], facts.cost_usd)                                 if expect.key?("max_cost_usd")
         results << at_most("max_duration_ms", expect["max_duration_ms"], facts.duration_ms)                        if expect.key?("max_duration_ms")
+        Array(expect["region_named"]).each   { |label| results << region_named(label, facts) }
+        Array(expect["journal_op"]).each     { |op| results << journal_op(op, facts) }
+        Array(expect["journal_op_not"]).each { |op| results << journal_op_not(op, facts) }
+        results << region_split(expect["region_split"], facts)                       if expect.key?("region_split")
+        results << region_split_at_room(expect["region_split_at_room"], facts)       if expect.key?("region_split_at_room")
+        results << no_provisional_regions(expect["no_provisional_regions"], facts)   if expect.key?("no_provisional_regions")
         results.compact
       end
 
@@ -67,6 +75,70 @@ module Boukensha
         Result.new(kind: "final_room", rule: expected.to_s,
                    ok: actual.to_s.casecmp?(expected.to_s),
                    detail: actual || "unknown (no current_room_id in the agent's memory)")
+      end
+
+      # ---------- regions (mocking_messages.md §9) ---------------------------
+      #
+      # Every rule below is a projection of the post-run knowledge database or
+      # of the navigation journal, which is the whole point: the region cases
+      # were gradeable only by the judge, as prose, and half of what the rubrics
+      # ask is mechanical.
+
+      # Case-insensitive, matching `final_room`, because a label is prose the
+      # model wrote and "Bridge Quarter" and "bridge quarter" are the same
+      # declaration.
+      def region_named(label, facts)
+        labels = facts.region_labels
+        ok     = labels.any? { |actual| actual.to_s.casecmp?(label.to_s) }
+        Result.new(kind: "region_named", rule: label.to_s, ok: ok,
+                   detail: labels.empty? ? "no regions" : labels.join(", "))
+      end
+
+      # `false` is as useful as `true` here and is NOT the default: a
+      # large-but-coherent region that the cartographer declined to split is a
+      # correct outcome, and asserting it was the thing §9 says there was no way
+      # to say.
+      def region_split(expected, facts)
+        splits = facts.region_splits
+        Result.new(kind: "region_split", rule: expected.to_s, ok: !splits.empty? == !!expected,
+                   detail: splits.empty? ? "no boundary declared this session" : describe_splits(splits))
+      end
+
+      # Placement, not occurrence. A boundary on the wrong edge is the failure
+      # the case is written about, and it passes every count-based rule.
+      def region_split_at_room(expected, facts)
+        splits = facts.region_splits
+        ok     = splits.any? { |split| split[:room_id].to_i == expected.to_i }
+        Result.new(kind: "region_split_at_room", rule: expected.to_s, ok: ok,
+                   detail: splits.empty? ? "no boundary declared this session" : describe_splits(splits))
+      end
+
+      # A `⟨from …⟩` label is provenance, not a claim, and one still standing at
+      # the end is a region nobody ever named.
+      def no_provisional_regions(expected, facts)
+        left = facts.provisional_region_labels
+        Result.new(kind: "no_provisional_regions", rule: expected.to_s, ok: left.empty? == !!expected,
+                   detail: left.empty? ? nil : left.join(", "))
+      end
+
+      # `move_to.region_split_declined` — stream and op, spelled as the journal
+      # spells them. A dotted name rather than the `name(arg: value)` grammar
+      # because there is no argument to match on: a journal op is an occurrence,
+      # and `count:` belongs to the tripwires rather than here.
+      def journal_op(op, facts)
+        seen = facts.journal_ops[op.to_s]
+        Result.new(kind: "journal_op", rule: op.to_s, ok: seen.positive?,
+                   detail: seen.positive? ? "#{seen}×" : "never")
+      end
+
+      def journal_op_not(op, facts)
+        seen = facts.journal_ops[op.to_s]
+        Result.new(kind: "journal_op_not", rule: op.to_s, ok: seen.zero?,
+                   detail: seen.positive? ? "#{seen}×" : nil)
+      end
+
+      def describe_splits(splits)
+        splits.map { |s| "#{s[:region]} at ##{s[:room_id]} #{s[:room]} (#{s[:direction]})" }.join("; ")
       end
 
       # A ceiling that cannot be checked is reported as a failure, not quietly

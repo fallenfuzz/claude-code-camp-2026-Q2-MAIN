@@ -1,9 +1,11 @@
 require "json"
 require "fileutils"
 require_relative "fixtures"
+require_relative "overrides"
 require_relative "state_loader"
 require_relative "map_memory"
 require_relative "run_log"
+require_relative "stage"
 
 module Boukensha
   module Testing
@@ -33,6 +35,18 @@ module Boukensha
         begin
           BoukenshaLoader.apply_profile!(@payload.fetch("player_profile"))
           config = Boukensha.config
+          # The one window there is (settings_sweep.md §2, §8.2). Constructing a
+          # Config parses `settings.yaml` and reads nothing out of it, so this is
+          # still before the first `cfg.dig`; Config raises if that ever stops
+          # being true, because an override installed late produces a case that
+          # ran under one configuration and reported another.
+          install_settings_overrides!(config)
+
+          # Installed beside the settings overrides and before anything runs, so
+          # no model call in this process can reach the network on a task the
+          # scenario said was staged (mocking_messages.md §6).
+          stage = install_stage!
+          result["stage"] = stage.as_launch if stage
 
           map = prepare_map_memory(config)
           result["map_memory"] = map.as_json
@@ -56,7 +70,12 @@ module Boukensha
             batch_size: @payload["batch_size"],
             state: @payload["base_initial_state"],
             map_memory: @payload["map_memory"],
-            goal: @payload["goal"]
+            goal: @payload["goal"],
+            # §7: a staged run is not a real run and the record has to say so.
+            # `SessionFacts` exposes `launch` verbatim, so this reaches the
+            # report row and mud_monitor's session view without either of them
+            # learning that staging exists.
+            stage: stage&.as_launch
           )
 
           limits = @payload["limits"] || {}
@@ -121,6 +140,30 @@ module Boukensha
       def log_progress(iteration:, tool_calls:, cost_usd:)
         log("agent", "iteration #{iteration} · #{tool_calls} tool call#{'s' unless tool_calls == 1}" \
                      "#{format(' · $%.4f', cost_usd) if cost_usd&.positive?}")
+      end
+
+      # Said out loud, because §3.3's whole complaint about a sweep is that the
+      # arm a case ran under is invisible: a scenario name in a run log tells a
+      # reader nothing about which of six configurations produced the row.
+      def install_settings_overrides!(config)
+        overrides = @payload["settings"]
+        return if overrides.nil? || overrides.empty?
+
+        config.install_settings_overrides!(overrides)
+        log("settings", "#{@payload['arm'] || 'override'} — #{Overrides.describe(overrides)}")
+      end
+
+      # Said out loud for the same reason the settings override is: which task
+      # was LIVE is the only line in a staged run's report that says what the
+      # run actually measured, and a reader skimming a run log should not have
+      # to open the scenario to find it.
+      def install_stage!
+        stage = Stage.build(@payload["stage"])
+        return nil unless stage
+
+        Boukensha.stage = stage
+        log("stage", stage.describe)
+        stage
       end
 
       def describe_map(map)
@@ -221,6 +264,12 @@ module Boukensha
         when StateLoader::Error then "seed_failed"
         when MapMemory::Error   then "map_memory_failed"
         when Fixtures::Error    then "fixture_error"
+        # A staged task that ran out is a harness problem, never the agent's:
+        # the scenario staged fewer answers than the run needed, and reporting
+        # it as a failing agent is exactly the mislabel this method exists to
+        # avoid.
+        when Stage::Error       then "stage_error"
+        when Config::SettingsOverrideError then "settings_override_failed"
         else error.class.name.split("::").last
         end
       end

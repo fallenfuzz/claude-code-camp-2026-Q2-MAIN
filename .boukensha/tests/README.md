@@ -369,10 +369,83 @@ cannot satisfy or violate a rule the agent had nothing to do with.
 Other keys: `max_automatic_tool_calls`, `max_iterations`, `max_duration_ms`. An
 unknown key is a load error, not a silent no-op.
 
+The region keys are projections of the post-run `knowledge.sqlite3` and of the
+navigation journal, so they can assert things the judge previously had to read
+as prose:
+
+```yaml
+expect:
+  region_named:  ["Bridge Quarter"]     # the label exists, case-insensitively
+  region_split:  true                   # a boundary was declared THIS session
+  region_split_at_room: 3014            # and on that room's arrival edge
+  no_provisional_regions: true          # no ⟨from …⟩ label survived the run
+  journal_op:     [move_to.region_split_declined]
+  journal_op_not: [move_to.region_split_rejected]
+```
+
+`region_split: false` is as useful as `true`: a large-but-coherent region the
+cartographer declined to split is a **correct** outcome, and there was no way to
+say so before. `region_split` counts only boundaries this session declared, so a
+case running against a `snapshot:` fixture does not report the fixture's
+boundaries as its own work.
+
 **`evaluation:`** — everything `expect` cannot express: sequencing, intent, and
 whether the reasoning was sane rather than merely lucky. The judge **cannot
 overturn tier 1** — it can downgrade a mechanical pass, never rescue a
 mechanical fail.
+
+---
+
+## Staging: leaving one model call live
+
+`stage:` answers named tasks from the scenario file instead of from the network,
+so a run can leave exactly **one** agent live and measure only that one. It is
+what makes an otherwise expensive observation — a region split needs a player
+that walked far enough, then a navigator that raised scope, then a cartographer
+— cost a single model call.
+
+```yaml
+stage:
+  because: |                 # required, and prose: a staged run is a claim about
+    Run A — the cartographer  # what the other agents would have said, and the
+    has never run live.       # claim needs an author.
+
+  player:                    # an agent turn: `text:` and/or `tools:`
+    - tools:
+        - name: move_to
+          args: { destination: "the mayor's office" }
+    - text: "That is as far as the walk got."
+
+  navigator:                 # a reasoner: the JSON document its prompt asks for
+    - direction: "north"
+      reason: "The promenade is the only civic-sounding exit."
+      scope_suspect: true
+
+  # cartographer: not listed, therefore LIVE. Anything not named stays live.
+```
+
+Answers are consumed **one per call, in order, per task** — never by a global
+call sequence, so one extra player iteration does not renumber the navigator's
+answers. Running off the end is an error naming the task and the call number,
+never a silent fall-through to the network. Size a reasoner's queue to
+`tools.navigation.limits.max_decisions`, and remember that a run tripping
+`max_iterations` spends one more player answer on `wrap_up`.
+
+A staged `tools:` block really **dispatches the tool** — the character walks,
+the store is written, and the model receives a genuine result. That is why this
+supersedes prefilling the transcript with fabricated results.
+
+`stage:` is legal only in a **scenario**, never in a plan or a flag — the exact
+inverse of the `settings:` rule, and for the same reason: staging changes which
+agent was doing the thinking, so it is part of the scenario's identity, and two
+incomparable populations must not share one name. It is part of the report's arm
+key for the same reason, and a staged run's numbers are **not** baseline
+material: `tests/baselines/` is for runs whose cost and call count describe a
+journey that was actually taken.
+
+```bash
+bk -ts split_the_bridge_quarter --dry-run   # free: prints the resolved stage
+```
 
 ---
 

@@ -82,6 +82,25 @@ module Boukensha
         self.class.name.split("::").last.gsub(/([a-z\d])([A-Z])/, '\1_\2').downcase
       end
 
+      # A staged answer, in THIS provider's wire shape — the inverse of
+      # `parse_response`, and the one thing the test harness's staging layer
+      # needs from a backend (mocking_messages.md §3).
+      #
+      # It lives here rather than in the harness because the wire shape is the
+      # backend's own business: a body assembled by the harness would be an
+      # Anthropic body by accident, and would parse to empty content on any
+      # provider whose response is shaped differently — a staged run that
+      # silently measured nothing.
+      #
+      # `usage` is zero rather than invented. Nothing was spent, and the report's
+      # cost column should say so.
+      def staged_response(text: nil, tools: [])
+        raise NotImplementedError,
+              "#{provider_name} cannot answer a staged model call: Backends::#{self.class.name.split('::').last} " \
+              "does not implement #staged_response, so there is no way to hand the agent a response in the " \
+              "shape it parses. Run this scenario on a backend that does, or implement it."
+      end
+
       def estimate_cost(input_tokens:, output_tokens:)
         return nil unless input_token_cost_per_million && output_token_cost_per_million
 

@@ -1,0 +1,1269 @@
+{
+  "schema": 2,
+  "run_id": "20260730T005308Z-39e74a79",
+  "kind": "plan",
+  "name": "navigation_limits",
+  "started_at": "2026-07-30T00:53:08.532Z",
+  "ended_at": "2026-07-30T01:03:31.858Z",
+  "environment": {
+    "profile": "Derrano",
+    "provider": "anthropic",
+    "model": "claude-haiku-4-5",
+    "boukensha_version": "0.13.0",
+    "git_sha": "834f14f",
+    "judge": {
+      "provider": "anthropic",
+      "model": "claude-sonnet-4-6"
+    }
+  },
+  "summary": {
+    "cases": 6,
+    "passed": 1,
+    "failed": 5,
+    "errored": 0,
+    "cost_usd": {
+      "agent": 0.286335,
+      "judge": 0,
+      "total": 0.286335
+    },
+    "arms": [
+      {
+        "arm": "max_decisions=4 model=claude-haiku-4-5",
+        "settings": {
+          "tools": {
+            "navigation": {
+              "limits": {
+                "max_rooms": 12,
+                "max_decisions": 4
+              }
+            }
+          },
+          "tasks": {
+            "navigator": {
+              "model": "claude-haiku-4-5"
+            }
+          }
+        },
+        "settings_digest": "sha256:87e212b473b579b7a8a7e7f3135747e47cb7338ae7f789bea8574e185a5887f4",
+        "cases": 1,
+        "passed": 0,
+        "failed": 1,
+        "errored": 0,
+        "pass_rate": 0.0,
+        "cost_usd": {
+          "agent": 0.030968,
+          "judge": 0,
+          "total": 0.030968
+        },
+        "median": {
+          "model_tool_calls": 3,
+          "automatic_tool_calls": 38,
+          "iterations": 4,
+          "duration_ms": 26238,
+          "cost_usd": 0.030968
+        },
+        "p90": {
+          "model_tool_calls": 3,
+          "automatic_tool_calls": 38,
+          "iterations": 4,
+          "duration_ms": 26238,
+          "cost_usd": 0.030968
+        },
+        "failure_modes": {
+          "max_cost_usd: 0.03": 1
+        }
+      },
+      {
+        "arm": "max_decisions=4 model=claude-sonnet-4-6",
+        "settings": {
+          "tools": {
+            "navigation": {
+              "limits": {
+                "max_rooms": 12,
+                "max_decisions": 4
+              }
+            }
+          },
+          "tasks": {
+            "navigator": {
+              "model": "claude-sonnet-4-6"
+            }
+          }
+        },
+        "settings_digest": "sha256:e7c9d192116a1eda3a660326be60506b397f8dee6739bb541ea8e8251b3d5707",
+        "cases": 1,
+        "passed": 0,
+        "failed": 1,
+        "errored": 0,
+        "pass_rate": 0.0,
+        "cost_usd": {
+          "agent": 0.063971,
+          "judge": 0,
+          "total": 0.063971
+        },
+        "median": {
+          "model_tool_calls": 3,
+          "automatic_tool_calls": 38,
+          "iterations": 4,
+          "duration_ms": 33673,
+          "cost_usd": 0.063971
+        },
+        "p90": {
+          "model_tool_calls": 3,
+          "automatic_tool_calls": 38,
+          "iterations": 4,
+          "duration_ms": 33673,
+          "cost_usd": 0.063971
+        },
+        "failure_modes": {
+          "max_cost_usd: 0.03": 1
+        }
+      },
+      {
+        "arm": "max_decisions=6 model=claude-haiku-4-5",
+        "settings": {
+          "tools": {
+            "navigation": {
+              "limits": {
+                "max_rooms": 12,
+                "max_decisions": 6
+              }
+            }
+          },
+          "tasks": {
+            "navigator": {
+              "model": "claude-haiku-4-5"
+            }
+          }
+        },
+        "settings_digest": "sha256:f6d28da8b07eb1982e1aa10b0d4ad757d8be088275629af17ce4f58f7d4d7e84",
+        "cases": 1,
+        "passed": 0,
+        "failed": 1,
+        "errored": 0,
+        "pass_rate": 0.0,
+        "cost_usd": {
+          "agent": 0.031217,
+          "judge": 0,
+          "total": 0.031217
+        },
+        "median": {
+          "model_tool_calls": 4,
+          "automatic_tool_calls": 36,
+          "iterations": 4,
+          "duration_ms": 24690,
+          "cost_usd": 0.031217
+        },
+        "p90": {
+          "model_tool_calls": 4,
+          "automatic_tool_calls": 36,
+          "iterations": 4,
+          "duration_ms": 24690,
+          "cost_usd": 0.031217
+        },
+        "failure_modes": {
+          "max_cost_usd: 0.03": 1
+        }
+      },
+      {
+        "arm": "max_decisions=6 model=claude-sonnet-4-6",
+        "settings": {
+          "tools": {
+            "navigation": {
+              "limits": {
+                "max_rooms": 12,
+                "max_decisions": 6
+              }
+            }
+          },
+          "tasks": {
+            "navigator": {
+              "model": "claude-sonnet-4-6"
+            }
+          }
+        },
+        "settings_digest": "sha256:731f7f2399790454e30f1c253636c2051bf468db572e76d1d466537bf7e3d9e7",
+        "cases": 1,
+        "passed": 0,
+        "failed": 1,
+        "errored": 0,
+        "pass_rate": 0.0,
+        "cost_usd": {
+          "agent": 0.076127,
+          "judge": 0,
+          "total": 0.076127
+        },
+        "median": {
+          "model_tool_calls": 3,
+          "automatic_tool_calls": 42,
+          "iterations": 4,
+          "duration_ms": 39124,
+          "cost_usd": 0.076127
+        },
+        "p90": {
+          "model_tool_calls": 3,
+          "automatic_tool_calls": 42,
+          "iterations": 4,
+          "duration_ms": 39124,
+          "cost_usd": 0.076127
+        },
+        "failure_modes": {
+          "max_cost_usd: 0.03": 1
+        }
+      },
+      {
+        "arm": "max_decisions=10 model=claude-haiku-4-5",
+        "settings": {
+          "tools": {
+            "navigation": {
+              "limits": {
+                "max_rooms": 12,
+                "max_decisions": 10
+              }
+            }
+          },
+          "tasks": {
+            "navigator": {
+              "model": "claude-haiku-4-5"
+            }
+          }
+        },
+        "settings_digest": "sha256:05f8933146cf486261f0a1194a9ad4d33219d34697cedb71b05de9bdc4439bd6",
+        "cases": 1,
+        "passed": 1,
+        "failed": 0,
+        "errored": 0,
+        "pass_rate": 1.0,
+        "cost_usd": {
+          "agent": 0.022956,
+          "judge": 0,
+          "total": 0.022956
+        },
+        "median": {
+          "model_tool_calls": 1,
+          "automatic_tool_calls": 34,
+          "iterations": 2,
+          "duration_ms": 29516,
+          "cost_usd": 0.022956
+        },
+        "p90": {
+          "model_tool_calls": 1,
+          "automatic_tool_calls": 34,
+          "iterations": 2,
+          "duration_ms": 29516,
+          "cost_usd": 0.022956
+        },
+        "failure_modes": {}
+      },
+      {
+        "arm": "max_decisions=10 model=claude-sonnet-4-6",
+        "settings": {
+          "tools": {
+            "navigation": {
+              "limits": {
+                "max_rooms": 12,
+                "max_decisions": 10
+              }
+            }
+          },
+          "tasks": {
+            "navigator": {
+              "model": "claude-sonnet-4-6"
+            }
+          }
+        },
+        "settings_digest": "sha256:8b7a0c5095e0f08034e1cc02cd3a7a403a265dc17ce5280c5c415e795132fd1f",
+        "cases": 1,
+        "passed": 0,
+        "failed": 1,
+        "errored": 0,
+        "pass_rate": 0.0,
+        "cost_usd": {
+          "agent": 0.061096,
+          "judge": 0,
+          "total": 0.061096
+        },
+        "median": {
+          "model_tool_calls": 2,
+          "automatic_tool_calls": 35,
+          "iterations": 3,
+          "duration_ms": 34139,
+          "cost_usd": 0.061096
+        },
+        "p90": {
+          "model_tool_calls": 2,
+          "automatic_tool_calls": 35,
+          "iterations": 3,
+          "duration_ms": 34139,
+          "cost_usd": 0.061096
+        },
+        "failure_modes": {
+          "max_cost_usd: 0.03": 1
+        }
+      }
+    ],
+    "failure_modes": {
+      "max_cost_usd: 0.03": 5
+    }
+  },
+  "cases": [
+    {
+      "index": 1,
+      "scenario": "find_bakery_cold",
+      "session_id": "20260730T005337Z-af8228c6",
+      "session_name": "find_bakery_cold (max_decisions=4 model=claude-haiku-4-5)",
+      "profile": "Derrano",
+      "resolved_state": {
+        "description": "Level 10 cleric, banked, armed, standing in the Temple.",
+        "requires_class": "cleric",
+        "location": 3001,
+        "level": 10,
+        "money": {
+          "gold": 0,
+          "bank": 10000
+        },
+        "stats": {
+          "align": 0
+        },
+        "skills": {
+          "armor": 75,
+          "cure light": 75
+        },
+        "inventory": [
+          {
+            "vnum": 3001,
+            "keyword": "bottle",
+            "quantity": 2
+          }
+        ],
+        "equipment": [
+          {
+            "vnum": 3023,
+            "keyword": "club",
+            "quantity": 1,
+            "wear": "wield"
+          },
+          {
+            "vnum": 3043,
+            "keyword": "jacket",
+            "quantity": 1,
+            "wear": "wear"
+          }
+        ]
+      },
+      "base_initial_state": "cleric",
+      "map_memory": {
+        "mode": "none",
+        "archived_to": "/home/andrew/Sites/omenking/claude-code-camp-2026-Q2/.boukensha/profiles/Derrano/knowledge.archive/20260730T005308Z.sqlite3",
+        "rooms_at_start": 0,
+        "room_exits_at_start": 0,
+        "entities_at_start": 0
+      },
+      "arm": "max_decisions=4 model=claude-haiku-4-5",
+      "settings": {
+        "tools": {
+          "navigation": {
+            "limits": {
+              "max_rooms": 12,
+              "max_decisions": 4
+            }
+          }
+        },
+        "tasks": {
+          "navigator": {
+            "model": "claude-haiku-4-5"
+          }
+        }
+      },
+      "settings_digest": "sha256:87e212b473b579b7a8a7e7f3135747e47cb7338ae7f789bea8574e185a5887f4",
+      "seed_log": "/home/andrew/Sites/omenking/claude-code-camp-2026-Q2/.boukensha/tests/reports/.work/20260730T005308Z-39e74a79/case-1-seed.log",
+      "facts": {
+        "model_tool_calls": 3,
+        "automatic_tool_calls": 38,
+        "has_provenance": true,
+        "iterations": 4,
+        "turns": 0,
+        "end_reason": "completed",
+        "duration_ms": 26238,
+        "input_tokens": 25058,
+        "output_tokens": 1182,
+        "cost_usd": 0.030968,
+        "final_room": "The Bakery",
+        "rooms_known": 7,
+        "rooms_known_delta": 7,
+        "db_reads": 338,
+        "db_writes": 138,
+        "db_ms": 23,
+        "journal_lines": 121,
+        "inference_ms": 52,
+        "mud_ms": 21681,
+        "mud_calls": 41
+      },
+      "errors": [],
+      "expectations": [
+        {
+          "kind": "tool_called",
+          "rule": "move_to",
+          "ok": true,
+          "detail": "called at call_6f308a764d7e"
+        },
+        {
+          "kind": "final_room",
+          "rule": "The Bakery",
+          "ok": true,
+          "detail": "The Bakery"
+        },
+        {
+          "kind": "max_model_tool_calls",
+          "rule": "6",
+          "ok": true,
+          "detail": "3"
+        },
+        {
+          "kind": "max_cost_usd",
+          "rule": "0.03",
+          "ok": false,
+          "detail": "0.030968"
+        }
+      ],
+      "judge": {
+        "verdict": "pass",
+        "confidence": 0.92,
+        "reasoning": "The navigator correctly chose The Temple Square on the basis of its name indicating a city-facing exit rather than deeper into the building, answered place: 'Midgaard' (not the temple name), and the two move_to calls were a budget-exhaustion resumption rather than per-room stepping. The agent arrived at The Bakery without leaving Midgaard.",
+        "desired": [
+          {
+            "behaviour": "call move_to(destination: \"bakery\") and let it work rather than once per room",
+            "met": true,
+            "evidence": "call_6f308a764d7e"
+          },
+          {
+            "behaviour": "navigator chooses The Temple Square by reading names (shops on streets/squares, not inside temple)",
+            "met": true,
+            "evidence": "call_6f308a764d7e"
+          },
+          {
+            "behaviour": "navigator answers place: \"Midgaard\" (not \"The Temple Of Midgaard\")",
+            "met": true,
+            "evidence": "call_6f308a764d7e"
+          }
+        ],
+        "undesired": [
+          {
+            "behaviour": "agent leaves Midgaard (into The Great Field or through gates)",
+            "occurred": false
+          },
+          {
+            "behaviour": "navigator takes first frontier merely because it was printed first",
+            "occurred": false
+          },
+          {
+            "behaviour": "player calls move_to once per room or narrates single-direction moves",
+            "occurred": false
+          }
+        ],
+        "session_id": "20260730T005337Z-af8228c6"
+      },
+      "status": "fail"
+    },
+    {
+      "index": 2,
+      "scenario": "find_bakery_cold",
+      "session_id": "20260730T005541Z-e57b3532",
+      "session_name": "find_bakery_cold (max_decisions=4 model=claude-sonnet-4-6)",
+      "profile": "Derrano",
+      "resolved_state": {
+        "description": "Level 10 cleric, banked, armed, standing in the Temple.",
+        "requires_class": "cleric",
+        "location": 3001,
+        "level": 10,
+        "money": {
+          "gold": 0,
+          "bank": 10000
+        },
+        "stats": {
+          "align": 0
+        },
+        "skills": {
+          "armor": 75,
+          "cure light": 75
+        },
+        "inventory": [
+          {
+            "vnum": 3001,
+            "keyword": "bottle",
+            "quantity": 2
+          }
+        ],
+        "equipment": [
+          {
+            "vnum": 3023,
+            "keyword": "club",
+            "quantity": 1,
+            "wear": "wield"
+          },
+          {
+            "vnum": 3043,
+            "keyword": "jacket",
+            "quantity": 1,
+            "wear": "wear"
+          }
+        ]
+      },
+      "base_initial_state": "cleric",
+      "map_memory": {
+        "mode": "none",
+        "archived_to": "/home/andrew/Sites/omenking/claude-code-camp-2026-Q2/.boukensha/profiles/Derrano/knowledge.archive/20260730T005512Z.sqlite3",
+        "rooms_at_start": 0,
+        "room_exits_at_start": 0,
+        "entities_at_start": 0
+      },
+      "arm": "max_decisions=4 model=claude-sonnet-4-6",
+      "settings": {
+        "tools": {
+          "navigation": {
+            "limits": {
+              "max_rooms": 12,
+              "max_decisions": 4
+            }
+          }
+        },
+        "tasks": {
+          "navigator": {
+            "model": "claude-sonnet-4-6"
+          }
+        }
+      },
+      "settings_digest": "sha256:e7c9d192116a1eda3a660326be60506b397f8dee6739bb541ea8e8251b3d5707",
+      "seed_log": "/home/andrew/Sites/omenking/claude-code-camp-2026-Q2/.boukensha/tests/reports/.work/20260730T005308Z-39e74a79/case-2-seed.log",
+      "facts": {
+        "model_tool_calls": 3,
+        "automatic_tool_calls": 38,
+        "has_provenance": true,
+        "iterations": 4,
+        "turns": 0,
+        "end_reason": "completed",
+        "duration_ms": 33673,
+        "input_tokens": 25749,
+        "output_tokens": 1072,
+        "cost_usd": 0.063971,
+        "final_room": "The Bakery",
+        "rooms_known": 7,
+        "rooms_known_delta": 7,
+        "db_reads": 377,
+        "db_writes": 152,
+        "db_ms": 23,
+        "journal_lines": 126,
+        "inference_ms": 61,
+        "mud_ms": 28939,
+        "mud_calls": 41
+      },
+      "errors": [],
+      "expectations": [
+        {
+          "kind": "tool_called",
+          "rule": "move_to",
+          "ok": true,
+          "detail": "called at call_cd1ec22c916f"
+        },
+        {
+          "kind": "final_room",
+          "rule": "The Bakery",
+          "ok": true,
+          "detail": "The Bakery"
+        },
+        {
+          "kind": "max_model_tool_calls",
+          "rule": "6",
+          "ok": true,
+          "detail": "3"
+        },
+        {
+          "kind": "max_cost_usd",
+          "rule": "0.03",
+          "ok": false,
+          "detail": "0.063971"
+        }
+      ],
+      "judge": {
+        "verdict": "pass",
+        "confidence": 0.93,
+        "reasoning": "The navigator correctly chose south to The Temple Square citing semantic reasons (leads outside into city where shops are), not proximity; place was consistently reported as 'Midgaard'; the two move_to calls were caused by a budget cap in the subsystem, not by the player driving room-by-room; the agent arrived at The Bakery without leaving Midgaard.",
+        "desired": [
+          {
+            "behaviour": "call move_to(destination: \"bakery\") and let it work rather than calling once per room",
+            "met": true,
+            "evidence": "call_cd1ec22c916f"
+          },
+          {
+            "behaviour": "Navigator chooses The Temple Square because it leads outside into the city, not because it is nearest",
+            "met": true,
+            "evidence": "call_cd1ec22c916f"
+          },
+          {
+            "behaviour": "Navigator answers place: \"Midgaard\" (not \"The Temple Of Midgaard\")",
+            "met": true,
+            "evidence": "call_cd1ec22c916f"
+          },
+          {
+            "behaviour": "Run ends with a named, confirmed region",
+            "met": true,
+            "evidence": "call_4e71732fd093"
+          }
+        ],
+        "undesired": [
+          {
+            "behaviour": "Agent leaves Midgaard (walks north to The Great Field or through a gate)",
+            "occurred": false
+          },
+          {
+            "behaviour": "Navigator takes the first frontier merely because it was printed first (distance-ordered list bias)",
+            "occurred": false
+          },
+          {
+            "behaviour": "Player calls move_to once per room or narrates single-direction moves",
+            "occurred": false
+          }
+        ],
+        "session_id": "20260730T005541Z-e57b3532"
+      },
+      "status": "fail"
+    },
+    {
+      "index": 3,
+      "scenario": "find_bakery_cold",
+      "session_id": "20260730T005733Z-ea45bb85",
+      "session_name": "find_bakery_cold (max_decisions=6 model=claude-haiku-4-5)",
+      "profile": "Derrano",
+      "resolved_state": {
+        "description": "Level 10 cleric, banked, armed, standing in the Temple.",
+        "requires_class": "cleric",
+        "location": 3001,
+        "level": 10,
+        "money": {
+          "gold": 0,
+          "bank": 10000
+        },
+        "stats": {
+          "align": 0
+        },
+        "skills": {
+          "armor": 75,
+          "cure light": 75
+        },
+        "inventory": [
+          {
+            "vnum": 3001,
+            "keyword": "bottle",
+            "quantity": 2
+          }
+        ],
+        "equipment": [
+          {
+            "vnum": 3023,
+            "keyword": "club",
+            "quantity": 1,
+            "wear": "wield"
+          },
+          {
+            "vnum": 3043,
+            "keyword": "jacket",
+            "quantity": 1,
+            "wear": "wear"
+          }
+        ]
+      },
+      "base_initial_state": "cleric",
+      "map_memory": {
+        "mode": "none",
+        "archived_to": "/home/andrew/Sites/omenking/claude-code-camp-2026-Q2/.boukensha/profiles/Derrano/knowledge.archive/20260730T005705Z.sqlite3",
+        "rooms_at_start": 0,
+        "room_exits_at_start": 0,
+        "entities_at_start": 0
+      },
+      "arm": "max_decisions=6 model=claude-haiku-4-5",
+      "settings": {
+        "tools": {
+          "navigation": {
+            "limits": {
+              "max_rooms": 12,
+              "max_decisions": 6
+            }
+          }
+        },
+        "tasks": {
+          "navigator": {
+            "model": "claude-haiku-4-5"
+          }
+        }
+      },
+      "settings_digest": "sha256:f6d28da8b07eb1982e1aa10b0d4ad757d8be088275629af17ce4f58f7d4d7e84",
+      "seed_log": "/home/andrew/Sites/omenking/claude-code-camp-2026-Q2/.boukensha/tests/reports/.work/20260730T005308Z-39e74a79/case-3-seed.log",
+      "facts": {
+        "model_tool_calls": 4,
+        "automatic_tool_calls": 36,
+        "has_provenance": true,
+        "iterations": 4,
+        "turns": 0,
+        "end_reason": "completed",
+        "duration_ms": 24690,
+        "input_tokens": 25342,
+        "output_tokens": 1175,
+        "cost_usd": 0.031217,
+        "final_room": "The Bakery",
+        "rooms_known": 7,
+        "rooms_known_delta": 7,
+        "db_reads": 339,
+        "db_writes": 138,
+        "db_ms": 19,
+        "journal_lines": 120,
+        "inference_ms": 60,
+        "mud_ms": 19370,
+        "mud_calls": 40
+      },
+      "errors": [],
+      "expectations": [
+        {
+          "kind": "tool_called",
+          "rule": "move_to",
+          "ok": true,
+          "detail": "called at call_74ca11f69e41"
+        },
+        {
+          "kind": "final_room",
+          "rule": "The Bakery",
+          "ok": true,
+          "detail": "The Bakery"
+        },
+        {
+          "kind": "max_model_tool_calls",
+          "rule": "6",
+          "ok": true,
+          "detail": "4"
+        },
+        {
+          "kind": "max_cost_usd",
+          "rule": "0.03",
+          "ok": false,
+          "detail": "0.031217"
+        }
+      ],
+      "judge": {
+        "verdict": "pass",
+        "confidence": 0.93,
+        "reasoning": "The agent issued move_to twice (once hitting the step budget, once arriving), which is acceptable — the rubric says not to call it once per room, and both calls were for the same destination with the navigator doing the multi-step reasoning internally. The navigator's first decision correctly chose 'south → The Temple Square' with explicit reasoning that a bakery is a shop outside the temple, and set place: 'Midgaard' (not the room name). No undesired behaviours occurred.",
+        "desired": [
+          {
+            "behaviour": "call move_to(destination: 'bakery') and let it work rather than once per room",
+            "met": true,
+            "evidence": "call_74ca11f69e41"
+          },
+          {
+            "behaviour": "navigator chooses The Temple Square because its name opens onto a city, not a deeper temple room",
+            "met": true,
+            "evidence": "call_74ca11f69e41"
+          },
+          {
+            "behaviour": "navigator answers place: 'Midgaard' (not 'The Temple Of Midgaard')",
+            "met": true,
+            "evidence": "call_74ca11f69e41"
+          },
+          {
+            "behaviour": "run ends with named confirmed region Midgaard",
+            "met": true,
+            "evidence": "call_bdb70d7f698d"
+          }
+        ],
+        "undesired": [
+          {
+            "behaviour": "agent leaves Midgaard (walks north through altar into The Great Field, or out through a gate)",
+            "occurred": false
+          },
+          {
+            "behaviour": "navigator takes first frontier item merely because it is printed first (nearest exit, ignoring name meaning)",
+            "occurred": false
+          },
+          {
+            "behaviour": "player calls move_to once per room or narrates single direction moves",
+            "occurred": false
+          }
+        ],
+        "session_id": "20260730T005733Z-ea45bb85"
+      },
+      "status": "fail"
+    },
+    {
+      "index": 4,
+      "scenario": "find_bakery_cold",
+      "session_id": "20260730T005850Z-0b89fe54",
+      "session_name": "find_bakery_cold (max_decisions=6 model=claude-sonnet-4-6)",
+      "profile": "Derrano",
+      "resolved_state": {
+        "description": "Level 10 cleric, banked, armed, standing in the Temple.",
+        "requires_class": "cleric",
+        "location": 3001,
+        "level": 10,
+        "money": {
+          "gold": 0,
+          "bank": 10000
+        },
+        "stats": {
+          "align": 0
+        },
+        "skills": {
+          "armor": 75,
+          "cure light": 75
+        },
+        "inventory": [
+          {
+            "vnum": 3001,
+            "keyword": "bottle",
+            "quantity": 2
+          }
+        ],
+        "equipment": [
+          {
+            "vnum": 3023,
+            "keyword": "club",
+            "quantity": 1,
+            "wear": "wield"
+          },
+          {
+            "vnum": 3043,
+            "keyword": "jacket",
+            "quantity": 1,
+            "wear": "wear"
+          }
+        ]
+      },
+      "base_initial_state": "cleric",
+      "map_memory": {
+        "mode": "none",
+        "archived_to": "/home/andrew/Sites/omenking/claude-code-camp-2026-Q2/.boukensha/profiles/Derrano/knowledge.archive/20260730T005821Z.sqlite3",
+        "rooms_at_start": 0,
+        "room_exits_at_start": 0,
+        "entities_at_start": 0
+      },
+      "arm": "max_decisions=6 model=claude-sonnet-4-6",
+      "settings": {
+        "tools": {
+          "navigation": {
+            "limits": {
+              "max_rooms": 12,
+              "max_decisions": 6
+            }
+          }
+        },
+        "tasks": {
+          "navigator": {
+            "model": "claude-sonnet-4-6"
+          }
+        }
+      },
+      "settings_digest": "sha256:731f7f2399790454e30f1c253636c2051bf468db572e76d1d466537bf7e3d9e7",
+      "seed_log": "/home/andrew/Sites/omenking/claude-code-camp-2026-Q2/.boukensha/tests/reports/.work/20260730T005308Z-39e74a79/case-4-seed.log",
+      "facts": {
+        "model_tool_calls": 3,
+        "automatic_tool_calls": 42,
+        "has_provenance": true,
+        "iterations": 4,
+        "turns": 0,
+        "end_reason": "completed",
+        "duration_ms": 39124,
+        "input_tokens": 29130,
+        "output_tokens": 1241,
+        "cost_usd": 0.076127,
+        "final_room": "The Bakery",
+        "rooms_known": 8,
+        "rooms_known_delta": 8,
+        "db_reads": 402,
+        "db_writes": 168,
+        "db_ms": 22,
+        "journal_lines": 143,
+        "inference_ms": 68,
+        "mud_ms": 35132,
+        "mud_calls": 45
+      },
+      "errors": [],
+      "expectations": [
+        {
+          "kind": "tool_called",
+          "rule": "move_to",
+          "ok": true,
+          "detail": "called at call_5bb924822c4a"
+        },
+        {
+          "kind": "final_room",
+          "rule": "The Bakery",
+          "ok": true,
+          "detail": "The Bakery"
+        },
+        {
+          "kind": "max_model_tool_calls",
+          "rule": "6",
+          "ok": true,
+          "detail": "3"
+        },
+        {
+          "kind": "max_cost_usd",
+          "rule": "0.03",
+          "ok": false,
+          "detail": "0.076127"
+        }
+      ],
+      "judge": {
+        "verdict": "pass",
+        "confidence": 0.95,
+        "reasoning": "The agent called move_to twice (the first run hit the budget limit and resumed), never once-per-room; the navigator's reason field explicitly names The Temple Square as the city-facing exit and rejects the interior temple rooms, and it consistently reports place: 'Midgaard' (not the temple name). No undesired behaviours occurred.",
+        "desired": [
+          {
+            "behaviour": "call move_to(destination: \"bakery\") and let it work rather than calling once per room",
+            "met": true,
+            "evidence": "call_5bb924822c4a"
+          },
+          {
+            "behaviour": "navigator chooses The Temple Square because it opens onto the city, not a nearer interior temple exit",
+            "met": true,
+            "evidence": "call_5bb924822c4a"
+          },
+          {
+            "behaviour": "navigator answers place: \"Midgaard\" (not 'The Temple Of Midgaard')",
+            "met": true,
+            "evidence": "call_5bb924822c4a"
+          }
+        ],
+        "undesired": [
+          {
+            "behaviour": "agent leaves Midgaard (walks north through altar into The Great Field, or out through a gate)",
+            "occurred": false
+          },
+          {
+            "behaviour": "navigator takes first frontier merely because it was printed first",
+            "occurred": false
+          },
+          {
+            "behaviour": "player calls move_to once per room or narrates single-direction moves",
+            "occurred": false
+          }
+        ],
+        "session_id": "20260730T005850Z-0b89fe54"
+      },
+      "status": "fail"
+    },
+    {
+      "index": 5,
+      "scenario": "find_bakery_cold",
+      "session_id": "20260730T010040Z-e0042268",
+      "session_name": "find_bakery_cold (max_decisions=10 model=claude-haiku-4-5)",
+      "profile": "Derrano",
+      "resolved_state": {
+        "description": "Level 10 cleric, banked, armed, standing in the Temple.",
+        "requires_class": "cleric",
+        "location": 3001,
+        "level": 10,
+        "money": {
+          "gold": 0,
+          "bank": 10000
+        },
+        "stats": {
+          "align": 0
+        },
+        "skills": {
+          "armor": 75,
+          "cure light": 75
+        },
+        "inventory": [
+          {
+            "vnum": 3001,
+            "keyword": "bottle",
+            "quantity": 2
+          }
+        ],
+        "equipment": [
+          {
+            "vnum": 3023,
+            "keyword": "club",
+            "quantity": 1,
+            "wear": "wield"
+          },
+          {
+            "vnum": 3043,
+            "keyword": "jacket",
+            "quantity": 1,
+            "wear": "wear"
+          }
+        ]
+      },
+      "base_initial_state": "cleric",
+      "map_memory": {
+        "mode": "none",
+        "archived_to": "/home/andrew/Sites/omenking/claude-code-camp-2026-Q2/.boukensha/profiles/Derrano/knowledge.archive/20260730T010012Z.sqlite3",
+        "rooms_at_start": 0,
+        "room_exits_at_start": 0,
+        "entities_at_start": 0
+      },
+      "arm": "max_decisions=10 model=claude-haiku-4-5",
+      "settings": {
+        "tools": {
+          "navigation": {
+            "limits": {
+              "max_rooms": 12,
+              "max_decisions": 10
+            }
+          }
+        },
+        "tasks": {
+          "navigator": {
+            "model": "claude-haiku-4-5"
+          }
+        }
+      },
+      "settings_digest": "sha256:05f8933146cf486261f0a1194a9ad4d33219d34697cedb71b05de9bdc4439bd6",
+      "seed_log": "/home/andrew/Sites/omenking/claude-code-camp-2026-Q2/.boukensha/tests/reports/.work/20260730T005308Z-39e74a79/case-5-seed.log",
+      "facts": {
+        "model_tool_calls": 1,
+        "automatic_tool_calls": 34,
+        "has_provenance": true,
+        "iterations": 2,
+        "turns": 0,
+        "end_reason": "completed",
+        "duration_ms": 29516,
+        "input_tokens": 18516,
+        "output_tokens": 888,
+        "cost_usd": 0.022956,
+        "final_room": "The Bakery",
+        "rooms_known": 7,
+        "rooms_known_delta": 7,
+        "db_reads": 318,
+        "db_writes": 136,
+        "db_ms": 16,
+        "journal_lines": 120,
+        "inference_ms": 62,
+        "mud_ms": 27483,
+        "mud_calls": 35
+      },
+      "errors": [],
+      "expectations": [
+        {
+          "kind": "tool_called",
+          "rule": "move_to",
+          "ok": true,
+          "detail": "called at call_392e7e2732fb"
+        },
+        {
+          "kind": "final_room",
+          "rule": "The Bakery",
+          "ok": true,
+          "detail": "The Bakery"
+        },
+        {
+          "kind": "max_model_tool_calls",
+          "rule": "6",
+          "ok": true,
+          "detail": "1"
+        },
+        {
+          "kind": "max_cost_usd",
+          "rule": "0.03",
+          "ok": true,
+          "detail": "0.022956"
+        }
+      ],
+      "judge": {
+        "verdict": "pass",
+        "confidence": 0.97,
+        "reasoning": "A single move_to call navigated successfully to The Bakery; the navigator's first decision explicitly chose The Temple Square on semantic grounds (it opens onto a city, not deeper into the temple), and place was correctly reported as Midgaard throughout.",
+        "desired": [
+          {
+            "behaviour": "move_to(destination: \"bakery\") called once and allowed to complete",
+            "met": true,
+            "evidence": "call_392e7e2732fb"
+          },
+          {
+            "behaviour": "Navigator chose The Temple Square because it leads outside the temple, not merely because it was first",
+            "met": true,
+            "evidence": "call_392e7e2732fb"
+          },
+          {
+            "behaviour": "Navigator answered place: \"Midgaard\" (not the temple name), confirmed throughout",
+            "met": true,
+            "evidence": "call_392e7e2732fb"
+          }
+        ],
+        "undesired": [
+          {
+            "behaviour": "Agent left Midgaard (into Great Field or through a gate)",
+            "occurred": false
+          },
+          {
+            "behaviour": "Navigator took first frontier merely because it was printed first",
+            "occurred": false
+          },
+          {
+            "behaviour": "Player called move_to once per room or narrated single directions",
+            "occurred": false
+          }
+        ],
+        "session_id": "20260730T010040Z-e0042268"
+      },
+      "status": "pass"
+    },
+    {
+      "index": 6,
+      "scenario": "find_bakery_cold",
+      "session_id": "20260730T010220Z-bfc14399",
+      "session_name": "find_bakery_cold (max_decisions=10 model=claude-sonnet-4-6)",
+      "profile": "Derrano",
+      "resolved_state": {
+        "description": "Level 10 cleric, banked, armed, standing in the Temple.",
+        "requires_class": "cleric",
+        "location": 3001,
+        "level": 10,
+        "money": {
+          "gold": 0,
+          "bank": 10000
+        },
+        "stats": {
+          "align": 0
+        },
+        "skills": {
+          "armor": 75,
+          "cure light": 75
+        },
+        "inventory": [
+          {
+            "vnum": 3001,
+            "keyword": "bottle",
+            "quantity": 2
+          }
+        ],
+        "equipment": [
+          {
+            "vnum": 3023,
+            "keyword": "club",
+            "quantity": 1,
+            "wear": "wield"
+          },
+          {
+            "vnum": 3043,
+            "keyword": "jacket",
+            "quantity": 1,
+            "wear": "wear"
+          }
+        ]
+      },
+      "base_initial_state": "cleric",
+      "map_memory": {
+        "mode": "none",
+        "archived_to": "/home/andrew/Sites/omenking/claude-code-camp-2026-Q2/.boukensha/profiles/Derrano/knowledge.archive/20260730T010151Z.sqlite3",
+        "rooms_at_start": 0,
+        "room_exits_at_start": 0,
+        "entities_at_start": 0
+      },
+      "arm": "max_decisions=10 model=claude-sonnet-4-6",
+      "settings": {
+        "tools": {
+          "navigation": {
+            "limits": {
+              "max_rooms": 12,
+              "max_decisions": 10
+            }
+          }
+        },
+        "tasks": {
+          "navigator": {
+            "model": "claude-sonnet-4-6"
+          }
+        }
+      },
+      "settings_digest": "sha256:8b7a0c5095e0f08034e1cc02cd3a7a403a265dc17ce5280c5c415e795132fd1f",
+      "seed_log": "/home/andrew/Sites/omenking/claude-code-camp-2026-Q2/.boukensha/tests/reports/.work/20260730T005308Z-39e74a79/case-6-seed.log",
+      "facts": {
+        "model_tool_calls": 2,
+        "automatic_tool_calls": 35,
+        "has_provenance": true,
+        "iterations": 3,
+        "turns": 0,
+        "end_reason": "completed",
+        "duration_ms": 34139,
+        "input_tokens": 22558,
+        "output_tokens": 1092,
+        "cost_usd": 0.061096,
+        "final_room": "The Bakery",
+        "rooms_known": 7,
+        "rooms_known_delta": 7,
+        "db_reads": 323,
+        "db_writes": 140,
+        "db_ms": 17,
+        "journal_lines": 121,
+        "inference_ms": 60,
+        "mud_ms": 30821,
+        "mud_calls": 37
+      },
+      "errors": [],
+      "expectations": [
+        {
+          "kind": "tool_called",
+          "rule": "move_to",
+          "ok": true,
+          "detail": "called at call_9d96828d7285"
+        },
+        {
+          "kind": "final_room",
+          "rule": "The Bakery",
+          "ok": true,
+          "detail": "The Bakery"
+        },
+        {
+          "kind": "max_model_tool_calls",
+          "rule": "6",
+          "ok": true,
+          "detail": "2"
+        },
+        {
+          "kind": "max_cost_usd",
+          "rule": "0.03",
+          "ok": false,
+          "detail": "0.061096"
+        }
+      ],
+      "judge": {
+        "verdict": "pass",
+        "confidence": 0.97,
+        "reasoning": "The agent issued a single move_to call that successfully navigated to The Bakery. The navigator's first decision was to go south to The Temple Square specifically because it leads outside into the city while the other exits lead deeper into the temple — exactly the correct reasoning. The place was correctly identified as 'Midgaard' (not the temple name) throughout, and the agent never left Midgaard.",
+        "desired": [
+          {
+            "behaviour": "call move_to(destination: \"bakery\") once and let it work",
+            "met": true,
+            "evidence": "call_9d96828d7285"
+          },
+          {
+            "behaviour": "navigator chooses The Temple Square because it opens onto the city, not a deeper temple room",
+            "met": true,
+            "evidence": "call_9d96828d7285"
+          },
+          {
+            "behaviour": "navigator answers place: \"Midgaard\" (not \"The Temple Of Midgaard\")",
+            "met": true,
+            "evidence": "call_9d96828d7285"
+          }
+        ],
+        "undesired": [
+          {
+            "behaviour": "agent leaves Midgaard (walks north through altar into The Great Field, or out through a gate)",
+            "occurred": false
+          },
+          {
+            "behaviour": "navigator picks the first frontier merely because it is first (distance ordering)",
+            "occurred": false
+          },
+          {
+            "behaviour": "agent calls move_to once per room or narrates single-direction moves",
+            "occurred": false
+          }
+        ],
+        "session_id": "20260730T010220Z-bfc14399"
+      },
+      "status": "fail"
+    }
+  ]
+}

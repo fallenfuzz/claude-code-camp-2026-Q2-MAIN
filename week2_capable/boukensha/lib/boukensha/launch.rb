@@ -59,25 +59,66 @@ module Boukensha
       nil
     end
 
-    # SHA-256 over the resolved `settings.yaml` plus the system prompt actually
-    # in force. A batch of 20 is a measurement of ONE configuration; comparing
-    # runs across a prompt edit is the single easiest way to draw a wrong
-    # conclusion, and this is what lets a report refuse to aggregate two
-    # different digests into one number.
-    def settings_digest(config = nil)
+    # SHA-256 over the RESOLVED settings plus the system prompt actually in
+    # force. A batch of 20 is a measurement of ONE configuration; comparing runs
+    # across a prompt edit is the single easiest way to draw a wrong conclusion,
+    # and this is what lets a report refuse to aggregate two different digests
+    # into one number.
+    #
+    # It hashes the parse rather than the file's bytes, and that is the whole of
+    # settings_sweep.md §4. A per-run override is applied in memory and does not
+    # change the file, so a byte hash would give every arm of a sweep an
+    # identical digest — the field that exists to stop two configurations being
+    # compared as one would be actively asserting that six of them were the same
+    # one. Hashing the parse is also strictly more honest in the ordinary case: a
+    # comment edit or a reflow used to change the digest and changed nothing
+    # about the run.
+    #
+    # `overrides:` digests what WOULD be in force with those overrides applied,
+    # which is how the harness's parent process stamps a case it is not itself
+    # running under.
+    #
+    # One-time discontinuity, recorded here and in Report's schema note: a
+    # canonical serialisation of a parsed YAML document does not hash to the same
+    # value as the document's bytes, so every digest changed on the day this
+    # landed even though no configuration did. Reports written either side of it
+    # cannot be compared on digest equality. Dropping the prompt paths from the
+    # hash (below) is part of the same discontinuity and was found by the same
+    # tests: it means a run on one machine is now comparable with a run on
+    # another, which it never was.
+    def settings_digest(config = nil, overrides: nil)
       config ||= (Boukensha.config if Boukensha.respond_to?(:config))
       return nil unless config
 
       digest = Digest::SHA256.new
-      [File.join(config.root_dir, "settings.yaml"),
-       File.join(config.user_prompts_dir, "player", "system.md"),
-       File.join(Config::PROMPTS_DIR, "system.md")].each do |path|
-        digest << path.to_s
+      digest << "settings:"
+      digest << canonical(config.settings_with(overrides))
+      # Each prompt slot is labelled by its ROLE, not by where it lives. The
+      # absolute path used to go into the hash, which made the same configuration
+      # in two checkouts digest differently and quietly defeated comparing a run
+      # on one machine against a run on another. What has to be distinguished is
+      # the user's override slot from the bundled default, and the labels do that.
+      { "prompt:user/player/system" => File.join(config.user_prompts_dir, "player", "system.md"),
+        "prompt:default/system"     => File.join(Config::PROMPTS_DIR, "system.md") }.each do |slot, path|
+        digest << slot
         digest << (File.file?(path) ? File.read(path) : "")
       end
       "sha256:#{digest.hexdigest}"
     rescue StandardError
       nil
+    end
+
+    # A deterministic rendering of a parsed YAML document: mapping keys sorted,
+    # scalars written with `inspect` so the string "1" and the integer 1 do not
+    # collide into one digest.
+    def canonical(value)
+      case value
+      when Hash
+        pairs = value.map { |k, v| [k.to_s, v] }.sort_by(&:first)
+        "{#{pairs.map { |k, v| "#{k}=#{canonical(v)}" }.join(',')}}"
+      when Array then "[#{value.map { |v| canonical(v) }.join(',')}]"
+      else value.inspect
+      end
     end
   end
 end

@@ -88,7 +88,7 @@ class TestTestingReport < Minitest::Test
 
     doc = JSON.parse(File.read(path))
 
-    assert_equal 1, doc["schema"]
+    assert_equal 2, doc["schema"], "settings_sweep.md — arms, and a digest over the resolved settings"
     assert_equal "find_bakery", doc["name"]
     assert_equal 1, doc["cases"].length
   end
@@ -112,7 +112,85 @@ class TestTestingReport < Minitest::Test
     assert_equal 10, doc.dig("cases", 0, "resolved_state", "level")
   end
 
+  # ---------- more than one configuration (settings_sweep.md §5) -------------
+
+  def test_a_multi_arm_report_carries_one_entry_per_arm_with_its_own_statistics
+    arms = sweep.summary[:arms]
+
+    assert_equal 2, arms.size
+    four = arms.find { |a| a[:arm] == "max_decisions=4" }
+    ten  = arms.find { |a| a[:arm] == "max_decisions=10" }
+
+    assert_equal 1, four[:passed]
+    assert_equal 2, ten[:passed]
+    assert_in_delta 0.5, four[:pass_rate], 1e-9
+    assert_in_delta 1.0, ten[:pass_rate], 1e-9
+    # Nearest-rank over that arm's cases ALONE — [6, 8] and [2, 3], never the
+    # four of them together, which is the whole point.
+    assert_equal 8, four[:median][:model_tool_calls]
+    assert_equal 3, ten[:median][:model_tool_calls]
+    refute_equal four[:settings_digest], ten[:settings_digest],
+                 "an arm carries its own digest, or a reader cannot tell them apart"
+    assert_equal 4, four.dig(:settings, "tools", "navigation", "limits", "max_decisions")
+  end
+
+  # A median across `max_decisions: 4` and `max_decisions: 10` is a number
+  # describing nothing, and it is the number the run's final line would print.
+  # Omitting it beats qualifying it in a comment nobody reads.
+  def test_a_multi_arm_report_omits_the_run_level_numbers_that_do_not_aggregate
+    summary = sweep.summary
+
+    %i[pass_rate median p90].each do |key|
+      refute summary.key?(key), "#{key} across two configurations describes neither"
+    end
+  end
+
+  # Counts and cost DO aggregate honestly, and a run that hid what it spent would
+  # be unusable for the one decision a sweep is run to make.
+  def test_a_multi_arm_report_still_reports_counts_and_cost
+    summary = sweep.summary
+
+    assert_equal 4, summary[:cases]
+    assert_equal 3, summary[:passed]
+    assert_equal 1, summary[:failed]
+    assert_in_delta 0.08, summary.dig(:cost_usd, :agent), 1e-9
+  end
+
+  def test_a_single_arm_run_keeps_exactly_the_shape_it_had
+    summary = build(%w[pass fail]).summary
+
+    assert_equal %i[cases passed failed errored pass_rate cost_usd median p90 failure_modes], summary.keys
+    refute summary.key?(:arms), "one configuration is not a sweep"
+  end
+
+  # An arm label is present on every row the harness writes, but a report row
+  # from before this existed has none and must still summarise.
+  def test_rows_with_no_arm_at_all_are_one_arm
+    assert_equal [nil], build(%w[pass pass]).arms
+    refute build(%w[pass]).summary.key?(:arms)
+  end
+
   private
+
+  # Two arms of two cases: the shape §1's open question resolves to.
+  def sweep
+    R.new(kind: "plan", name: "navigation_limits").tap do |report|
+      report << arm_row(1, "max_decisions=4", 4, "pass", calls: 6)
+      report << arm_row(2, "max_decisions=4", 4, "fail", calls: 8)
+      report << arm_row(3, "max_decisions=10", 10, "pass", calls: 2)
+      report << arm_row(4, "max_decisions=10", 10, "pass", calls: 3)
+    end
+  end
+
+  def arm_row(index, arm, decisions, status, calls:)
+    {
+      index: index, status: status, arm: arm,
+      settings: { "tools" => { "navigation" => { "limits" => { "max_decisions" => decisions } } } },
+      settings_digest: "sha256:#{decisions}",
+      facts: { model_tool_calls: calls, cost_usd: 0.02 },
+      expectations: [{ kind: "tool_called", rule: "move_to", ok: status == "pass" }]
+    }
+  end
 
   def build(statuses)
     R.new(kind: "scenario", name: "find_bakery").tap do |report|

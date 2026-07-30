@@ -64,18 +64,66 @@ module Boukensha
       # `--set money.gold=0` → { "money" => { "gold" => 0 } }. Scalars only —
       # a CLI flag that could inject a nested structure would be a second,
       # worse YAML with no file to review.
-      def parse_set(assignment)
+      #
+      # `flag:` only names the flag in the error message. `--setting` reaches a
+      # different thing entirely (settings.yaml, not the case's initial world),
+      # and a message blaming the wrong flag sends the reader to the wrong file.
+      def parse_set(assignment, flag: "--set")
         path, raw = assignment.to_s.split("=", 2)
-        raise Error, "--set expects KEY=VALUE, received #{assignment.inspect}" if raw.nil? || path.to_s.strip.empty?
+        raise Error, "#{flag} expects KEY=VALUE, received #{assignment.inspect}" if raw.nil? || path.to_s.strip.empty?
 
         keys = path.strip.split(".")
-        raise Error, "--set key #{path.inspect} is empty" if keys.empty? || keys.any? { |k| k.strip.empty? }
+        raise Error, "#{flag} key #{path.inspect} is empty" if keys.empty? || keys.any? { |k| k.strip.empty? }
 
         keys.reverse.reduce(coerce(raw)) { |value, key| { key => value } }
       end
 
-      def parse_sets(assignments)
-        Array(assignments).map { |a| parse_set(a) }.reduce({}) { |acc, h| deep_merge(acc, h) }
+      def parse_sets(assignments, flag: "--set")
+        Array(assignments).map { |a| parse_set(a, flag: flag) }
+                          .reduce({}) { |acc, h| deep_merge(acc, h) }
+      end
+
+      # Every LEAF of an override, as `[[key, path], value]` pairs with string
+      # keys. A leaf is anything that is not a non-empty mapping — a scalar, a
+      # sequence, an explicit null, or an empty mapping — which is exactly the
+      # granularity a key-path check wants: `tasks.player.allow` is one claim
+      # about one key, not a claim about each element of the list.
+      #
+      # The `key+` append form is reported under the key it appends TO, since
+      # that is the key that has to exist.
+      def leaf_pairs(value, prefix = [])
+        return [[prefix, value]] unless value.is_a?(Hash) && !value.empty?
+
+        value.flat_map do |key, nested|
+          key = key.to_s
+          key = key[0..-2] if key.end_with?(APPEND_SUFFIX) && key.length > 1
+          leaf_pairs(nested, prefix + [key])
+        end
+      end
+
+      # A leaf rendered for a human: `tools.navigation.limits.max_decisions=10`.
+      # This is what an arm carries as its label when nobody typed one, and what
+      # a run log prints so a reader knows which configuration a case ran under.
+      def describe(value)
+        leaf_pairs(value).map { |path, leaf| "#{path.join('.')}=#{render(leaf)}" }.sort.join(" ")
+      end
+
+      def render(value)
+        case value
+        when nil          then "~"
+        when Array, Hash  then value.inspect
+        else value.to_s
+        end
+      end
+
+      # A nested hash from a dotted key path: the form a `sweep:` axis is
+      # written in, because an axis is a single key and nesting one mapping per
+      # axis would obscure that the interesting part is the list of values.
+      def nest(path, value)
+        keys = path.to_s.split(".")
+        raise Error, "key path #{path.inspect} is empty" if keys.empty? || keys.any? { |k| k.strip.empty? }
+
+        keys.reverse.reduce(value) { |nested, key| { key => nested } }
       end
 
       # YAML-ish scalar coercion, kept narrow on purpose: integers, floats,

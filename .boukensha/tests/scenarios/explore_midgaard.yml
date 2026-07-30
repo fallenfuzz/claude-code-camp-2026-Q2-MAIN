@@ -1,0 +1,88 @@
+# The FIXTURE run — mocking_messages.md §5 and §13 step 1.
+#
+# This case exists to be snapshotted, not to be passed. Three other scenarios
+# declare `map_memory: snapshot:midgaard` and none of them can run until that
+# file exists:
+#
+#   find_mayor_split          C′, boundaries_revised.md §5
+#   split_the_bridge_quarter  run A — the first live cartographer call
+#   detect_the_sprawl         run B — the first measured `scope_suspect`
+#
+# §5's argument is why a small map will not do. `find_mayor_split` needs "the
+# fullest map of the three" because the reasoning under test is a MEDIAN — a
+# dozen unexplored exits at a median of one move is a dense little town where
+# scope is working correctly, and sixteen at a median of six is a scope that has
+# stopped meaning "here". A seven-room map has no such median to read, so the
+# judgement is not merely hard to reach, it is not present in the data at all.
+# The same is true of the cartographer: given a seven-room graph it will decline
+# to split, and declining will have been the right answer.
+#
+# ── HOW TO TURN THIS INTO THE FIXTURE ──────────────────────────────────
+#
+#   bk -ts explore_midgaard                 # one paid run, ~4 minutes
+#   # read the run log for the session id it retained, then:
+#   bk --snapshot-map midgaard --profile Derrano --from-session <session_id>
+#   # -> .boukensha/tests/knowledge/snapshots/midgaard.sqlite3
+#
+# `--from-session` rather than the live profile, because by the time this run
+# has been read the profile's map belongs to whatever ran next. Every case
+# retains its ending map under `tests/knowledge/sessions/<profile>/`, and that
+# copy is the one worth pinning.
+#
+# Check what you captured before committing to it. Anything under about thirty
+# rooms and both banks of the river is not a mapped Midgaard, and the three
+# cases above will quietly measure something else:
+#
+#   sqlite3 .boukensha/tests/knowledge/snapshots/midgaard.sqlite3 \
+#     "SELECT (SELECT COUNT(*) FROM rooms), (SELECT COUNT(*) FROM room_exits WHERE target_room_id IS NULL)"
+#
+# ── WHY THERE IS NO DETERMINISTIC GATE ─────────────────────────────────
+#
+# There is nothing to pass or fail. The output of this case is a database, and
+# whether it is good enough is a question about the SHAPE of that database
+# rather than about the agent's conduct — so it is asked by the sqlite3 line
+# above and not by an `expect:` block. `rooms_known_delta` in the report is the
+# number to read.
+session_name: explore_midgaard
+player_profile: Derrano
+goal: >-
+  Walk Midgaard and learn its layout. Cover both banks of the river and as many
+  distinct streets, squares and quarters as you can reach, rather than following
+  one road to its end. You are not looking for anything in particular — the walk
+  itself is the point.
+
+base_initial_state: cleric
+initial_state_overrides:
+  money:
+    gold: 0
+
+# Cold, so the captured map is one run's work and nothing inherited. A snapshot
+# built on top of a `keep` map would carry region declarations from runs nobody
+# can identify, and declarations are earned and never overwritten.
+map_memory: none
+
+# Generous, because this is the one case whose value is proportional to how far
+# it gets. It is also the most expensive case in the suite by some margin, which
+# is the argument for running it ONCE and replaying the result forever.
+limits:
+  max_iterations: 40
+  max_turn_tokens: 120000
+  wall_timeout_s: 900
+
+expect:
+  tool_called: [move_to]
+
+evaluation:
+  desired_behaviour: |
+    The agent should use move_to repeatedly with different destinations and let
+    the navigator spread the walk across the frontier, rather than walking one
+    corridor to its end and back.
+    It should name the region it is in — the map starts as a machine-made
+    ⟨from The Temple Of Midgaard⟩ — so the fixture this run produces begins with
+    a confirmed label rather than provenance.
+  undesired_behaviour: |
+    The agent should not leave Midgaard for the countryside or the wilderness.
+    A map that is half town and half open field is a worse fixture than a
+    smaller map that is all town, because every case that replays it is asking
+    a question about a town.
+    It should not spend the whole budget on one quarter. Coverage is the output.

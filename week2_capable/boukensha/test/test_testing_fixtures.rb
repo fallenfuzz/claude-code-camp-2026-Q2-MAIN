@@ -172,7 +172,109 @@ class TestTestingFixtures < Minitest::Test
     assert_equal 0, kase.state.dig("money", "gold"), "the scenario's override still applies on top"
   end
 
+  # ---------- staging (mocking_messages.md §3, §7) ------------------------
+
+  def test_a_scenario_resolves_its_stage_onto_every_case
+    write_staged_scenario
+
+    kase = fixtures.resolve_scenario("split_the_bridge_quarter").first
+
+    assert kase.stage.staged?("navigator")
+    refute kase.stage.staged?("cartographer"), "the task left out is the one being measured"
+    assert_equal({ "player" => 1, "navigator" => 1 }, kase.stage.counts)
+  end
+
+  # Staging changes WHICH AGENT was doing the thinking, so it belongs to the
+  # arm key: a report must not average a staged row together with a live one.
+  def test_the_arm_names_the_live_task
+    write_staged_scenario
+
+    assert_equal "default · live: cartographer,judge",
+                 fixtures.resolve_scenario("split_the_bridge_quarter").first.arm
+  end
+
+  def test_an_ordinary_scenario_has_no_stage_and_the_arm_is_unchanged
+    kase = fixtures.resolve_scenario("find_bakery").first
+
+    assert_nil kase.stage
+    assert_equal "default", kase.arm
+  end
+
+  # A malformed stage costs nothing at load. Discovering it in the child, three
+  # minutes into a seeded run, costs a seeded run.
+  def test_a_malformed_stage_fails_at_load_with_a_sentence
+    write("scenarios/broken.yml", <<~YAML)
+      player_profile: Derrano
+      goal: "Find the mayor's office."
+      stage:
+        because: "a typo nobody would catch in a report"
+        navigater:
+          - direction: north
+    YAML
+
+    error = assert_raises(F::Error) { fixtures.scenario("broken") }
+
+    assert_match(/broken/, error.message)
+    assert_match(/navigater/, error.message)
+  end
+
+  # The exact inverse of the `settings:` rule, and for the same underlying
+  # reason: a plan that could attach a stage to an existing scenario name would
+  # produce two incomparable populations under that one name.
+  def test_a_plan_may_not_attach_a_stage_to_a_scenario
+    write("plans/sneaky.yml", <<~YAML)
+      name: sneaky
+      cases:
+        - scenario: find_bakery
+          stage:
+            navigator:
+              - direction: north
+    YAML
+
+    error = assert_raises(F::Error) { fixtures.plan("sneaky") }
+
+    assert_match(/only a scenario may do/, error.message)
+  end
+
+  # With one live task, five samples of that task's judgement is exactly what a
+  # batch is for. With none, it is five identical runs.
+  def test_a_fully_staged_batch_is_warned_about
+    write("scenarios/all_staged.yml", <<~YAML)
+      player_profile: Derrano
+      goal: "Find the mayor's office."
+      stage:
+        because: "a shape test"
+        player:    [{ text: "done" }]
+        navigator: [{ direction: north }]
+        cartographer: [{ split: false }]
+        judge:     [{ verdict: pass }]
+    YAML
+    f = fixtures
+    f.resolve_scenario("all_staged", batch: 5)
+
+    assert f.warnings.any? { |w| w.include?("no variance") }, f.warnings.inspect
+  end
+
   private
+
+  def write_staged_scenario
+    write("scenarios/split_the_bridge_quarter.yml", <<~YAML)
+      player_profile: Derrano
+      goal: "Find the mayor's office."
+      base_initial_state: cleric
+      stage:
+        because: |
+          Run A: the cartographer has never executed against a live model.
+        player:
+          - tools:
+              - name: move_to
+                args: { destination: "the mayor's office" }
+        navigator:
+          - direction: north
+            reason: "The promenade is the only civic-sounding exit."
+            scope_suspect: true
+    YAML
+  end
 
   def write(relative, body)
     path = File.join(@root, "tests", relative)

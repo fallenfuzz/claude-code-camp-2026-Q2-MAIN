@@ -17,6 +17,20 @@ module Boukensha
     @error_log ||= ErrorLog.new
   end
 
+  # The test harness's staged model answers, or nil — which is every ordinary
+  # run, and is exactly today's behaviour (mocking_messages.md §6).
+  #
+  # A global, and the right shape here for the same reason `config` is one: the
+  # alternative threads a test-only argument through `.run`, `.repl`,
+  # `.run_task`, `Reasoners` and `MoveTo` so that a wrapper around ONE method
+  # can be installed. Set by the test child before the agent starts and never by
+  # anything else; `Client#call` is its only reader.
+  def self.stage = @stage
+
+  def self.stage=(stage)
+    @stage = stage
+  end
+
   # Test/profile-reload seam: the writer's default path follows Config.
   def self.reset_error_log!
     @error_log = nil
@@ -123,7 +137,7 @@ module Boukensha
     be = build_backend(backend, api_key: api_key, model: model, ollama_host: ollama_host)
 
     builder = PromptBuilder.new(ctx, be)
-    client  = Client.new(builder)
+    client  = Client.new(builder, task: task_class.task_name)
     agent   = Agent.new(context: ctx, registry: registry, builder: builder, client: client, logger: logger,
                         hooks: hooks,
                         max_iterations: max_iterations,
@@ -194,7 +208,7 @@ module Boukensha
     be = build_backend(backend, api_key: api_key, model: model, ollama_host: ollama_host)
 
     builder = PromptBuilder.new(ctx, be)
-    client  = Client.new(builder)
+    client  = Client.new(builder, task: task_class.task_name)
 
     repl = Repl.new(
       context:    ctx,
@@ -276,7 +290,7 @@ module Boukensha
     end
     be       = build_backend(backend, api_key: api_key, model: model, ollama_host: ollama_host)
     builder  = PromptBuilder.new(ctx, be)
-    client   = Client.new(builder)
+    client   = Client.new(builder, task: task_class.task_name)
     run_snapshot = {
       max_iterations:    max_iters,
       max_turn_tokens:   cfg.agent_max_turn_tokens,

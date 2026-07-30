@@ -157,15 +157,97 @@ by adding the planne we are opening the biggest can of worms.
 
 docs/plans/week_2/planner
 
+Planner was a deadend, Claude was basically saying I dont need a planner
+which is goal composition since we are focused on task level content and
+an LLM that takes a plan from another LLM doesn't is just a plan of suggestion.
+
+It did unfurl one thing is that I can use structured ouput to force thinking or requirements.
+
 ### Step 7 Move To
 
+I proposed that we have a move_to function and inside that it has ownership
+of movement, so we take the ability for the player to make play by play moves.
+
+We have two agents inside of the move_to:
+- Navigator
+  - basically plan_route and execute_plan wrapped up in one.
+  - it plans and moves.
+  - if doesn't know where to go, it asks cartographer
+- Cartographer
+  - it reasons what frontier to go to.
+  - and after a single turn it pass back to navigator and loops back until they find or quit.
+So the only person moving us around is the navigator.
+
+This in theory should fix our problem.
+
+plans/docs/week_3/move_to.md
 
 ### Step 8 Settings Sweep
 
+We ran move_to and its hard to tell if its working since need to fine tun the settings like iterations.
+And its possible sonnet might reason better for Cartographer.
 
+Sinc settings are not something we can override we decided it now time to make everything fully overridable for different scenarios and plans. 
 
+plans/docs/week_3/settings_sweep.md
 
+It works, now I didn't run the full suite to optimize since I really wanted to know if our region system was working.
 
+The new move_to works very well. It tooks 26.1s but I think that the speed and cost are high and will reduce as we map out more of the areas. There could be cheaper methods to navigate but if we are not 'reasoning' like a player then it defeats the purpose of the agent acting like a player.
+
+ move_to(destination: "the bakery", scope: "region")
+[move_to] the bakery — arrived
+leg 1: south → The Temple Square
+  chose south (The Temple Square): The Temple Square leads outside into the city where shops like a bakery would be found, while north leads deeper into the temple (altar), east to a donation room, and west to a reading room — all interior temple spaces.
+leg 2: south → Market Square
+  chose south (Market Square): Market Square is the most likely place to find a bakery, as markets are where food shops cluster, while the other exits lead to a temple, an inn, and a guild.
+leg 3: east → Main Street
+  chose east (Main Street): Main Street is the most likely address for a bakery, as shops and services line streets rather than squares.
+leg 4: east → Main Street
+  chose east (Main Street): The bakery has not appeared yet among the named exits (General Store, Pet Shop, Market Square), so continuing east along Main Street is the most likely path to find it further down the street.
+leg 5: west → Main Street
+  chose west (Main Street): The other three exits lead to a weapon shop, a swordsmen's guild, and the east gate — none food-related — while 'Main Street' to the west continues along the commercial strip where a bakery is more likely to be found.
+leg 6: west → Market Square
+  chose west (Market Square): Market Square is the kind of open commercial hub where a bakery would face, and the clue pointing to The General Store suggests retail shops cluster to the west rather than along the weapon/guild side of Main Street.
+leg 7: west → Main Street
+  chose west (Main Street): Main Street has shops branching off it (General Store, Pet Shop, Weapon Shop), making it the commercial spine where a bakery would most likely be found among the unexplored exits.
+leg 8: north → The Bakery
+  chose north (The Bakery): The exit named 'The Bakery' directly matches the destination.
+walked 8 rooms in 8 legs, 8 decisions
+here: The Bakery (#7)
+
+I had a question about our region system and if it even actually worked sine right now it looks like regions just get added to a single one. We orginally wanted regions to prevent the agent from moving it explore scope to an open area.
+
+Both Claude and ChatGPT says:
+  What it does today:
+  - scope: "region" searches only frontiers belonging to the current region and its children.
+  - scope: "world" searches all reachable frontiers.
+  - Known destinations can be routed to across region boundaries.
+  - Frontier ranking prefers fewer region crossings.
+  - The navigator sees the current region’s label and shape.
+  What it does not do:
+  - It does not ask, “Which region is the bakery likely in?”
+  - It does not rank Midgaard above Countryside because bakeries belong in towns.
+  - It does not show the navigator each candidate frontier’s region.
+  - It does not route to Midgaard first and then explore Midgaard’s remaining frontiers.
+  - It has no region-level descriptions, remembered categories, or semantic search over region labels.
+
+I think often for the Movement I was expecting us to put in semantic search but Claud getting pushing back to add embedings to our vector database.
+
+Before we can even fix this region intelligence issue we need to see if it will create
+a region. I think we need more control over our test suite, I am thinking that we should
+support loading in messages data. That way we can start near the edge of where a boundary we'd expect to be
+and have the messaging as the direction the agent reasoned to go or about to go.
+
+We are still leaving structured output on the table to help the agent along we'll need to consider it.
+
+### Step 9 Mocking Messages
+
+Claude was aruging that mocking messages wouldn't get me what I wanted but it wasn't understanding we want to be able to mock any messages not just the top level agents.
+
+docs/plans/week_3/mocking_messages.md
+
+We need to stage our two tests for detecting, renaming and spliting regions.
 
 ## Technical Conclusions
 Reflecting back your education guesses from the technical uncertainty section what was the technical outcomes. Is there any new technical uncertainty that has been put aside for future exploration. Are there any next steps or technical considerations worth noting?

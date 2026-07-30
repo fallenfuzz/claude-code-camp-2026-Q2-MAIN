@@ -18,11 +18,25 @@ module Boukensha
     MAX_RETRIES = 3
     BASE_RETRY_DELAY = 0.5
 
-    def initialize(builder)
+    # `task:` is which agent this client belongs to — "player", "navigator",
+    # "cartographer", "judge". It is passed at construction rather than read off
+    # the logger's task stack because a client is built once per agent and
+    # belongs to exactly one task for its whole life, so there is nothing here
+    # that varies and nothing to get out of step.
+    #
+    # It exists for the staging layer (mocking_messages.md §3.2), which
+    # addresses answers by (task, ordinal) and never by a global call sequence:
+    # global ordering is precisely the thing that varies between runs, and one
+    # extra player iteration would renumber every navigator answer after it.
+    def initialize(builder, task: nil)
       @builder = builder
+      @task    = task&.to_s
     end
 
     def call(max_output_tokens: 1024, tools: nil)
+      staged = Boukensha.stage
+      return staged.answer!(task: @task, backend: @builder.backend) if @task && staged&.staged?(@task)
+
       uri          = URI(@builder.url)
       http         = Net::HTTP.new(uri.host, uri.port)
       http.use_ssl = uri.scheme == "https"

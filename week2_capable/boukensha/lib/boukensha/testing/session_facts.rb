@@ -1,4 +1,5 @@
 require "json"
+require_relative "../mud/memory/regions"
 
 module Boukensha
   module Testing
@@ -31,19 +32,24 @@ module Boukensha
 
       attr_reader :path, :session_id, :launch, :session_name, :events
 
-      def self.load(path, knowledge_db: nil, rooms_at_start: nil)
-        new(path, knowledge_db: knowledge_db, rooms_at_start: rooms_at_start).tap(&:parse!)
+      def self.load(path, knowledge_db: nil, rooms_at_start: nil, regions_at_start: nil,
+                    journal_dir: nil)
+        new(path, knowledge_db: knowledge_db, rooms_at_start: rooms_at_start,
+                  regions_at_start: regions_at_start, journal_dir: journal_dir).tap(&:parse!)
       end
 
-      def initialize(path, knowledge_db: nil, rooms_at_start: nil)
-        @path           = path.to_s
-        @session_id     = File.basename(@path, ".jsonl")
-        @knowledge_db   = knowledge_db
-        @rooms_at_start = rooms_at_start
-        @events         = []
-        @tool_calls     = []
-        @span_parents   = {}
-        @span_ends      = []
+      def initialize(path, knowledge_db: nil, rooms_at_start: nil, regions_at_start: nil,
+                     journal_dir: nil)
+        @path             = path.to_s
+        @session_id       = File.basename(@path, ".jsonl")
+        @knowledge_db     = knowledge_db
+        @rooms_at_start   = rooms_at_start
+        @regions_at_start = regions_at_start
+        @journal_dir      = journal_dir
+        @events           = []
+        @tool_calls       = []
+        @span_parents     = {}
+        @span_ends        = []
       end
 
       def parse!
@@ -167,6 +173,86 @@ module Boukensha
         rooms_known - @rooms_at_start
       end
 
+      # ---------- regions (mocking_messages.md §9) ---------------------------
+      #
+      # Neither `expect:` nor a tripwire could previously say "a boundary was
+      # placed", which made the region cases gradeable only by the judge — prose
+      # where a projection would do. Everything below reads a database this class
+      # already has open, plus the journal file it did not read before.
+
+      def regions_known
+        knowledge { |db| db.execute("SELECT COUNT(*) FROM regions").first.first.to_i }
+      end
+
+      # The count is not the interesting number. A case running against
+      # `snapshot:midgaard` inherits whatever the snapshot declared, so only the
+      # delta says what THIS run decided.
+      def regions_delta
+        return nil unless @regions_at_start && regions_known
+
+        regions_known - @regions_at_start
+      end
+
+      def region_labels
+        knowledge { |db| db.execute("SELECT label FROM regions ORDER BY label").map(&:first) } || []
+      end
+
+      # A `⟨from …⟩` label is provenance rather than a claim (Regions §2), and
+      # one still standing at the end of a run is a region the agent never
+      # answered the question about. Asserting its absence is the cheapest
+      # possible check that naming happened at all.
+      def provisional_region_labels
+        region_labels.select { |label| Mud::Memory::Regions.provisional_label?(label) }
+      end
+
+      # The boundaries THIS session declared, with the edge each one used —
+      # which is what `find_mayor_split`'s `undesired_behaviour` is actually
+      # about ("the boundary should not land on an interior edge"). Scoped by
+      # `region_boundaries.session_id`, so a snapshot's inherited boundaries are
+      # not reported as this run's work.
+      def region_splits
+        knowledge do |db|
+          db.execute(<<~SQL, [@session_id]).map do |row|
+            SELECT b.to_room_id, b.from_room_id, b.direction, b.reason, r.label,
+                   (SELECT name FROM rooms WHERE id = b.to_room_id)
+            FROM region_boundaries b JOIN regions r ON r.id = b.region_id
+            WHERE b.session_id = ? ORDER BY b.id
+          SQL
+            { room_id: row[0], from_room_id: row[1], direction: row[2], reason: row[3],
+              region: row[4], room: row[5] }
+          end
+        end || []
+      end
+
+      def region_split? = !region_splits.empty?
+
+      # ---------- the navigation journal --------------------------------------
+
+      # `region_split`, `region_split_declined` and `region_split_rejected` are
+      # journal events rather than session events (MoveTo#journal), so they are
+      # invisible to every projection above. A declined split is a CORRECT
+      # outcome for a large-but-coherent region, and until this existed there was
+      # no way to assert one.
+      #
+      # Joined by `session_id` across the journal's daily files, in append order.
+      def journal_events(stream: nil)
+        @journal_events ||= read_journal
+        return @journal_events unless stream
+
+        @journal_events.select { |e| e["stream"] == stream.to_s }
+      end
+
+      # { "move_to.region_split" => 1, "move_to.decision" => 6 } — the shape an
+      # expectation names, so a rule and the fact behind it spell the op the
+      # same way.
+      def journal_ops
+        journal_events.each_with_object(Hash.new(0)) do |event, out|
+          next unless event["kind"] == "event"
+
+          out["#{event['stream']}.#{event['op']}"] += 1
+        end
+      end
+
       # The whole tier-1 projection, as it lands in the report.
       def to_h
         {
@@ -182,7 +268,15 @@ module Boukensha
           cost_usd: cost_usd,
           final_room: final_room,
           rooms_known: rooms_known,
-          rooms_known_delta: rooms_known_delta
+          rooms_known_delta: rooms_known_delta,
+          regions_known: regions_known,
+          regions_delta: regions_delta,
+          region_labels: region_labels,
+          # The placement, not just the fact of it. A boundary is only as good as
+          # the edge it sits on, and the report is where that has to be legible
+          # without opening the database.
+          region_splits: region_splits,
+          journal_ops: journal_ops
         }.merge(span_totals)
       end
 
@@ -190,6 +284,25 @@ module Boukensha
 
       def phase(name)   = @events.select { |e| e["phase"] == name }
       def responses     = phase("response")
+
+      # Every journal line this session wrote, oldest first. The files rotate
+      # daily and `seq` restarts with them, so the files are read in name order
+      # and each is read in append order — which IS chronological, and does not
+      # pretend `seq` is a global cursor.
+      def read_journal
+        return [] unless @journal_dir && File.directory?(@journal_dir.to_s)
+
+        Dir.glob(File.join(@journal_dir.to_s, "*.jsonl")).sort.flat_map do |path|
+          File.foreach(path).filter_map do |line|
+            event = begin
+              JSON.parse(line)
+            rescue JSON::ParserError
+              next
+            end
+            event if event["session_id"] == @session_id
+          end
+        end
+      end
 
       def knowledge
         return nil unless @knowledge_db && File.file?(@knowledge_db.to_s)

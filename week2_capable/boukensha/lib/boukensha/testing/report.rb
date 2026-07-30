@@ -25,8 +25,30 @@ module Boukensha
     #   timeout, crash) is NOT `fail`. Conflating a broken harness with a
     #   failing agent is how you spend an afternoon debugging a model that was
     #   never called.
+    # - **A run describing more than one configuration says so.** A median taken
+    #   across `max_decisions: 4` and `max_decisions: 10` is a number describing
+    #   nothing, and it is the number the run's final line would otherwise print.
+    #   So a multi-arm run reports counts and cost — which aggregate honestly —
+    #   puts statistics under `arms`, and omits run-level `median`, `p90` and
+    #   `pass_rate`. Omitting a misleading number beats qualifying it in a comment
+    #   nobody reads.
     class Report
-      SCHEMA = 1
+      # 2 — settings_sweep.md. Two changes a reader needs to know about:
+      #
+      #   * `summary.arms` exists, and a multi-arm run omits run-level
+      #     `pass_rate` / `median` / `p90` (§5). A single-arm run keeps exactly
+      #     the shape schema 1 had, plus the additive per-case `arm`, `settings`
+      #     and `settings_digest` fields.
+      #   * `settings_digest` now hashes the RESOLVED settings rather than the
+      #     bytes of `settings.yaml` (§4), because an override applied in memory
+      #     does not change the file and every arm of a sweep would otherwise
+      #     carry an identical digest. A canonical serialisation of a parsed YAML
+      #     document does not hash to the same value as that document's bytes, so
+      #     every digest changed on the day this landed even though no
+      #     configuration did: reports at schema 1 and schema 2 cannot be compared
+      #     on digest equality. That is a one-time discontinuity, and it is
+      #     recorded here so a reader six months from now is not left guessing.
+      SCHEMA = 2
 
       attr_reader :run_id, :kind, :name, :started_at, :cases
 
@@ -73,33 +95,59 @@ module Boukensha
         target
       end
 
-      def summary
-        statuses = @cases.map { |c| c[:status] }
-        judged   = @cases.filter_map { |c| c.dig(:judge, :cost_usd) }
-        agent    = @cases.filter_map { |c| c.dig(:facts, :cost_usd) }
+      # One arm label per distinct configuration in the run, in the order the
+      # cases were declared. A run with nothing overridden has one arm and is the
+      # shape every report before settings_sweep.md had.
+      def arms
+        @cases.map { |row| row[:arm] }.uniq
+      end
 
-        {
-          cases: @cases.size,
-          passed: statuses.count("pass"),
-          failed: statuses.count("fail"),
-          errored: statuses.count("error"),
-          # Deliberately over ALL cases, errors included: a run where five cases
-          # crashed did not pass 15/15, and a rate that hides the crashes is the
-          # number you would quote by accident.
-          pass_rate: @cases.empty? ? nil : (statuses.count("pass").to_f / @cases.size).round(4),
-          cost_usd: { agent: round(agent.sum), judge: round(judged.sum),
-                      total: round(agent.sum + judged.sum) },
-          median: percentiles(0.5),
-          p90: percentiles(0.9),
-          failure_modes: failure_modes
-        }
+      def multi_arm? = arms.size > 1
+
+      def summary
+        base = counts(@cases)
+
+        if multi_arm?
+          # No run-level pass_rate / median / p90. See the class comment: across
+          # two configurations they are numbers describing nothing.
+          base.merge(cost_usd: cost(@cases), arms: arm_summaries, failure_modes: failure_modes(@cases))
+        else
+          base.merge(
+            # Deliberately over ALL cases, errors included: a run where five
+            # cases crashed did not pass 15/15, and a rate that hides the crashes
+            # is the number you would quote by accident.
+            pass_rate: pass_rate(@cases),
+            cost_usd: cost(@cases),
+            median: percentiles(@cases, 0.5),
+            p90: percentiles(@cases, 0.9),
+            failure_modes: failure_modes(@cases)
+          )
+        end
+      end
+
+      # One entry per arm: its label, the overrides that define it, its own
+      # digest, and the same statistics `summary` computes, scoped to its cases.
+      # A reader who distrusts an aggregate can rebuild every one of these from
+      # the case rows, which carry the same three fields each.
+      def arm_summaries
+        @cases.group_by { |row| row[:arm] }.map do |label, rows|
+          identity = { arm: label,
+                       settings: rows.first[:settings] || {},
+                       settings_digest: rows.first[:settings_digest] }.compact
+          statistics = { pass_rate: pass_rate(rows),
+                         cost_usd: cost(rows),
+                         median: percentiles(rows, 0.5),
+                         p90: percentiles(rows, 0.9),
+                         failure_modes: failure_modes(rows) }
+          identity.merge(counts(rows)).merge(statistics)
+        end
       end
 
       # Clustered by WHICH expectation failed, which is what turns twenty logs
       # into one sentence. A judge-only failure and a crash get their own
       # buckets rather than being invisible.
-      def failure_modes
-        @cases.each_with_object(Hash.new(0)) do |row, out|
+      def failure_modes(rows = @cases)
+        rows.each_with_object(Hash.new(0)) do |row, out|
           next if row[:status] == "pass"
 
           failures = Array(row[:expectations]).reject { |e| e[:ok] }
@@ -115,9 +163,27 @@ module Boukensha
 
       METRICS = %i[model_tool_calls automatic_tool_calls iterations duration_ms cost_usd].freeze
 
-      def percentiles(q)
+      def counts(rows)
+        statuses = rows.map { |row| row[:status] }
+        { cases: rows.size, passed: statuses.count("pass"),
+          failed: statuses.count("fail"), errored: statuses.count("error") }
+      end
+
+      def pass_rate(rows)
+        return nil if rows.empty?
+
+        (rows.count { |row| row[:status] == "pass" }.to_f / rows.size).round(4)
+      end
+
+      def cost(rows)
+        agent  = rows.filter_map { |row| row.dig(:facts, :cost_usd) }.sum
+        judged = rows.filter_map { |row| row.dig(:judge, :cost_usd) }.sum
+        { agent: round(agent), judge: round(judged), total: round(agent + judged) }
+      end
+
+      def percentiles(rows, q)
         METRICS.each_with_object({}) do |key, out|
-          values = @cases.filter_map { |c| c.dig(:facts, key) }.sort
+          values = rows.filter_map { |row| row.dig(:facts, key) }.sort
           next if values.empty?
 
           out[key] = quantile(values, q)

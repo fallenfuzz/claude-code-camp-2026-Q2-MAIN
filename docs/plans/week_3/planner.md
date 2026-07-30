@@ -296,3 +296,27 @@ accumulating dependents until it is settled.
   exists — `compute_turn_policy` builds a policy and `Context#advertised_tools`
   filters on it — but `memory.turn_policy` is `false` in `settings.yaml`, and the
   policy as written only pins directions rather than withholding the tool.
+
+
+## Moving Challenge
+Problem:
+
+user: find the bakery
+player: I need to find the bakery, call plan_route('bakery')
+plan_route: I didn't find it, here are list of frontiers
+player: Ah a bunch of frontiers, I'll just randomly move()
+player: Now I'll just move() this way.
+player: I'm off path I'll just move()
+
+Propsal:
+user: find the bakery
+player: move_to('bakery')
+
+
+
+Instead of plan_route just returning back possible frontiers, why can't it simply have a
+LLM single turn reason step to choose the frontier. This is forcing reasoning to happen,
+because it can't just simply reach for move. And that execute_route need a planned_route
+first, that way the agent can't just ask to move a single space.  maybe it should just be
+move_to("The bakery") an internall it forces plan_route() -> exuecute_plan() or
+plan_route() > reason_direction single turn -> exuecute plan. in the latter I guess you could just have it loop until it finds it but you having it reason more deelpy about its movement and could have a task(agent) with its own prompt. 

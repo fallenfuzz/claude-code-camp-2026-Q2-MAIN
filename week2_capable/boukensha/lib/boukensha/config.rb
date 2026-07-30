@@ -1,9 +1,20 @@
 require "yaml"
 require "dotenv"
 require "pathname"
+# The merge semantics for a settings override are the ones a state override
+# already has — deep merge for mappings, replacement for sequences, `key+` to
+# append, `null` to delete (settings_sweep.md §2). `Testing::Overrides` is a
+# leaf module with no requires of its own, and having ONE set of merge rules to
+# learn matters more than the directory it happens to sit in.
+require_relative "testing/overrides"
 
 module Boukensha
   class Config
+    # An override that arrived after configuration had already been read. It
+    # raises rather than warns because the alternative outcome is a case that ran
+    # under one configuration and reported another (settings_sweep.md §8.2).
+    class SettingsOverrideError < StandardError; end
+
     OTEL_ENV_NAME = /\AOTEL_[A-Z0-9_]+\z/.freeze
     PLAYER_GENDERS = %w[m f n].freeze
     PLAYER_CLASSES = %w[magic_user cleric thief warrior].freeze
@@ -23,18 +34,71 @@ module Boukensha
     # was silently getting no system prompt at all.
     PROMPTS_DIR = File.expand_path("../../prompts", __dir__).freeze
 
-    attr_reader :root_dir, :profile_dir, :profile, :settings
+    attr_reader :root_dir, :profile_dir, :profile, :settings_overrides
 
     def initialize
       @root_dir = resolve_dir
       @profile_dir = resolve_profile_dir
       load_env
       @settings = load_settings
+      @settings_overrides = {}
+      @settings_read = false
       @profile = load_profile
     end
 
     # Backward-compatible name for callers that only need shared assets.
     def dir = @root_dir
+
+    # ---------- settings --------------------------------------------------
+
+    # The RESOLVED settings: the parsed `settings.yaml` with any per-run
+    # overrides already merged over it. Reading this CLOSES the override window
+    # — see #install_settings_overrides!.
+    def settings
+      @settings_read = true
+      @settings
+    end
+
+    # Merge a per-run settings override over the parsed `settings.yaml`
+    # (settings_sweep.md §2), so a sweep arm can vary
+    # `tools.navigation.limits.max_decisions` or `tasks.navigator.model` without
+    # an edit to the file every arm shares.
+    #
+    # This is the whole injection seam. `Boukensha.config` is memoized on the
+    # module and is the single object every consumer reads configuration
+    # through, so a merge applied before the first read reaches every `cfg.dig`
+    # and every `cfg.tasks` with none of them modified.
+    #
+    # The window is between construction and that first read, and it is not
+    # enforced by anything upstream, so it is enforced HERE and it raises: an
+    # override that arrived late produces a case that ran under one
+    # configuration and reported another, which is the worst available outcome
+    # (§8.2).
+    def install_settings_overrides!(overrides)
+      overrides = Testing::Overrides.normalize(overrides || {})
+      return @settings if overrides.empty?
+
+      if @settings_read
+        raise SettingsOverrideError,
+              "settings overrides arrived after configuration had already been read " \
+              "(#{overrides.keys.sort.join(', ')}); install them before the first read or the run " \
+              "measures one configuration and reports another"
+      end
+
+      @settings_overrides = Testing::Overrides.deep_merge(@settings_overrides, overrides)
+      @settings = Testing::Overrides.deep_merge(@settings, overrides)
+    end
+
+    # The settings that WOULD be in force with `overrides` applied, without
+    # applying them. This is how the PARENT computes a case's digest: it never
+    # runs under the overrides itself, and the merge is the same one the child
+    # performs, so the two agree by construction rather than by convention.
+    def settings_with(overrides)
+      overrides = Testing::Overrides.normalize(overrides || {})
+      return settings if overrides.empty?
+
+      Testing::Overrides.deep_merge(settings, overrides)
+    end
 
     # ---------- tasks -----------------------------------------------------
 
@@ -178,6 +242,7 @@ module Boukensha
 
     # Fetch a nested key path from settings, e.g. dig(:provider, :model)
     def dig(*keys)
+      @settings_read = true
       keys.reduce(@settings) do |node, key|
         case node
         when Hash then node[key.to_s] || node[key.to_sym]

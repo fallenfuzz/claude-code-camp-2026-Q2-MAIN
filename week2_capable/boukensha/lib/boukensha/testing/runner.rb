@@ -115,6 +115,18 @@ module Boukensha
           "base_initial_state" => kase.base_initial_state,
           "map_memory"         => kase.map_memory,
           "limits"             => kase.limits,
+          # The per-run settings override and the arm it belongs to
+          # (settings_sweep.md §2). It travels in the payload because the payload
+          # already travels as a file, and the child installs it before anything
+          # reads configuration. Empty means "the deployment's own settings", and
+          # is dropped by the `compact` below rather than shipped as `{}`.
+          "settings"           => (kase.settings unless kase.settings.nil? || kase.settings.empty?),
+          "arm"                => kase.arm,
+          # The staged model answers (mocking_messages.md §3), verbatim as the
+          # scenario wrote them. Absent — and dropped by the `compact` below —
+          # for every ordinary case, which is what keeps staging opt-in and
+          # visible in one place.
+          "stage"              => kase.stage&.spec,
           "result_path"        => result_path,
           "seed_log"           => seed_log,
           # The child appends its own milestones to the SAME file, and measures

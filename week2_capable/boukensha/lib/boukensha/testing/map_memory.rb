@@ -149,11 +149,20 @@ module Boukensha
 
       # Row counts at the moment the case starts. "Cold map" is a claim;
       # `rooms: 0` is a fact, and it is the one the report carries.
+      #
+      # `regions` is here for the same reason `rooms` is: `regions_delta` is the
+      # only honest way to say a case DECLARED a region, since a case running
+      # against `snapshot:midgaard` inherits whatever the snapshot already
+      # carried and a bare count would report the fixture's work as the run's
+      # (mocking_messages.md §9). A file written before the regions migration
+      # has no such table and `count` answers 0, which is what was true of it.
+      COUNTED_TABLES = %w[rooms room_exits entities regions].freeze
+
       def stats_of(path)
-        return { rooms_at_start: 0, room_exits_at_start: 0, entities_at_start: 0 } unless File.file?(path)
+        return COUNTED_TABLES.to_h { |t| [:"#{t}_at_start", 0] } unless File.file?(path)
 
         with_db(path) do |db|
-          %w[rooms room_exits entities].each_with_object({}) do |table, out|
+          COUNTED_TABLES.each_with_object({}) do |table, out|
             out[:"#{table}_at_start"] = count(db, table)
           end
         end

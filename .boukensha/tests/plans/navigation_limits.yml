@@ -1,0 +1,69 @@
+# move_to.md §9 step 8, as a sweep — settings_sweep.md §1, §3.3, §10 step 7.
+#
+# The question comes from the first measured run of `find_bakery_cold`
+# (tests/baselines/find_bakery_cold.json). It PASSED with `max_decisions: 6`,
+# but it passed by spending all six decisions on the first `move_to`, returning
+# `stopped on budget`, and requiring the player to call `move_to` a second time
+# to finish the journey. Six of the eight navigator calls in that run went on
+# that first call, and the navigator's 12,436 input tokens — against the ~3,000
+# §2.1 predicted — is the single largest unexplained number in the baseline.
+#
+# So there are two things to find out and they are not the same thing:
+#
+#   1. Does a HIGHER ceiling pay for itself? It buys the second round trip back
+#      inside one call, or it merely spends more navigator tokens for the same
+#      result. `max_decisions: 4` is in the sweep as the other direction: if
+#      four arrives as often as ten does, the budget was never the constraint.
+#   2. Is Haiku good enough to pick a frontier? The navigator is the case's
+#      largest cost and `find_bakery_cold`'s whole judgement — choosing The
+#      Temple Square over By The Temple Altar — is one model call. Sonnet is
+#      roughly 5× the price per token, so it has to buy either a higher pass
+#      rate or enough fewer decisions to pay for itself.
+#
+# The two axes cross because they interact: a weaker model with a bigger budget
+# is a plausible way to arrive, and so is a stronger one with a small budget.
+#
+#   bk -tsp navigation_limits --dry-run   # free: 6 arms, 30 cases, and the estimate
+#   bk -tsp navigation_limits             # ~30 live cases, ~15 minutes, ~$1
+#
+# `map_memory: none` on every arm, and settings_sweep.md §8.5 is the reason it
+# is not negotiable: region declarations are earned and never overwritten
+# (move_to.md §7.6), so an arm running with `keep` would inherit whatever the
+# arm before it wrote and the comparison would measure the order the arms ran
+# in. The harness warns about this rather than refusing it; there is nothing to
+# warn about here.
+name: navigation_limits
+description: "move_to.md §9 step 8 — does a higher decision ceiling pay for itself, and is Haiku good enough to pick a frontier?"
+
+defaults:
+  player_profile: Derrano
+  map_memory: none
+  # Held FIXED across every arm, at the value settings.yaml already ships, so
+  # that the thing varying is the axis and not the deployment. `max_decisions`
+  # bound before `max_rooms` in the baseline (6 decisions against 12 rooms
+  # allowed), which is §4.3's dense-town case exactly — few rooms, many
+  # decisions — so pinning rooms here keeps that true for the arm that raises
+  # decisions to ten.
+  settings:
+    tools:
+      navigation:
+        limits:
+          max_rooms: 12
+
+sweep:
+  tools.navigation.limits.max_decisions: [4, 6, 10]
+  tasks.navigator.model: [claude-haiku-4-5, claude-sonnet-4-6]
+
+cases:
+  # Five runs per arm, not one. The reasoning under test is a model reading five
+  # room names and noticing that four of them are parts of a temple, and a
+  # single sample cannot tell a fixed design from a lucky one. Five is also the
+  # batch `boundaries_gate` uses for the same case, so the arms are comparable
+  # against the runs already under tests/reports/find_bakery_cold.
+  #
+  # The scenario's own `max_model_tool_calls: 6` is a wandering detector rather
+  # than a target and it stays as it is: an arm that trips it has the agent
+  # calling move_to once per room, which is the failure the ceiling exists to
+  # catch and is worth catching in every arm equally.
+  - scenario: find_bakery_cold
+    batch: 5

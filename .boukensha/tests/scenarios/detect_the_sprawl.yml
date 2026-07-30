@@ -1,0 +1,136 @@
+# RUN B — mocking_messages.md §1. The first measured `scope_suspect`.
+#
+# Run A takes detection as given and measures placement. This one is the other
+# half: the navigator is LIVE, and the question is whether a real one raises
+# scope on a genuinely sprawling region. That judgement is what the whole of
+# boundaries_revised.md §5 rests on, and it has never been observed — the
+# navigator has not volunteered `scope_suspect: true` in any measured run, and
+# until now there was no way to tell whether that is because the judgement is
+# wrong or because no run has ever put a sprawling region in front of it.
+#
+# This puts one in front of it, and stages everything else.
+#
+# ── THE SAME SCENARIO AS RUN A, ONE TASK MOVED ─────────────────────────
+#
+# The player stage is identical. The navigator moves from staged to live, and
+# the cartographer moves from live to staged — because a live cartographer here
+# would make the run measure two things and a failure would not say which. The
+# staged cartographer declines, which keeps the run cheap and leaves the
+# navigator's answer as the only thing that varied.
+#
+# Cost is one call per leg rather than one per run, so up to six.
+#
+# ── PREREQUISITE ───────────────────────────────────────────────────────
+#
+# `snapshot:midgaard` — see `explore_midgaard.yml`. This case needs it more than
+# run A does, not less: run A hands the cartographer a claim, and this one asks
+# the navigator to READ the region shape line and decide for itself. A
+# seven-room map's shape line says "a dense little town at a median of one
+# move", the correct answer to which is `scope_suspect: false` — so a small map
+# does not make this case fail, it makes it PASS for the wrong reason.
+#
+#   bk -ts detect_the_sprawl --dry-run
+#   bk -ts detect_the_sprawl --batch 5
+#
+# ── WHAT TO WRITE DOWN ─────────────────────────────────────────────────
+#
+# How many of the five raised scope, and what each one's `scope_reason` said.
+# The reason is the measurement: §5's claim is specifically that the model reads
+# the DISTANCES rather than the count, and a run that raises scope while citing
+# the count has agreed with the conclusion for the wrong reason and tells us
+# nothing about whether the design works.
+session_name: detect_the_sprawl
+player_profile: Derrano
+goal: "Find the mayor's office."
+
+base_initial_state: cleric
+initial_state_overrides:
+  money:
+    gold: 0
+
+map_memory: snapshot:midgaard
+
+limits:
+  max_iterations: 20
+  max_turn_tokens: 40000
+  wall_timeout_s: 240
+
+stage:
+  because: |
+    Run B of mocking_messages.md §1. The navigator is live and everything else
+    is staged, so the one thing that varies between samples is whether a real
+    navigator raises scope on a genuinely sprawling region — the judgement §5
+    of boundaries_revised.md rests on and which no measured run has produced.
+    The cartographer is staged to DECLINE rather than left live, because a live
+    one would make this run measure detection and placement together and a
+    failure would not say which half failed.
+
+  player:
+    - tools:
+        - name: move_to
+          args: { destination: "the mayor's office" }
+    - text: "That is as far as the walk got; the office should be off the square."
+
+  # Declines, every time. `split: false` is a legitimate cartographer answer and
+  # the subsystem journals it as `region_split_declined` — so the run still
+  # proves the pipeline reached the cartographer without paying for one, and
+  # without writing a boundary that would outlive the case (declarations are
+  # earned and never overwritten, so a staged boundary in a `keep` map would
+  # mis-scope every later run against it).
+  cartographer:
+    - split: false
+      reason: "Staged decline — run B measures detection only."
+    - split: false
+      reason: "Staged decline — run B measures detection only."
+    - split: false
+      reason: "Staged decline — run B measures detection only."
+    - split: false
+      reason: "Staged decline — run B measures detection only."
+    - split: false
+      reason: "Staged decline — run B measures detection only."
+    - split: false
+      reason: "Staged decline — run B measures detection only."
+
+  # navigator: not listed, therefore LIVE. This is the whole point of the run.
+
+# ── Deterministic gate ────────────────────────────────────────────────
+#
+# `journal_op: move_to.decision` proves the navigator was reached at all, which
+# is the failure that would otherwise pass silently — an arrival before the
+# first decision, or a closed scope gate, produces a run that spent nothing and
+# observed nothing.
+#
+# Note what is NOT asserted: that scope was raised. That is the measurement, and
+# a case that failed when the navigator answered `scope_suspect: false` would be
+# a gate on the model agreeing with us. Whether it raised scope is in
+# `journal_ops` and in the judge's reading, where it can be counted across five
+# samples instead of turning one sample into a verdict.
+expect:
+  tool_called: [move_to]
+  journal_op: [move_to.decision]
+  region_split: false
+
+evaluation:
+  desired_behaviour: |
+    Read the navigator's turns and its journalled decisions. The scope question
+    is on its payload only above the gate, and it asks whether the region line
+    still describes one place the agent would call "here".
+    The judgement §5 asks for is a reading of the DISTANCES: sixteen unexplored
+    exits at a median of six moves, with half of them six to twelve moves away,
+    is a scope that has stopped meaning "here". A dozen exits at a median of one
+    move is a dense little town and is scope working correctly.
+    So the answer to grade is `scope_reason`, not `scope_suspect`. A navigator
+    that raises scope and explains itself by the median has done the thing this
+    case was built to observe. One that answers `scope_suspect: false` on a map
+    whose median is one move has also read it correctly.
+  undesired_behaviour: |
+    Raising scope by COUNT is the specific failure. §5 is explicit that the
+    count would not have distinguished the two cases and the distances would, so
+    a `scope_reason` citing "sixteen exits" without reference to how far away
+    they are has agreed with the conclusion for the wrong reason.
+    Raising scope on every leg is a second failure of the same kind. Scope is a
+    property of the region, and a navigator that answers `scope_suspect: true`
+    on decisions two through six as well is answering a mood rather than a
+    question.
+    The navigator should not answer `place:` with the room's own name. The
+    temple is IN Midgaard.

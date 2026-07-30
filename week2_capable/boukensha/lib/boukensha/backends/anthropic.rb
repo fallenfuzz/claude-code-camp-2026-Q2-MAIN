@@ -1,3 +1,4 @@
+require "securerandom"
 require_relative "base"
 
 # https://platform.claude.com/docs/en/api/beta/messages/create
@@ -105,6 +106,27 @@ module Boukensha
         stop_reason = response["stop_reason"] == "tool_use" ? "tool_use" : "end_turn"
         content     = (response["content"] || []).map { |block| normalize_block(block) }
         { stop_reason: stop_reason, content: content }
+      end
+
+      # The inverse of `parse_response` for the staging layer — see
+      # Backends::Base#staged_response. The ids are minted here and are visible
+      # as `stage_<hex>`, which is deliberate: a `tool_use` id that appears in a
+      # transcript nobody can trace to a real API response should say where it
+      # came from. They round-trip through `to_messages`'s `tool_result`
+      # serialisation like any other id, since the API only requires that the
+      # two halves agree.
+      def staged_response(text: nil, tools: [])
+        content = []
+        content << { "type" => "text", "text" => text.to_s } unless text.to_s.empty?
+        Array(tools).each do |call|
+          content << { "type" => "tool_use", "id" => "stage_#{SecureRandom.hex(6)}",
+                       "name" => call["name"] || call[:name], "input" => call["args"] || call[:args] || {} }
+        end
+        {
+          "content" => content,
+          "stop_reason" => (content.any? { |b| b["type"] == "tool_use" } ? "tool_use" : "end_turn"),
+          "usage" => { "input_tokens" => 0, "output_tokens" => 0 }
+        }
       end
 
       private

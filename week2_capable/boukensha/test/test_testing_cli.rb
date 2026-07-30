@@ -101,7 +101,98 @@ class TestTestingCli < Minitest::Test
     assert_match(/no retained map for session/, err)
   end
 
+  # ---------- sweeps, from the outside (settings_sweep.md §3.3, §6.1) --------
+
+  # A sweep multiplying case counts silently is the obvious way for this to go
+  # wrong. Thirty cases at roughly $0.03 and ninety seconds each is fifteen
+  # minutes and a dollar, which is a reasonable thing to ask for and an
+  # unreasonable thing to discover.
+  def test_dry_run_states_the_arm_count_the_total_and_the_estimate
+    write_sweep_fixtures
+    out = StringIO.new
+
+    status = CLI.new({ mode: :plan, name: "navigation_limits", dry_run: true },
+                     root_dir: @root, out: out).run
+
+    assert_equal 0, status
+    doc = JSON.parse(out.string)
+    assert_equal 6, doc["arms"], "three decisions × two models"
+    assert_equal 12, doc["cases"]
+    assert_match(/roughly \$0\.36 and 18 minutes/, doc["estimate"])
+    assert_equal 6, doc["resolved"].map { |c| c["arm"] }.uniq.size
+    assert_equal 4, doc["resolved"].first.dig("settings", "tools", "navigation", "limits", "max_decisions")
+  end
+
+  # Under --dry-run, so it costs nothing rather than eighteen real seeds.
+  def test_a_misspelt_setting_is_a_sentence_before_anything_is_seeded
+    write_sweep_fixtures
+    err = capture_io do
+      status = CLI.new({ mode: :scenario, name: "find_bakery_cold", dry_run: true,
+                         setting: ["tools.navigation.limits.max_decision=10"] },
+                       root_dir: @root, out: StringIO.new).run
+      assert_equal 1, status
+    end.last
+
+    assert_match(/max_decision /, err)
+  end
+
+  def test_touching_mcp_servers_is_a_sentence_before_anything_is_seeded
+    write_sweep_fixtures
+    err = capture_io do
+      status = CLI.new({ mode: :scenario, name: "find_bakery_cold", dry_run: true,
+                         setting: ["mcp_servers.mud.env.MUD_HOST=elsewhere"] },
+                       root_dir: @root, out: StringIO.new).run
+      assert_equal 1, status
+    end.last
+
+    assert_match(/mcp_servers/, err)
+  end
+
   private
+
+  # A minimal deployment on disk: the settings file an override's key paths are
+  # checked against, one state, one scenario, and the §3.3 sweep.
+  def write_sweep_fixtures
+    File.write(File.join(@root, "settings.yaml"), <<~YAML)
+      tools:
+        navigation:
+          limits:
+            max_rooms: 12
+            max_decisions: 6
+      tasks:
+        navigator:
+          provider: anthropic
+          model: claude-haiku-4-5
+      mcp_servers:
+        mud:
+          command: mud-manager
+          env:
+            MUD_HOST: localhost
+    YAML
+    File.write(File.join(@root, "profiles", "Derrano", "profile.yaml"),
+               "player:\n  name: Derrano\n  gender: m\n  class: cleric\n")
+    write_fixture("states/cleric.yml", "requires_class: cleric\nlocation: 3001\nlevel: 10\n")
+    write_fixture("scenarios/find_bakery_cold.yml", <<~YAML)
+      player_profile: Derrano
+      goal: "Find the bakery."
+      base_initial_state: cleric
+    YAML
+    write_fixture("plans/navigation_limits.yml", <<~YAML)
+      name: navigation_limits
+      sweep:
+        tools.navigation.limits.max_decisions: [4, 6, 10]
+        tasks.navigator.model: [claude-haiku-4-5, claude-sonnet-4-6]
+      cases:
+        - scenario: find_bakery_cold
+          batch: 2
+    YAML
+  end
+
+  def write_fixture(relative, body)
+    path = File.join(@root, "tests", relative)
+    FileUtils.mkdir_p(File.dirname(path))
+    File.write(path, body)
+  end
 
   # A real (empty but valid) knowledge database where the harness retains one.
   def retain(session_id)
