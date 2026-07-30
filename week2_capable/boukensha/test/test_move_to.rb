@@ -407,6 +407,38 @@ class TestMoveTo < Minitest::Test
     assert_equal 1, mud.move_calls.size, "no further move is issued after a death"
   end
 
+  # ---------- regions: detection (§2 rule 1, rule 3) ---------------------
+  #
+  # "Detects a new region" is two different events and only one of them is a
+  # detection: the cold start MINTS a provisional region because a room with no
+  # arrival edge has nothing to inherit from, and every room walked into after
+  # that inherits and mints nothing. A subsystem that minted one per arrival
+  # would put the scope gate above its threshold within three moves and make
+  # every later judgement meaningless.
+
+  def test_a_cold_start_mints_exactly_one_provisional_region_and_the_navigator_reads_it
+    mud = south_then_north
+    hooks = hooks_at_market_square(mud)
+    navigator = ScriptedReasoner.new({ "direction" => "south", "reason" => "r" })
+
+    move_to(mud, hooks, navigator: navigator.to_proc,
+                        limits: { "max_rooms" => 1 }).call(destination: "bakery")
+
+    assert_equal 1, @store.regions.size
+    assert M::Regions.provisional_label?(@store.regions.first[:label]),
+           "a machine-made label is provenance, not a claim"
+    assert_match(/⟨from Market Square⟩ — unconfirmed/, navigator.calls.first["region"],
+                 "the unconfirmed tag is the question the `place` field answers")
+  end
+
+  def test_walking_into_a_new_room_inherits_rather_than_minting_a_second_region
+    mud, = walked_south
+
+    assert_equal 1, @store.regions.size, "arrival is inheritance; only a rootless room seeds"
+    assert_equal @store.region_for_room(1)[:id], @store.region_for_room(2)[:id]
+    assert_equal "inherited", @store.region_for_room(2)[:basis]
+  end
+
   # ---------- regions: naming (§5.3) -------------------------------------
 
   def test_a_place_against_an_unconfirmed_region_names_it
@@ -609,6 +641,94 @@ class TestMoveTo < Minitest::Test
     assert_equal 1, common["first_entered_from"]
     assert_equal "south", common["first_entered_by"]
     assert(payload["edges"].any? { |e| e["from"] == 1 && e["direction"] == "south" && e["to"] == 2 })
+  end
+
+  # ---------- regions: naming and splitting in the same leg -------------
+  #
+  # The two halves of §5 run back to back against the same leg, and `name_region`
+  # MERGES when the label already exists — which DELETES the row the payload was
+  # built from. `walk_frontier` re-reads the region between the two calls for
+  # exactly this reason, and the failure the re-read prevents is silent rather
+  # than loud: `region_descendants` of a merged-away id answers with itself,
+  # nothing maps to it, `scope_gate_open?` sees zero rooms and closes, and the
+  # cartographer is never called at all. A run like that reports a clean pass
+  # having observed nothing.
+  def test_a_place_that_merges_still_leaves_the_scope_gate_open_for_the_split
+    mud, hooks = walked_south
+    journal = FakeJournal.new
+    # A region the agent named on some earlier walk. Naming the provisional one
+    # "Midgaard" now is a merge into this row, not a rename of that one.
+    @store.create_region!(label: "Midgaard", confirmed: true)
+    provisional = @store.region_for_room(2)[:id]
+
+    cartographer = ScriptedReasoner.new(
+      { "split_at_room_id" => 2, "label" => "The Common Quarter", "within" => "Midgaard",
+        "reason" => "everything past the south door is residential" }
+    )
+
+    MT.new(store: @store, call_tool: mud.nav_call_tool, hooks: hooks, journal: journal,
+           cartographer: cartographer.to_proc,
+           navigator: ScriptedReasoner.new({ "direction" => "north", "reason" => "r",
+                                             "place" => "Midgaard",
+                                             "scope_suspect" => true,
+                                             "scope_reason" => "median is six" }).to_proc,
+           limits: { "max_rooms" => 1, "min_rooms_for_scope_check" => 1 }).call(destination: "bakery")
+
+    assert_nil @store.region(provisional), "the merge folded the provisional region away"
+    assert_equal 1, cartographer.calls.size,
+                 "the split must reason about the merged row, not the deleted one"
+    refute_nil journal.find("region_named")
+    refute_nil journal.find("region_split")
+    assert_equal "The Common Quarter", @store.region_for_room(2)[:label]
+    assert_equal "Midgaard", @store.region_for_room(1)[:label], "upstream of the boundary is untouched"
+    assert_equal "Midgaard", @store.region(@store.region_for_room(2)[:parent_id])[:label],
+                 "a quarter nests inside the town rather than replacing it"
+  end
+
+  # ---------- regions: the split that cannot be placed -------------------
+
+  # §5.6 reads the boundary off `rooms.arrived_from_room_id`, and the seed room
+  # of a cold start has none. The cartographer is given that room in its payload
+  # like any other, so it can and will name it.
+  def test_a_split_at_a_room_with_no_arrival_edge_writes_no_boundary
+    mud, hooks = walked_south
+    journal = FakeJournal.new
+    cartographer = ScriptedReasoner.new(
+      { "split_at_room_id" => 1, "label" => "The Market", "reason" => "the square is its own place" }
+    )
+
+    MT.new(store: @store, call_tool: mud.nav_call_tool, hooks: hooks, journal: journal,
+           cartographer: cartographer.to_proc,
+           navigator: ScriptedReasoner.new({ "direction" => "north", "reason" => "r",
+                                             "scope_suspect" => true }).to_proc,
+           limits: { "max_rooms" => 1, "min_rooms_for_scope_check" => 1 }).call(destination: "bakery")
+
+    assert_empty @store.region_boundaries, "no edge to place it on means no boundary"
+    assert_nil @store.region_by_label("The Market")
+    # The op is still `region_split` — the tool's refusal is carried in `result`
+    # rather than in the op name, so anything counting ops has to read it.
+    assert_match(/no first-arrival edge/, journal.find("region_split")[:result])
+  end
+
+  # A reasoner that raises must not abort a walk that has already moved the
+  # character, and must not leave the failure unattributed.
+  def test_a_cartographer_that_raises_is_journalled_and_the_walk_still_returns
+    mud, hooks = walked_south
+    journal = FakeJournal.new
+
+    result = MT.new(store: @store, call_tool: mud.nav_call_tool, hooks: hooks, journal: journal,
+                    cartographer: ScriptedReasoner.new(RuntimeError.new("api down")).to_proc,
+                    navigator: ScriptedReasoner.new({ "direction" => "north", "reason" => "r",
+                                                      "scope_suspect" => true }).to_proc,
+                    limits: { "max_rooms" => 1, "min_rooms_for_scope_check" => 1 })
+             .call(destination: "bakery")
+
+    assert_match(/\[move_to\] bakery/, result)
+    assert_empty @store.region_boundaries
+    failed = journal.find("region_split_failed")
+    refute_nil failed, "a boundary that failed to appear must not be indistinguishable from one never asked for"
+    assert_equal "api down", failed[:error]
+    assert_equal %w[south north], mud.move_calls, "the leg was still walked"
   end
 
   # ---------- attribution (§6) ------------------------------------------
