@@ -1,4 +1,6 @@
 require_relative "predicates"
+require_relative "assessment"
+require_relative "egress"
 
 module Boukensha
   module Mud
@@ -158,9 +160,19 @@ module Boukensha
           direction = presence(spec["direction"])
           return unless room_id && direction
 
+          # `assessability`, `hazard` and `egress` are validated against their
+          # vocabularies rather than stored as written, and an unrecognised answer
+          # reads as no answer — which for assessability means `unknown`, which
+          # defers, and for egress means silence, which permits. A surveyor that
+          # invents a value must not thereby grant permission
+          # (blind_step_recovery.md §5.1), and neither must it thereby impose a
+          # fence (staying_in_town.md §10.1).
           @store.record_frontier_hint!(room_id: room_id, direction: direction,
                                        expected_class: presence(spec["expected_class"]),
-                                       note: presence(spec["note"]))
+                                       note: presence(spec["note"]),
+                                       assessability: assessability(spec["assessability"]),
+                                       hazard: presence(spec["hazard"]),
+                                       egress: egress(spec["egress"]))
         end
 
         def add_evidence(claim_id, rows)
@@ -219,6 +231,23 @@ module Boukensha
         def presence(value)
           s = value.to_s.strip
           s.empty? ? nil : s
+        end
+
+        # nil unless the surveyor named one of the three values, so that silence
+        # and nonsense reach the store as the same thing and the store's own
+        # default — `unknown`, which defers — applies to both.
+        def assessability(value)
+          v = presence(value)&.downcase
+          v if Assessment::ASSESSABILITY.include?(v)
+        end
+
+        # Same shape and the same reason: silence and nonsense reach the store as
+        # the same thing, and the store's own default — `interior`, which permits —
+        # applies to both. A `leaves` the surveyor did not actually write must
+        # never fence a survey into the room it is standing in.
+        def egress(value)
+          v = presence(value)&.downcase
+          v if Egress::VALUES.include?(v)
         end
 
         def number(value, default)

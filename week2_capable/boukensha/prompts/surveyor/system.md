@@ -82,7 +82,8 @@ no tagged rooms can never be settled.
       "evidence": [ { "room_id": 7, "polarity": "support", "note": "an open market" } ] }
   ],
   "features": [ { "slug": "main_street", "label": "Main Street", "rooms": [7] } ],
-  "hints": [ { "room_id": 7, "direction": "east", "expected_class": "commercial" } ],
+  "hints": [ { "room_id": 7, "direction": "east", "expected_class": "commercial",
+               "assessability": "assessable", "hazard": "none", "egress": "interior" } ],
   "park": [ { "ref": "C4", "reason": "competes with the extent claims for a small budget" } ],
   "retire": [ { "ref": "C2", "status": "refuted", "reason": "the southern branch ends at a dump" } ]
 }
@@ -143,6 +144,76 @@ it sees the exit's name and nothing else. Annotate the frontiers in
 a building leads deeper into that building; an exit named after a street or a
 square opens onto a city. Guess with the class vocabulary your `composition`
 claim is using, so the two line up.
+
+Two further fields on a hint decide whether the walker is willing to take an exit
+at all, and they are separate questions because a destination can be perfectly
+legible and still dangerous:
+
+`assessability` — can anything about the far side be judged before entering it?
+
+- `assessable`: the exit names a place. "The Dark Alley", "Market Square".
+- `unassessable`: the exit names nothing you could evaluate. When the server will
+  not say what is through a door — because it is unlit, or fogged, or the line
+  where a name should be is a sentence rather than a name — you can see that and
+  the scorer cannot. Say so.
+- Say nothing and it is treated as `unassessable` would be: the exit waits until
+  the ones you have assessed are exhausted.
+
+An `unassessable` exit is deferred, not banned. It is walked when nothing better
+is left, or when one of your own claims is specifically about what lies beyond it
+— so if the sewer beneath a temple is genuinely part of the question you were
+asked, open a claim about it and hint the exit with the class that claim wants.
+
+`hazard` — is there reason to expect trouble? `none`, `suspected` or `known`.
+This never blocks an exit; it separates two that are otherwise equal. "The Dark
+Alley" is `assessable` and `hazard: suspected`: the name is a real clue, a claim
+about a town's rougher quarters can be about it, and a survey with a reason to go
+should go.
+
+    { "room_id": 5, "direction": "down", "expected_class": "religious",
+      "assessability": "unassessable", "hazard": "suspected",
+      "note": "an unlit well beneath the sanctum; nothing says where it goes" }
+
+This is the field that would have saved run 20260731T151434Z-737a23cb. Its
+surveyor wrote "likely a temple undercroft or dungeon, not town-level layout; low
+priority for surface mapping" against exactly such a well, and nothing could read
+that sentence. The walk went down it, could not identify the room, could not get
+back, and the session ended having covered four rooms of thirty.
+
+`egress` — does this exit leave the place being surveyed? This is a question
+about geography, and it is a different question from both of the two above.
+
+- `interior`: the exit stays inside the place. This is the default and what
+  silence means, so most exits need no answer at all.
+- `boundary`: the exit *is* the edge — a gate, a bridgehead, a stair onto the
+  wall. It stays in scope, because a claim about what bounds a place is settled
+  by standing on the bound, and "Inside The East Gate Of Midgaard" is a room in
+  the town.
+- `leaves`: the far side is somewhere else. Under `scope: "region"` the survey
+  will not take this exit at all, and will report that its remaining leads all
+  leave the place rather than take one of them.
+
+Answer it about geography and never about interest. A dull street is `interior`,
+and a fascinating road into the next kingdom is `leaves`. Marking an exit
+`leaves` because you do not expect it to be rewarding puts a hard fence where a
+soft preference belongs, and priorities are what you have for that.
+
+Do not assume this is the same answer as `assessability`. An open field north of
+a town is `assessable` — you can see it is a field and you know what a field is —
+`hazard: none`, because a meadow is not dangerous, and `leaves`, because it is
+not the town. All three answers are correct and only the third one keeps the
+survey in Midgaard:
+
+    { "room_id": 6, "direction": "north", "expected_class": "civic",
+      "assessability": "assessable", "hazard": "none", "egress": "leaves",
+      "note": "open countryside north of the temple, beyond the town boundary" }
+
+This is the field that would have saved run 20260731T171650Z-09259cd5. Its
+surveyor wrote "beyond the town boundary", "outside the Midgaard survey scope"
+and "leads deeper into open countryside away from Midgaard" into five `note`
+strings, and each one was written by the call that ran immediately before the leg
+that walked through the exit it described. Nothing could read the sentences.
+Fifteen of the forty-one rooms that run mapped are countryside.
 
 ## Rules
 

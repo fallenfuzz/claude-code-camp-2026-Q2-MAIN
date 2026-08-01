@@ -36,13 +36,46 @@
 #   sqlite3 .boukensha/tests/knowledge/snapshots/midgaard.sqlite3 \
 #     "SELECT (SELECT COUNT(*) FROM rooms), (SELECT COUNT(*) FROM room_exits WHERE target_room_id IS NULL)"
 #
-# ── WHY THERE IS NO DETERMINISTIC GATE ─────────────────────────────────
+# ── WHAT IS AND IS NOT GATED ───────────────────────────────────────────
 #
-# There is nothing to pass or fail. The output of this case is a database, and
-# whether it is good enough is a question about the SHAPE of that database
-# rather than about the agent's conduct — so it is asked by the sqlite3 line
-# above and not by an `expect:` block. `rooms_known_delta` in the report is the
-# number to read.
+# Whether the map is GOOD ENOUGH is not gated and cannot be. That is a question
+# about the shape of a database — thirty-odd rooms, both banks of the river — and
+# it is asked by the sqlite3 line above rather than by an `expect:` block.
+# `rooms_known_delta` in the report is the number to read.
+#
+# The agent's CONDUCT is gated, as of fix_surveying.md §5. Run
+# 20260731T140528Z-34c846bf issued twenty-one model tool calls, all of them
+# `move_to`, twelve of which answered `unreachable` and walked nothing, and asked
+# for "The South Gate" nine times while standing beside its unwalked exit. It
+# satisfied `tool_called: [move_to]` and every budget rule in the suite. The two
+# ceilings below are the cheapest statement of the difference between spending the
+# budget and covering ground, and both read `move_to`'s `answered` journal event:
+#
+#   no_progress_calls        calls that walked zero rooms      recorded: 14 of 21
+#   max_destination_repeats  times one destination was asked   recorded: 9
+#
+# The fourteen are the twelve `unreachable` answers, one blocked exit, and one
+# `arrived` from where the agent already stood. It is not the fifteen the
+# diagnosis counts, and the gap is deliberate: two further calls walked one room
+# north and one room back south, which a reader calls waste and no projection can.
+#
+# A third ceiling arrives with staying_in_town.md §13, and it gates something the
+# other two cannot see at all:
+#
+#   rooms_outside_scope      rooms behind a recorded egress   recorded: 15 of 41
+#
+# Run 20260731T171650Z-09259cd5 is the first `explore_midgaard` to pass every
+# mechanical gate and fail on the judge alone. It covered ground extremely well —
+# forty-one rooms, eight regions, both gates, the wall road and the bridge — and
+# fifteen of those rooms are countryside outside the walls, which no `expect:`
+# rule in the suite could state. The rule the run was graded on lived only in
+# `evaluation.undesired_behaviour`, where the judge reads it and the agent cannot,
+# so it appears in `goal` as well as of today. That split is right for questions
+# about CONDUCT, where an agent told it will be marked down for repeating a
+# destination learns to hide the repetition rather than to stop needing it, and
+# wrong for a constraint on the task itself: a constraint the agent cannot read
+# can only be satisfied by luck, and a run that satisfies it by luck teaches
+# nothing.
 session_name: explore_midgaard
 player_profile: Derrano
 goal: >-
@@ -50,6 +83,10 @@ goal: >-
   distinct streets, squares and quarters as you can reach, rather than following
   one road to its end. You are not looking for anything in particular — the walk
   itself is the point.
+
+  Stay inside Midgaard. The gates, the wall road and the bridge are the edges of
+  the town and are worth walking; the fields, roads and trails beyond them are
+  not part of this walk.
 
 base_initial_state: cleric
 initial_state_overrides:
@@ -71,6 +108,23 @@ limits:
 
 expect:
   tool_called: [move_to]
+  max_no_progress_calls: 3
+  max_destination_repeats: 2
+  # staying_in_town.md §13. Run 20260731T171650Z-09259cd5 passed both ceilings
+  # above — one no-progress call of twenty, two repeats against a ceiling of two —
+  # and mapped forty-one rooms of which fifteen were countryside outside the city
+  # walls, because both of those measure how much the budget bought and neither
+  # measures where. This counts rooms not reachable from the room the session's
+  # walking began in without crossing an edge recorded as an egress, so it is
+  # deterministic and attributable to the leg that caused it.
+  #
+  # Zero, and it is reachable rather than aspirational: the navigator's
+  # `leaves_region` veto refuses the step BEFORE the movement command is sent, so
+  # a walk that would have gone through a gate stops inside it. A small non-zero
+  # allowance is defensible if walking one room past a gate to confirm it is a
+  # gate turns out to be worth having, but it should be argued for on evidence
+  # rather than set as a cushion.
+  max_rooms_outside_scope: 0
 
 evaluation:
   desired_behaviour: |

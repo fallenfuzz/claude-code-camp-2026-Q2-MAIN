@@ -25,6 +25,7 @@ module Boukensha
 
       KINDS = %w[tool_called tool_not_called final_room max_model_tool_calls
                  max_automatic_tool_calls max_iterations max_cost_usd max_duration_ms
+                 max_no_progress_calls max_destination_repeats max_rooms_outside_scope
                  region_named region_split region_split_at_room no_provisional_regions
                  journal_op journal_op_not].freeze
 
@@ -45,6 +46,20 @@ module Boukensha
         results << at_most("max_iterations", expect["max_iterations"], facts.iterations)                           if expect.key?("max_iterations")
         results << at_most("max_cost_usd", expect["max_cost_usd"], facts.cost_usd)                                 if expect.key?("max_cost_usd")
         results << at_most("max_duration_ms", expect["max_duration_ms"], facts.duration_ms)                        if expect.key?("max_duration_ms")
+        # Two ceilings on movement that bought nothing, both read off `move_to`'s
+        # `answered` journal event. `max_model_tool_calls` bounds how much the
+        # session spent; these bound how much of it turned into coverage, which
+        # is the distinction run 20260731T140528Z-34c846bf passed every existing
+        # budget rule while failing.
+        results << at_most("max_no_progress_calls", expect["max_no_progress_calls"], facts.no_progress_calls)      if expect.key?("max_no_progress_calls")
+        results << at_most("max_destination_repeats", expect["max_destination_repeats"], facts.max_destination_repeats) if expect.key?("max_destination_repeats")
+        # A third ceiling, and it measures somewhere rather than how much:
+        # `rooms_known_delta` says forty-one and cannot say that fifteen of them
+        # were countryside. Counted off recorded crossings rather than off region
+        # labels (staying_in_town.md §13), so it is deterministic, free, and
+        # attributable to the leg that caused it rather than to whichever call a
+        # judge's digest happened to make legible.
+        results << at_most("max_rooms_outside_scope", expect["max_rooms_outside_scope"], facts.rooms_outside_scope) if expect.key?("max_rooms_outside_scope")
         Array(expect["region_named"]).each   { |label| results << region_named(label, facts) }
         Array(expect["journal_op"]).each     { |op| results << journal_op(op, facts) }
         Array(expect["journal_op_not"]).each { |op| results << journal_op_not(op, facts) }

@@ -9,6 +9,7 @@
 # definition of room-name identity, and the two would drift the first time
 # either was corrected.
 require_relative "../navigation/destination_search"
+require_relative "../room_parser"
 
 module Boukensha
   module Mud
@@ -48,12 +49,25 @@ module Boukensha
                  .tally.select { |(_, name), n| n > 1 && !name.empty? }.keys
           end.to_set
 
+          by_id = rooms.to_h { |r| [r[:id], r] }
+
           exits.each_with_object({}) do |exit, out|
             next if exit[:target_room_id]
 
             key  = [exit[:room_id], exit[:direction].to_s]
             name = Search.normalize(exit[:target_name])
-            next out[key] = nil if name.empty? || poisoned.include?(name)
+            next out[key] = nil if name.empty?
+
+            # The arrival rule, ahead of both ambiguity guards because it is the
+            # one case where the evidence is local rather than a global name
+            # lookup. See below, and fix_surveying.md §3.4.
+            room = by_id[exit[:room_id]]
+            if room && arrival_link?(room: room, source: by_id[room[:arrived_from_room_id]],
+                                     direction: exit[:direction], target_name: exit[:target_name])
+              next out[key] = room[:arrived_from_room_id]
+            end
+
+            next out[key] = nil if poisoned.include?(name)
             next out[key] = nil if collisions.include?([exit[:room_id], name])
 
             match = by_name[name]&.first
@@ -62,6 +76,43 @@ module Boukensha
             # is the one presumption that can never be settled by walking it.
             out[key] = (match && match[:id] != exit[:room_id]) ? match[:id] : nil
           end
+        end
+
+        # The way back, and the one presumption the ambiguity guards do not get a
+        # say in.
+        #
+        # Three rooms in the recorded Midgaard map are called "Wall Road", so the
+        # name is poisoned as globally ambiguous and identifies none of them; room
+        # #13 has both a north and a south exit carrying it, which is the
+        # within-room collision guard. Both guards are right, and between them
+        # they left the chain #11 → #12 → #13 → #14 → #15 walkable southward with
+        # no northward link at all: BFS from where the run finished reached three
+        # rooms out of seventeen, so every destination behind the agent was
+        # `unreachable` however well the resolver named it.
+        #
+        # The evidence for the way back was in the database the whole time.
+        # Migration V5 records, per room, which room it was first entered FROM and
+        # by which direction, and an exit facing back the way the agent came,
+        # labelled with that room's own name, is not a global name lookup at all —
+        # it is a statement about one passage the agent walked one move earlier.
+        #
+        # BOTH conditions are required. The direction alone would assume every
+        # passage is two-way, which week 2 rejected and
+        # `test_one_way_exits_are_not_reversed` still guards; the name alone is
+        # exactly what the guards above correctly refuse.
+        #
+        # `room[:arrived_from_room_id]` and `arrived_direction` are read off the
+        # room rows rather than passed in separately, because `rooms:` is
+        # `Store#rooms` and already carries both columns — a second argument
+        # holding a copy of them would be a second thing to keep in step.
+        def arrival_link?(room:, source:, direction:, target_name:)
+          return false unless room && source
+          return false unless room[:arrived_from_room_id] == source[:id]
+          return false if source[:id] == room[:id]
+          return false unless RoomParser::REVERSE[room[:arrived_direction].to_s] == direction.to_s
+
+          name = Search.normalize(target_name)
+          !name.empty? && Search.normalize(source[:name]) == name
         end
 
         # Names that identify more than one room, for seeding the persisted

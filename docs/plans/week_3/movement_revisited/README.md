@@ -65,3 +65,17 @@ report returned to the player is the ledger rather than a room count.
 - [Session story](session_story.md) — a two-session walkthrough in Midgaard,
   grounded in the recorded map, showing where this diverges from the run that
   actually happened
+- [Dark rooms and stuck walks](dark_rooms_and_stuck_walks.md) — why run
+  `20260730T201534Z-791c06b2` burned twenty model calls walking into a wall, and
+  the third position state the walking engine gained to make it impossible
+- [Unreachable destinations](unreachable_destinations.md) — why run
+  `20260731T140528Z-34c846bf` asked for The South Gate nine times while standing
+  next to it, and the one rule the name comparisons in the navigation path do not
+  currently share
+- [Blind step recovery](blind_step_recovery.md) — why run
+  `20260731T151405Z-fa92ead3` fell down a one-way well into an unlit sewer and
+  then could not take a step, since the only movement tool the player has refuses
+  to move until it knows where it is
+- [Staying in town](staying_in_town.md) — why run `20260731T171650Z-09259cd5`
+  mapped Midgaard well and walked out of both gates anyway, and the fourth
+  question a frontier hint has no field to answer: does this exit leave the place?

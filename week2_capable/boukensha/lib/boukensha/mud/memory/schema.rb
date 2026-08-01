@@ -522,7 +522,83 @@ module Boukensha
           );
         SQL
 
-        MIGRATIONS = [V1, V2, V3, V4, V5, V6, V7].freeze
+        # An exit that has been WALKED and whose destination could not be
+        # identified even after a follow-up `look`. The character is somewhere;
+        # nothing here can say where, and no amount of walking it again changes
+        # that until whatever prevented the reading changes — an unlit room, a
+        # blindness effect, a fog, output this parser has never seen.
+        #
+        # It is recorded against the EXIT rather than against the room behind
+        # it because there is no row for the room behind it, and that absence is
+        # the whole condition being recorded. The column exists so the frontier
+        # calculation can stop offering the exit: an unexplored exit promises
+        # information in return for a move, and this one has already been walked
+        # and demonstrably paid nothing. Session 20260730T201603Z-ff25f010 is
+        # what its absence costs — the surveyor picked the same trapdoor it had
+        # just fallen through, because nothing recorded that it had.
+        #
+        # Deliberately NOT called `dark`. What the subsystem observed is that
+        # the destination could not be read, and darkness is only the most
+        # common reason for that; naming the column after one cause would invite
+        # every later reader to test for that cause specifically.
+        V8 = <<~SQL.freeze
+          ALTER TABLE room_exits ADD COLUMN opaque INTEGER NOT NULL DEFAULT 0;
+        SQL
+
+        # Two questions about the far side of an unwalked exit that the surveyor
+        # can answer and no deterministic scorer can: whether anything about the
+        # destination can be weighed before entering it, and whether there is
+        # reason to expect trouble there. See blind_step_recovery.md §5.1 and
+        # Navigation::Assessment for the vocabulary.
+        #
+        # They join `frontier_hints` rather than `room_exits` because they are a
+        # judgement about an exit, of exactly the kind `expected_class` already is,
+        # and because a table whose whole purpose is "what the surveyor thinks is
+        # behind this door" is where the next such question will want to go too.
+        #
+        # Both are nullable and a NULL `assessability` reads as `unknown`, which
+        # DEFERS rather than permits. Run 20260731T151434Z-737a23cb is what the
+        # other default costs: the surveyor wrote "low priority for surface
+        # mapping" against a well, nothing read it, the survey dropped into the
+        # sewers and the session ended having walked four rooms.
+        V9 = <<~SQL.freeze
+          ALTER TABLE frontier_hints ADD COLUMN assessability TEXT;
+          ALTER TABLE frontier_hints ADD COLUMN hazard        TEXT;
+        SQL
+
+        # The fourth question about an unwalked exit, and the first distinction
+        # between two kinds of boundary — docs/plans/week_3/movement_revisited/
+        # staying_in_town.md §10.1 and §10.4.
+        #
+        # `frontier_hints.egress` is `interior`, `boundary` or `leaves`, and NULL
+        # reads as `interior` (Navigation::Egress). The other default would make
+        # this a new global rule rather than an opt-in one: a map with no hints at
+        # all is every map before a surveyor has run on it, and it must walk
+        # exactly as it walked yesterday.
+        #
+        # `region_boundaries.kind` separates two things that were one row.
+        # Everything declared before today is a `split` — an internal division of
+        # one place into quarters — and the default keeps it that way. An `egress`
+        # row means the edge LEAVES the place, and it is deliberately not a
+        # region declaration: `Regions.derive` treats a boundary's `to_room_id`
+        # as a root that starts a region there, which is exactly what an egress
+        # crossing must not do. `Store#recompute_regions!` therefore hands the
+        # derivation the `split` rows only.
+        #
+        # The reason this is an edge rather than a comparison of region labels is
+        # §8 of that document, argued on the run's own data: `The Plains` came out
+        # a descendant of `The Temple`, its parent moved between two splits twelve
+        # iterations apart, the one region actually called `Midgaard` held no
+        # rooms, and five of the countryside rooms shared a region with the temple
+        # interior. A region's parent records which region it was carved out of,
+        # not which place contains it, so containment cannot be read back off the
+        # tree. A crossing is an edge, and edges are recorded exactly.
+        V10 = <<~SQL.freeze
+          ALTER TABLE frontier_hints ADD COLUMN egress TEXT;
+          ALTER TABLE region_boundaries ADD COLUMN kind TEXT NOT NULL DEFAULT 'split';
+        SQL
+
+        MIGRATIONS = [V1, V2, V3, V4, V5, V6, V7, V8, V9, V10].freeze
 
         LATEST_VERSION = MIGRATIONS.size
 

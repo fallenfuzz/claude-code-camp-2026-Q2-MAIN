@@ -1,0 +1,205 @@
+{
+  "schema": 2,
+  "run_id": "20260731T151405Z-fa92ead3",
+  "kind": "scenario",
+  "name": "explore_midgaard",
+  "started_at": "2026-07-31T15:14:05.580Z",
+  "ended_at": "2026-07-31T15:17:17.187Z",
+  "environment": {
+    "profile": "Derrano",
+    "provider": "anthropic",
+    "model": "claude-haiku-4-5",
+    "boukensha_version": "0.13.0",
+    "git_sha": "9cf5ade",
+    "settings_digest": "sha256:65b88f84664946a50f0710839e9954c24d89efc6b4915a5d82bd30df2e7320f2",
+    "judge": {
+      "provider": "anthropic",
+      "model": "claude-sonnet-4-6"
+    }
+  },
+  "summary": {
+    "cases": 1,
+    "passed": 0,
+    "failed": 1,
+    "errored": 0,
+    "pass_rate": 0.0,
+    "cost_usd": {
+      "agent": 0.249151,
+      "judge": 0,
+      "total": 0.249151
+    },
+    "median": {
+      "model_tool_calls": 24,
+      "automatic_tool_calls": 77,
+      "iterations": 24,
+      "duration_ms": 118282,
+      "cost_usd": 0.249151
+    },
+    "p90": {
+      "model_tool_calls": 24,
+      "automatic_tool_calls": 77,
+      "iterations": 24,
+      "duration_ms": 118282,
+      "cost_usd": 0.249151
+    },
+    "failure_modes": {
+      "max_no_progress_calls: 3": 1,
+      "max_destination_repeats: 2": 1
+    }
+  },
+  "cases": [
+    {
+      "index": 1,
+      "scenario": "explore_midgaard",
+      "session_id": "20260731T151434Z-737a23cb",
+      "session_name": "explore_midgaard",
+      "profile": "Derrano",
+      "resolved_state": {
+        "description": "Level 10 cleric, banked, armed, standing in the Temple.",
+        "requires_class": "cleric",
+        "location": 3001,
+        "level": 10,
+        "money": {
+          "gold": 0,
+          "bank": 10000
+        },
+        "stats": {
+          "align": 0
+        },
+        "skills": {
+          "armor": 75,
+          "cure light": 75
+        },
+        "inventory": [
+          {
+            "vnum": 3001,
+            "keyword": "bottle",
+            "quantity": 2
+          }
+        ],
+        "equipment": [
+          {
+            "vnum": 3023,
+            "keyword": "club",
+            "quantity": 1,
+            "wear": "wield"
+          },
+          {
+            "vnum": 3043,
+            "keyword": "jacket",
+            "quantity": 1,
+            "wear": "wear"
+          }
+        ]
+      },
+      "base_initial_state": "cleric",
+      "map_memory": {
+        "mode": "none",
+        "archived_to": "/home/andrew/Sites/omenking/claude-code-camp-2026-Q2/.boukensha/profiles/Derrano/knowledge.archive/20260731T151405Z.sqlite3",
+        "rooms_at_start": 0,
+        "room_exits_at_start": 0,
+        "entities_at_start": 0,
+        "regions_at_start": 0
+      },
+      "arm": "default",
+      "settings": null,
+      "settings_digest": "sha256:65b88f84664946a50f0710839e9954c24d89efc6b4915a5d82bd30df2e7320f2",
+      "stage": null,
+      "seed_log": "/home/andrew/Sites/omenking/claude-code-camp-2026-Q2/.boukensha/tests/reports/.work/20260731T151405Z-fa92ead3/case-1-seed.log",
+      "facts": {
+        "model_tool_calls": 24,
+        "automatic_tool_calls": 77,
+        "has_provenance": true,
+        "iterations": 24,
+        "turns": 0,
+        "end_reason": "max_tokens",
+        "duration_ms": 118282,
+        "input_tokens": 147433,
+        "output_tokens": 6414,
+        "cost_usd": 0.249151,
+        "final_room": null,
+        "rooms_known": 5,
+        "rooms_known_delta": 5,
+        "regions_known": 1,
+        "regions_delta": 1,
+        "region_labels": [
+          "⟨from The Temple Of Midgaard⟩"
+        ],
+        "region_splits": [],
+        "journal_ops": {
+          "room.create": 5,
+          "region.create": 1,
+          "claim.open": 5,
+          "claim.evidence": 11,
+          "move_to.ledger_revised": 5,
+          "frontier_attempt.succeeded": 5,
+          "claim.revise": 12,
+          "feature.tag": 3,
+          "claim.settle": 1,
+          "survey.claim_settled": 1,
+          "move_to.region_split_declined": 1,
+          "move_to.answered": 18
+        },
+        "no_progress_calls": 17,
+        "max_destination_repeats": 4,
+        "db_reads": 432,
+        "db_writes": 169,
+        "db_ms": 28,
+        "journal_lines": 152,
+        "inference_ms": 54,
+        "mud_ms": 72317,
+        "mud_calls": 101
+      },
+      "errors": [],
+      "expectations": [
+        {
+          "kind": "tool_called",
+          "rule": "move_to",
+          "ok": true,
+          "detail": "called at call_4fc11cb3c8b0"
+        },
+        {
+          "kind": "max_no_progress_calls",
+          "rule": "3",
+          "ok": false,
+          "detail": "17"
+        },
+        {
+          "kind": "max_destination_repeats",
+          "rule": "2",
+          "ok": false,
+          "detail": "4"
+        }
+      ],
+      "judge": {
+        "verdict": "fail",
+        "confidence": 0.97,
+        "reasoning": "The agent never successfully established a position and therefore never walked any rooms of Midgaard; every move_to after the first survey call returned 'position unknown' and 0 rooms walked. The desired coverage of both riverbanks, streets, squares and quarters was not achieved at all, and no region label was confirmed. The undesired behaviours did not occur only because the agent never moved anywhere.",
+        "desired": [
+          {
+            "behaviour": "Use move_to repeatedly with different destinations and let the navigator spread the walk across the frontier",
+            "met": false,
+            "evidence": null
+          },
+          {
+            "behaviour": "Name the region (confirm label rather than leaving it as machine-made provenance)",
+            "met": false,
+            "evidence": null
+          }
+        ],
+        "undesired": [
+          {
+            "behaviour": "Leave Midgaard for the countryside or wilderness",
+            "occurred": false
+          },
+          {
+            "behaviour": "Spend the whole budget on one quarter",
+            "occurred": false
+          }
+        ],
+        "session_id": "20260731T151434Z-737a23cb"
+      },
+      "status": "fail"
+    }
+  ]
+}

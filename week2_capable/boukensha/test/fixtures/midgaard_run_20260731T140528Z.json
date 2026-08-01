@@ -1,0 +1,681 @@
+{
+ "_source": "run 20260731T140528Z-34c846bf, session 20260731T140557Z-10b73c64 (explore_midgaard, map_memory: none)",
+ "rooms": [
+  {
+   "id": 1,
+   "name": "The Temple Of Midgaard",
+   "description": "You are in the southern end of the temple hall in the Temple of Midgaard. The temple has been constructed from giant marble blocks, eternal in appearance, and most of the walls are covered by ancient wall paintings picturing Gods, giants and peasants. Large steps lead down through the grand temple gate, descending the huge mound upon which the temple is built and ends on the temple square below. To the west, you see the Reading Room. The donation room is in a small alcove to your east.",
+   "look_candidates": "[\"wall\",\"paintings\",\"giants\"]",
+   "arrived_from_room_id": null,
+   "arrived_direction": null
+  },
+  {
+   "id": 2,
+   "name": "The Temple Square",
+   "description": "You are standing on the temple square. Huge marble steps lead up to the temple gate. The entrance to the Clerics' Guild is to the west, and the old Grunting Boar Inn, is to the east. Just south of here you see the market square, the center of Midgaard.",
+   "look_candidates": "[]",
+   "arrived_from_room_id": 1,
+   "arrived_direction": "south"
+  },
+  {
+   "id": 3,
+   "name": "Market Square",
+   "description": "You are standing on the market square, the famous Square of Midgaard. A large, peculiar looking statue is standing in the middle of the square. Roads lead in every direction, north to the temple square, south to the common square, east and westbound is the main street.",
+   "look_candidates": "[\"statue\"]",
+   "arrived_from_room_id": 2,
+   "arrived_direction": "south"
+  },
+  {
+   "id": 4,
+   "name": "The Common Square",
+   "description": "The common square, people pass you, talking to each other. To the west is the poor alley and to the east is the dark alley. To the north, this square is connected to the market square. From the south you notice a nasty smell.",
+   "look_candidates": "[]",
+   "arrived_from_room_id": 3,
+   "arrived_direction": "south"
+  },
+  {
+   "id": 5,
+   "name": "The Dump",
+   "description": "The dump, where the people from the city drop their garbage. Through the garbage you can see a large junction of pipes, looks like the entrance to the sewer system. North of here you see the common square.",
+   "look_candidates": "[]",
+   "arrived_from_room_id": 4,
+   "arrived_direction": "south"
+  },
+  {
+   "id": 6,
+   "name": "The Dark Alley",
+   "description": "The dark alley, to the west is the common square and to the south is the Guild of Thieves. The alley continues east.",
+   "look_candidates": "[]",
+   "arrived_from_room_id": 4,
+   "arrived_direction": "east"
+  },
+  {
+   "id": 7,
+   "name": "The Dark Alley At The Levee",
+   "description": "You are standing in the alley which continues east and west. South of here you see the levee.",
+   "look_candidates": "[]",
+   "arrived_from_room_id": 6,
+   "arrived_direction": "east"
+  },
+  {
+   "id": 8,
+   "name": "The Levee",
+   "description": "You are at the levee. South of here you see the river gently flowing west. The river bank is very low making it possible to enter the river.",
+   "look_candidates": "[]",
+   "arrived_from_room_id": 7,
+   "arrived_direction": "south"
+  },
+  {
+   "id": 9,
+   "name": "Main Street",
+   "description": "You are on the main street passing through the City of Midgaard. South of here is the entrance to the Armory, and the bakery is to the north. East of here is the market square.",
+   "look_candidates": "[]",
+   "arrived_from_room_id": 3,
+   "arrived_direction": "west"
+  },
+  {
+   "id": 10,
+   "name": "Main Street",
+   "description": "You are at the end of the main street of Midgaard. South of here is the entrance to the Guild of Magic Users. The street continues east towards the market square. The magic shop is to the north and to the west is the city gate.",
+   "look_candidates": "[]",
+   "arrived_from_room_id": 9,
+   "arrived_direction": "west"
+  },
+  {
+   "id": 11,
+   "name": "Inside The West Gate Of Midgaard",
+   "description": "You are by two small towers that have been built into the city wall and connected with a footbridge across the heavy wooden gate. Main Street leads east and Wall Road leads south from here.",
+   "look_candidates": "[\"footbridge\",\"towers\"]",
+   "arrived_from_room_id": 10,
+   "arrived_direction": "west"
+  },
+  {
+   "id": 12,
+   "name": "Wall Road",
+   "description": "You are walking next to the western city wall. The road continues further south and the city gate is just north of here.",
+   "look_candidates": "[]",
+   "arrived_from_room_id": 11,
+   "arrived_direction": "south"
+  },
+  {
+   "id": 13,
+   "name": "Wall Road",
+   "description": "You are walking next to the western city wall. Wall Road continues further north and south. A small, poor alley leads east. Some letters have been written on the wall here.",
+   "look_candidates": "[\"letters\"]",
+   "arrived_from_room_id": 12,
+   "arrived_direction": "south"
+  },
+  {
+   "id": 14,
+   "name": "Wall Road",
+   "description": "You are standing on the road next to the western city wall, which continues north. South of here is a bridge across the river.",
+   "look_candidates": "[]",
+   "arrived_from_room_id": 13,
+   "arrived_direction": "south"
+  },
+  {
+   "id": 15,
+   "name": "On The Bridge",
+   "description": "You are standing on the stone bridge crosses the river. The bridge is built out from the western city wall and the river flows west through an opening in the wall ten feet below the bridge.",
+   "look_candidates": "[\"bridge\"]",
+   "arrived_from_room_id": 14,
+   "arrived_direction": "south"
+  },
+  {
+   "id": 16,
+   "name": "The Northwest End Of The Concourse",
+   "description": "You are at the concourse, the city wall is just west. A small promenade goes east, and the bridge is just north of here. The concourse continues south along the city wall.",
+   "look_candidates": "[\"wall\"]",
+   "arrived_from_room_id": 15,
+   "arrived_direction": "south"
+  },
+  {
+   "id": 17,
+   "name": "On The Concourse",
+   "description": "You are at the southwest corner of the city wall. The Concourse leads both north and east.",
+   "look_candidates": "[]",
+   "arrived_from_room_id": 16,
+   "arrived_direction": "south"
+  }
+ ],
+ "exits": [
+  {
+   "room_id": 1,
+   "direction": "down",
+   "target_name": "The Temple Square",
+   "target_room_id": null,
+   "presumed_target_id": null,
+   "opaque": 0
+  },
+  {
+   "room_id": 1,
+   "direction": "east",
+   "target_name": "The Midgaard Donation Room",
+   "target_room_id": null,
+   "presumed_target_id": null,
+   "opaque": 0
+  },
+  {
+   "room_id": 1,
+   "direction": "north",
+   "target_name": "By The Temple Altar",
+   "target_room_id": null,
+   "presumed_target_id": null,
+   "opaque": 0
+  },
+  {
+   "room_id": 1,
+   "direction": "south",
+   "target_name": "The Temple Square",
+   "target_room_id": 2,
+   "presumed_target_id": null,
+   "opaque": 0
+  },
+  {
+   "room_id": 1,
+   "direction": "west",
+   "target_name": "The Reading Room",
+   "target_room_id": null,
+   "presumed_target_id": null,
+   "opaque": 0
+  },
+  {
+   "room_id": 2,
+   "direction": "east",
+   "target_name": "The Entrance Hall Of The Grunting Boar Inn",
+   "target_room_id": null,
+   "presumed_target_id": null,
+   "opaque": 0
+  },
+  {
+   "room_id": 2,
+   "direction": "north",
+   "target_name": "The Temple Of Midgaard",
+   "target_room_id": null,
+   "presumed_target_id": 1,
+   "opaque": 0
+  },
+  {
+   "room_id": 2,
+   "direction": "south",
+   "target_name": "Market Square",
+   "target_room_id": 3,
+   "presumed_target_id": null,
+   "opaque": 0
+  },
+  {
+   "room_id": 2,
+   "direction": "west",
+   "target_name": "The Entrance To The Clerics' Guild",
+   "target_room_id": null,
+   "presumed_target_id": null,
+   "opaque": 0
+  },
+  {
+   "room_id": 3,
+   "direction": "east",
+   "target_name": "Main Street",
+   "target_room_id": null,
+   "presumed_target_id": null,
+   "opaque": 0
+  },
+  {
+   "room_id": 3,
+   "direction": "north",
+   "target_name": "The Temple Square",
+   "target_room_id": null,
+   "presumed_target_id": 2,
+   "opaque": 0
+  },
+  {
+   "room_id": 3,
+   "direction": "south",
+   "target_name": "The Common Square",
+   "target_room_id": 4,
+   "presumed_target_id": null,
+   "opaque": 0
+  },
+  {
+   "room_id": 3,
+   "direction": "west",
+   "target_name": "Main Street",
+   "target_room_id": 9,
+   "presumed_target_id": null,
+   "opaque": 0
+  },
+  {
+   "room_id": 4,
+   "direction": "east",
+   "target_name": "The Dark Alley",
+   "target_room_id": 6,
+   "presumed_target_id": null,
+   "opaque": 0
+  },
+  {
+   "room_id": 4,
+   "direction": "north",
+   "target_name": "Market Square",
+   "target_room_id": 3,
+   "presumed_target_id": null,
+   "opaque": 0
+  },
+  {
+   "room_id": 4,
+   "direction": "south",
+   "target_name": "The Dump",
+   "target_room_id": 5,
+   "presumed_target_id": null,
+   "opaque": 0
+  },
+  {
+   "room_id": 4,
+   "direction": "west",
+   "target_name": "The Eastern End Of Poor Alley",
+   "target_room_id": null,
+   "presumed_target_id": null,
+   "opaque": 0
+  },
+  {
+   "room_id": 5,
+   "direction": "down",
+   "target_name": "Too dark to tell.",
+   "target_room_id": null,
+   "presumed_target_id": null,
+   "opaque": 1
+  },
+  {
+   "room_id": 5,
+   "direction": "north",
+   "target_name": "The Common Square",
+   "target_room_id": 4,
+   "presumed_target_id": null,
+   "opaque": 0
+  },
+  {
+   "room_id": 6,
+   "direction": "east",
+   "target_name": "The Dark Alley At The Levee",
+   "target_room_id": 7,
+   "presumed_target_id": null,
+   "opaque": 0
+  },
+  {
+   "room_id": 6,
+   "direction": "south",
+   "target_name": "The Entrance Hall To The Guild Of Thieves",
+   "target_room_id": null,
+   "presumed_target_id": null,
+   "opaque": 0
+  },
+  {
+   "room_id": 6,
+   "direction": "west",
+   "target_name": "The Common Square",
+   "target_room_id": 4,
+   "presumed_target_id": null,
+   "opaque": 0
+  },
+  {
+   "room_id": 7,
+   "direction": "east",
+   "target_name": "The Eastern End Of The Alley",
+   "target_room_id": null,
+   "presumed_target_id": null,
+   "opaque": 0
+  },
+  {
+   "room_id": 7,
+   "direction": "south",
+   "target_name": "The Levee",
+   "target_room_id": 8,
+   "presumed_target_id": null,
+   "opaque": 0
+  },
+  {
+   "room_id": 7,
+   "direction": "west",
+   "target_name": "The Dark Alley",
+   "target_room_id": 6,
+   "presumed_target_id": null,
+   "opaque": 0
+  },
+  {
+   "room_id": 8,
+   "direction": "north",
+   "target_name": "The Dark Alley At The Levee",
+   "target_room_id": 7,
+   "presumed_target_id": null,
+   "opaque": 0
+  },
+  {
+   "room_id": 8,
+   "direction": "south",
+   "target_name": "On The River",
+   "target_room_id": null,
+   "presumed_target_id": null,
+   "opaque": 0
+  },
+  {
+   "room_id": 9,
+   "direction": "east",
+   "target_name": "Market Square",
+   "target_room_id": null,
+   "presumed_target_id": 3,
+   "opaque": 0
+  },
+  {
+   "room_id": 9,
+   "direction": "north",
+   "target_name": "The Bakery",
+   "target_room_id": null,
+   "presumed_target_id": null,
+   "opaque": 0
+  },
+  {
+   "room_id": 9,
+   "direction": "south",
+   "target_name": "The Armory",
+   "target_room_id": null,
+   "presumed_target_id": null,
+   "opaque": 0
+  },
+  {
+   "room_id": 9,
+   "direction": "west",
+   "target_name": "Main Street",
+   "target_room_id": 10,
+   "presumed_target_id": null,
+   "opaque": 0
+  },
+  {
+   "room_id": 10,
+   "direction": "east",
+   "target_name": "Main Street",
+   "target_room_id": null,
+   "presumed_target_id": null,
+   "opaque": 0
+  },
+  {
+   "room_id": 10,
+   "direction": "north",
+   "target_name": "The Magic Shop",
+   "target_room_id": null,
+   "presumed_target_id": null,
+   "opaque": 0
+  },
+  {
+   "room_id": 10,
+   "direction": "south",
+   "target_name": "The Entrance To The Mages' Guild",
+   "target_room_id": null,
+   "presumed_target_id": null,
+   "opaque": 0
+  },
+  {
+   "room_id": 10,
+   "direction": "west",
+   "target_name": "Inside The West Gate Of Midgaard",
+   "target_room_id": 11,
+   "presumed_target_id": null,
+   "opaque": 0
+  },
+  {
+   "room_id": 11,
+   "direction": "east",
+   "target_name": "Main Street",
+   "target_room_id": null,
+   "presumed_target_id": null,
+   "opaque": 0
+  },
+  {
+   "room_id": 11,
+   "direction": "south",
+   "target_name": "Wall Road",
+   "target_room_id": 12,
+   "presumed_target_id": null,
+   "opaque": 0
+  },
+  {
+   "room_id": 11,
+   "direction": "west",
+   "target_name": "Outside The West Gate Of Midgaard",
+   "target_room_id": null,
+   "presumed_target_id": null,
+   "opaque": 0
+  },
+  {
+   "room_id": 12,
+   "direction": "north",
+   "target_name": "Inside The West Gate Of Midgaard",
+   "target_room_id": null,
+   "presumed_target_id": 11,
+   "opaque": 0
+  },
+  {
+   "room_id": 12,
+   "direction": "south",
+   "target_name": "Wall Road",
+   "target_room_id": 13,
+   "presumed_target_id": null,
+   "opaque": 0
+  },
+  {
+   "room_id": 13,
+   "direction": "east",
+   "target_name": "Poor Alley",
+   "target_room_id": null,
+   "presumed_target_id": null,
+   "opaque": 0
+  },
+  {
+   "room_id": 13,
+   "direction": "north",
+   "target_name": "Wall Road",
+   "target_room_id": null,
+   "presumed_target_id": null,
+   "opaque": 0
+  },
+  {
+   "room_id": 13,
+   "direction": "south",
+   "target_name": "Wall Road",
+   "target_room_id": 14,
+   "presumed_target_id": null,
+   "opaque": 0
+  },
+  {
+   "room_id": 14,
+   "direction": "north",
+   "target_name": "Wall Road",
+   "target_room_id": null,
+   "presumed_target_id": null,
+   "opaque": 0
+  },
+  {
+   "room_id": 14,
+   "direction": "south",
+   "target_name": "On The Bridge",
+   "target_room_id": 15,
+   "presumed_target_id": null,
+   "opaque": 0
+  },
+  {
+   "room_id": 15,
+   "direction": "north",
+   "target_name": "Wall Road",
+   "target_room_id": null,
+   "presumed_target_id": null,
+   "opaque": 0
+  },
+  {
+   "room_id": 15,
+   "direction": "south",
+   "target_name": "The Northwest End Of The Concourse",
+   "target_room_id": 16,
+   "presumed_target_id": null,
+   "opaque": 0
+  },
+  {
+   "room_id": 16,
+   "direction": "east",
+   "target_name": "The Promenade",
+   "target_room_id": null,
+   "presumed_target_id": null,
+   "opaque": 0
+  },
+  {
+   "room_id": 16,
+   "direction": "north",
+   "target_name": "On The Bridge",
+   "target_room_id": null,
+   "presumed_target_id": 15,
+   "opaque": 0
+  },
+  {
+   "room_id": 16,
+   "direction": "south",
+   "target_name": "On The Concourse",
+   "target_room_id": 17,
+   "presumed_target_id": null,
+   "opaque": 0
+  },
+  {
+   "room_id": 17,
+   "direction": "east",
+   "target_name": "On The Concourse",
+   "target_room_id": null,
+   "presumed_target_id": null,
+   "opaque": 0
+  },
+  {
+   "room_id": 17,
+   "direction": "north",
+   "target_name": "The Northwest End Of The Concourse",
+   "target_room_id": 16,
+   "presumed_target_id": null,
+   "opaque": 0
+  },
+  {
+   "room_id": 17,
+   "direction": "west",
+   "target_name": "The South Gate",
+   "target_room_id": null,
+   "presumed_target_id": null,
+   "opaque": 0
+  }
+ ],
+ "entities": [
+  {
+   "room_id": 1,
+   "descr": "Admin the Implementor (linkless) is standing here.",
+   "keyword": "linkless",
+   "kind": "mob"
+  },
+  {
+   "room_id": 1,
+   "descr": "A newbie dummy mob is unsure what it is doing.",
+   "keyword": "mob",
+   "kind": "mob"
+  },
+  {
+   "room_id": 1,
+   "descr": "An automatic teller machine has been installed in the wall here.",
+   "keyword": "machine",
+   "kind": "object"
+  },
+  {
+   "room_id": 2,
+   "descr": "A cityguard stands here.",
+   "keyword": "cityguard",
+   "kind": "mob"
+  },
+  {
+   "room_id": 2,
+   "descr": "A large fountain carved from blue-streaked marble is here, bubbling merrily.",
+   "keyword": "marble",
+   "kind": "object"
+  },
+  {
+   "room_id": 4,
+   "descr": "A janitor is walking around, cleaning up.",
+   "keyword": "janitor",
+   "kind": "mob"
+  },
+  {
+   "room_id": 4,
+   "descr": "A Peacekeeper is standing here, ready to jump in at the first sign of trouble.",
+   "keyword": "peacekeeper",
+   "kind": "mob"
+  },
+  {
+   "room_id": 4,
+   "descr": "A beastly fido is mucking through the garbage looking for food here.",
+   "keyword": "fido",
+   "kind": "mob"
+  },
+  {
+   "room_id": 6,
+   "descr": "A mercenary is waiting for a job here.",
+   "keyword": "mercenary",
+   "kind": "mob"
+  },
+  {
+   "room_id": 7,
+   "descr": "A janitor is walking around, cleaning up.",
+   "keyword": "janitor",
+   "kind": "mob"
+  },
+  {
+   "room_id": 8,
+   "descr": "An odif yltsaeb is here, walking backwards.",
+   "keyword": "yltsaeb",
+   "kind": "mob"
+  },
+  {
+   "room_id": 8,
+   "descr": "A retired captain stands here, selling boats.",
+   "keyword": "captain",
+   "kind": "mob"
+  },
+  {
+   "room_id": 9,
+   "descr": "A Peacekeeper is standing here, ready to jump in at the first sign of trouble.",
+   "keyword": "peacekeeper",
+   "kind": "mob"
+  },
+  {
+   "room_id": 10,
+   "descr": "A janitor is walking around, cleaning up.",
+   "keyword": "janitor",
+   "kind": "mob"
+  },
+  {
+   "room_id": 10,
+   "descr": "A beastly fido is mucking through the garbage looking for food here.",
+   "keyword": "fido",
+   "kind": "mob"
+  },
+  {
+   "room_id": 11,
+   "descr": "A cityguard is here, guarding the gate.",
+   "keyword": "cityguard",
+   "kind": "mob"
+  },
+  {
+   "room_id": 12,
+   "descr": "A cityguard stands here.",
+   "keyword": "cityguard",
+   "kind": "mob"
+  },
+  {
+   "room_id": 16,
+   "descr": "A cityguard stands here.",
+   "keyword": "cityguard",
+   "kind": "mob"
+  }
+ ],
+ "ambiguous_exit_names": [
+  "main street",
+  "wall road"
+ ]
+}

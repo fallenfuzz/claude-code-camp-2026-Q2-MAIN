@@ -176,6 +176,180 @@ class TestExecuteRoute < Minitest::Test
     assert_equal 1, @store.frontier_attempt_counts[[1, "up"]]
   end
 
+  # --- what kind of stop it was (dark_rooms_and_stuck_walks.md §Layer 3) -----
+  #
+  # `stopped` alone was never enough to drive a walk. A refusal is something to
+  # re-plan around, an interruption belongs to the player, and a position that
+  # cannot be established must not be planned from at all — three different
+  # instructions that used to arrive as one string.
+
+  PITCH_BLACK = "It is pitch black...\r\n\r\n27H 132M 94V (news) (motd) > ".freeze
+
+  def test_a_rejected_move_reports_its_kind_so_a_caller_can_re_plan
+    mud = ScriptedMud.new(
+      start_fixtures: MARKET_SQUARE,
+      moves: [{ text: "Alas, you cannot go that way.\r\n\r\n20H 100M 81V > " }]
+    )
+    hooks = hooks_at_market_square(mud)
+
+    result = ER.walk(steps: %w[up east], call_tool: mud.player_call_tool, hooks: hooks)
+
+    assert_equal :refused, result[:stopped_kind]
+    assert_equal ["east"], result[:remaining]
+  end
+
+  # The recovery the recorded session never got to make. Walking into a room
+  # that cannot be identified is not a dead end: the direction just walked is
+  # still known, so its reverse is walked immediately — one MUD round trip, no
+  # model call — and the walk ends somewhere the planner can work from.
+  def test_a_step_into_an_unidentifiable_room_walks_itself_back_out
+    mud = ScriptedMud.new(
+      start_fixtures: MARKET_SQUARE,
+      # `down` lands in the dark, and the look from there is dark too, so
+      # position is lost; the reverse `up` lands back in Market Square.
+      moves: [
+        { text: PITCH_BLACK, fixtures: { "look" => PITCH_BLACK, "poll" => "" } },
+        { text: MARKET_SQUARE_MOVE, fixtures: MARKET_SQUARE }
+      ]
+    )
+    hooks = hooks_at_market_square(mud)
+
+    result = ER.walk(steps: %w[down east], call_tool: mud.player_call_tool, hooks: hooks)
+
+    assert_equal :unreadable, result[:stopped_kind]
+    assert_equal %w[down up], mud.move_calls, "the reverse is walked inside the same call"
+    assert_match(/stepped back up to Market Square/, result[:stopped])
+    assert_equal 1, @store.player[:current_room_id], "and position is usable again"
+    assert_equal 1, @store.exit_at(1, "down")[:opaque], "the exit is marked so it is not chosen again"
+  end
+
+  def test_a_one_way_step_into_the_dark_reports_the_position_as_lost
+    mud = ScriptedMud.new(
+      start_fixtures: MARKET_SQUARE,
+      moves: [
+        { text: PITCH_BLACK, fixtures: { "look" => PITCH_BLACK, "poll" => "" } },
+        { text: "Alas, you cannot go that way.\r\n\r\n27H 132M 94V > " }
+      ]
+    )
+    hooks = hooks_at_market_square(mud)
+
+    result = ER.walk(steps: ["down"], call_tool: mud.player_call_tool, hooks: hooks)
+
+    assert_equal :position_lost, result[:stopped_kind]
+    assert_match(/did not lead back out/, result[:stopped])
+    assert_nil @store.player[:current_room_id],
+               "a walk that cannot say where it ended must not leave a room behind that it can"
+  end
+
+  # ---------- the bounded sweep (blind_step_recovery.md §5.5) --------------
+  #
+  # The drop that shut the way behind it is not a rare shape: room 3002's `down`
+  # in the recorded world leads to a sewer junction with no `up` at all, and its
+  # own exit description says climbing back is impossible. The reverse step cannot
+  # work there, and the four outcomes below are what the walker does instead.
+
+  REFUSED = "Alas, you cannot go that way.\r\n\r\n27H 132M 94V (news) (motd) > ".freeze
+
+  # A move costs a movement point and a refusal costs none, so the numeric prompt
+  # says which happened even when the room cannot be read. Nothing here reads a
+  # word of the reply.
+  MOVED_BUT_DARK = "It is pitch black...\r\n\r\n27H 132M 93V (news) (motd) > ".freeze
+
+  def dark_then(*replies)
+    ScriptedMud.new(
+      start_fixtures: MARKET_SQUARE,
+      moves: [{ text: PITCH_BLACK, fixtures: { "look" => PITCH_BLACK, "poll" => "" } }] +
+             replies.map { |r| r.is_a?(Hash) ? r : { text: r } }
+    )
+  end
+
+  def test_the_sweep_recovers_when_a_direction_lands_somewhere_readable
+    # `down` into the dark, `up` refused, then `north` is a room again.
+    mud = dark_then(REFUSED, { text: MARKET_SQUARE_MOVE, fixtures: MARKET_SQUARE })
+    hooks = hooks_at_market_square(mud)
+
+    result = ER.walk(steps: ["down"], call_tool: mud.player_call_tool, hooks: hooks, blind_steps: 6)
+
+    assert_equal :recovered, result[:stopped_kind]
+    assert_equal %w[down up north], mud.move_calls
+    assert_match(/walked north into Market Square/, result[:stopped])
+    assert_equal 1, @store.player[:current_room_id], "position is usable again"
+  end
+
+  # Every direction refused, none of them spending a movement point: the room is
+  # sealed and that is a proof rather than a guess.
+  def test_every_direction_refused_is_reported_as_stuck
+    mud = dark_then(*Array.new(12) { REFUSED })
+    hooks = hooks_at_market_square(mud)
+
+    result = ER.walk(steps: ["down"], call_tool: mud.player_call_tool, hooks: hooks, blind_steps: 12)
+
+    assert_equal :stuck, result[:stopped_kind]
+    assert_match(/every direction from here was refused/, result[:stopped])
+    assert_equal 11, mud.move_calls.size, "the reverse, then each of the ten canonical directions once"
+  end
+
+  # The budget running out proves nothing, and the status says so — which is the
+  # difference that makes another attempt reasonable after one and pointless after
+  # the other.
+  def test_a_spent_budget_is_reported_as_recovery_exhausted_rather_than_stuck
+    mud = dark_then(*Array.new(6) { REFUSED })
+    hooks = hooks_at_market_square(mud)
+
+    result = ER.walk(steps: ["down"], call_tool: mud.player_call_tool, hooks: hooks, blind_steps: 3)
+
+    assert_equal :recovery_exhausted, result[:stopped_kind]
+    assert_match(/untried/, result[:stopped])
+    # The step itself, the reverse, then three of the sweep: the budget bounds the
+    # sweep alone, which is what the setting says it does.
+    assert_equal 5, mud.move_calls.size
+  end
+
+  # A step that MOVED without becoming readable puts the character somewhere new,
+  # so the directions ruled out no longer describe where it is standing and `stuck`
+  # must not be claimed on them.
+  def test_a_move_that_stays_unreadable_resets_what_has_been_ruled_out
+    dark_room = { text: MOVED_BUT_DARK, fixtures: { "look" => PITCH_BLACK, "poll" => "" } }
+    mud = dark_then(REFUSED, dark_room, *Array.new(8) { REFUSED })
+    hooks = hooks_at_market_square(mud)
+
+    result = ER.walk(steps: ["down"], call_tool: mud.player_call_tool, hooks: hooks, blind_steps: 4)
+
+    assert_equal :recovery_exhausted, result[:stopped_kind],
+                 "the second room's exits were never all tested, so nothing is proved"
+    assert_nil @store.player[:current_room_id]
+  end
+
+  # A caller with no recovery budget gets exactly what it got before the sweep
+  # existed, which is what `position_lost` has always meant.
+  def test_no_budget_leaves_the_old_behaviour_untouched
+    mud = dark_then(REFUSED)
+    hooks = hooks_at_market_square(mud)
+
+    result = ER.walk(steps: ["down"], call_tool: mud.player_call_tool, hooks: hooks)
+
+    assert_equal :position_lost, result[:stopped_kind]
+    assert_equal %w[down up], mud.move_calls
+  end
+
+  # Nothing the sweep walks through is written down. It cannot identify the rooms,
+  # so an arrival edge from an unknown origin is never recorded and no room row is
+  # created for anywhere it passes.
+  def test_the_sweep_writes_nothing_to_the_map
+    mud = dark_then(REFUSED, { text: MOVED_BUT_DARK, fixtures: { "look" => PITCH_BLACK, "poll" => "" } },
+                    *Array.new(8) { REFUSED })
+    hooks = hooks_at_market_square(mud)
+    before = @store.rooms.size
+
+    ER.walk(steps: ["down"], call_tool: mud.player_call_tool, hooks: hooks, blind_steps: 4)
+
+    assert_equal before, @store.rooms.size, "a room that cannot be identified is not a room to record"
+    assert_nil @store.player[:current_room_id]
+    # Market Square keeps the one edge the walk earned — the opaque `down` — and
+    # gains nothing from anywhere the sweep wandered.
+    assert_equal ["down"], @store.all_exits.select { |e| e[:opaque].to_i.positive? }.map { |e| e[:direction] }
+  end
+
   def test_no_steps_is_a_clean_no_op
     mud = ScriptedMud.new(start_fixtures: MARKET_SQUARE)
     hooks = hooks_at_market_square(mud)

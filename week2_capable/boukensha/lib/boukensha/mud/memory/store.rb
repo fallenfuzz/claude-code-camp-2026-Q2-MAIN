@@ -5,6 +5,12 @@ require_relative "schema"
 require_relative "fingerprint"
 require_relative "regions"
 require_relative "exit_resolution"
+# The assessment vocabulary, reached across the layer for the same reason
+# `ExitResolution` reaches `DestinationSearch`: it is a dependency-free set of
+# constants, and a second copy of the strings written into `frontier_hints` would
+# be a second definition of what they mean.
+require_relative "../navigation/assessment"
+require_relative "../navigation/egress"
 
 module Boukensha
   module Mud
@@ -164,6 +170,20 @@ module Boukensha
             fields.values
           )
           capture_player!(fields)
+        end
+
+        # Position is no longer something anyone can assert. This needs its own
+        # method because `update_player!` compacts its arguments, so a nil there
+        # means "this reading is absent" — the right default for a partial
+        # update and exactly wrong here, where the nil IS the reading.
+        #
+        # Clearing the STORE matters and not only the hook's ivar: `move_to`,
+        # `plan_route` and the survey all take their starting room from
+        # `player[:current_room_id]`, so a stale value here is a subsystem
+        # confidently planning routes out of a room the character has left.
+        def clear_player_room!
+          @db.execute("UPDATE player_state SET current_room_id = NULL, updated_at = ? WHERE id = 1", [now])
+          jupsert("player", "current_room_id", nil)
         end
 
         def set_player_identity!(player_class:, gender:)
@@ -455,12 +475,46 @@ module Boukensha
         # property: a wrong guess costs exactly one move and then never recurs,
         # where the sparse graph it replaced cost every future route that needed
         # the edge.
+        #
+        # Except for a presumption made on the ARRIVAL edge rather than on the
+        # name. That one says "the agent walked in from this specific room by this
+        # specific direction and the exit facing back carries that room's name",
+        # and a passage that turns out not to run both ways has told us something
+        # about the passage, not about the name — poisoning the name would take
+        # every other exit that legitimately resolves through it down with it.
+        #
+        # Nothing re-guesses the refuted edge either way: `Hooks#link_arrival`
+        # calls this and then `link_exit!` with the room the walk actually landed
+        # in, and `ExitResolution` never revises an earned target. Poisoning was
+        # never what protected THIS exit — it protects every other exit that would
+        # have been presumed from the same name, which is a claim an arrival edge
+        # does not make.
+        #
+        # The basis is re-derived here and recorded on the journal event, because
+        # a refutation whose reasoning is invisible is indistinguishable from a
+        # bug in it.
         def refute_presumed_target!(room_id, direction, target_name: nil)
+          basis = arrival_presumption?(room_id, direction, target_name) ? "arrival" : "name"
           @db.execute("UPDATE room_exits SET presumed_target_id = NULL WHERE room_id = ? AND direction = ?",
                       [room_id, direction.to_s])
-          note_ambiguous_exit_name!(target_name, reason: "walking the exit did not lead to the named room") if target_name
+          if target_name && basis == "name"
+            note_ambiguous_exit_name!(target_name, reason: "walking the exit did not lead to the named room")
+          end
           jevent("exit", "presumption_refuted", room_id: room_id, direction: direction.to_s,
-                                                target_name: target_name)
+                                                target_name: target_name, basis: basis)
+        end
+
+        # Would `ExitResolution` have made this presumption from the arrival edge?
+        # Derived rather than stored: the arrival columns are written once, at
+        # discovery, and never revised, so the answer is the same whenever it is
+        # asked and a column recording it would be a second copy of a fact the
+        # rows already carry.
+        def arrival_presumption?(room_id, direction, target_name)
+          here = room(room_id)
+          return false unless here
+
+          ExitResolution.arrival_link?(room: here, source: room(here[:arrived_from_room_id]),
+                                       direction: direction, target_name: target_name)
         end
 
         # We walked this way and landed somewhere the exits table did not name.
@@ -471,6 +525,31 @@ module Boukensha
           @db.execute("UPDATE room_exits SET target_name = ? WHERE room_id = ? AND direction = ?",
                       [name, room_id, direction.to_s])
           jupsert("exit", "#{room_id}:#{direction}:target_name", name)
+        end
+
+        # We walked this exit, we are no longer where we were, and a follow-up
+        # `look` could not name where we ended up. The exit is recorded as
+        # opaque so the frontier calculation stops offering it — see the V8
+        # migration for why this is a property of the exit rather than of the
+        # room behind it, and why it is not called `dark`.
+        def note_opaque_exit!(room_id, direction)
+          return unless room_id && direction
+
+          @db.execute(
+            "INSERT INTO room_exits (room_id, direction, opaque, last_seen_at) VALUES (?, ?, 1, ?) " \
+            "ON CONFLICT(room_id, direction) DO UPDATE SET opaque = 1, last_seen_at = excluded.last_seen_at",
+            [room_id, direction.to_s, now]
+          )
+          # A walk that paid no information has established retrospectively exactly
+          # what the surveyor is asked to predict about an unwalked exit, so the
+          # finding is recorded in the same place and in the same vocabulary
+          # (blind_step_recovery.md §5.1). `opaque` already keeps THIS exit out of
+          # the frontier set; the assessment is what tells a later ranker why, and
+          # it is the only assessment available for exits no surveyor ever saw.
+          # Hazard is left alone: nothing about being unreadable says dangerous.
+          record_frontier_hint!(room_id: room_id, direction: direction,
+                                assessability: Navigation::Assessment::UNASSESSABLE)
+          jupsert("exit", "#{room_id}:#{direction}:opaque", 1)
         end
 
         # A room cannot move; a stale edge can. So a conflict between the edge we
@@ -562,16 +641,40 @@ module Boukensha
           jevent("region", "merge", from: from_id, into: into_id)
         end
 
-        def declare_boundary!(from_room_id:, to_room_id:, direction:, region_id:, reason: nil, session_id: nil)
+        # `kind:` separates the two things a boundary row can mean. A `split` is
+        # an internal division — this room starts a quarter of the place you are
+        # already in — and is what every caller before staying_in_town.md wrote.
+        # An `egress` says the edge LEAVES the place, and it is not a declaration
+        # about any region's extent: it is never given to `Regions.derive`,
+        # because that function reads `to_room_id` as a root that starts a region
+        # there, and a room outside the walls does not start Midgaard.
+        def declare_boundary!(from_room_id:, to_room_id:, direction:, region_id:, reason: nil,
+                              session_id: nil, kind: BOUNDARY_SPLIT)
+          kind = BOUNDARY_KINDS.include?(kind.to_s) ? kind.to_s : BOUNDARY_SPLIT
           @db.execute(
-            "INSERT INTO region_boundaries (from_room_id, to_room_id, direction, region_id, reason, declared_at, session_id) " \
-            "VALUES (?, ?, ?, ?, ?, ?, ?)",
-            [from_room_id, to_room_id, direction.to_s, region_id, reason, now, session_id]
+            "INSERT INTO region_boundaries (from_room_id, to_room_id, direction, region_id, reason, declared_at, session_id, kind) " \
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+            [from_room_id, to_room_id, direction.to_s, region_id, reason, now, session_id, kind]
           )
           @regions_dirty = true
           jevent("region_boundary", "declare", from_room_id: from_room_id, to_room_id: to_room_id,
-                                               direction: direction.to_s, region_id: region_id)
+                                               direction: direction.to_s, region_id: region_id, kind: kind)
           @db.last_insert_row_id
+        end
+
+        BOUNDARY_SPLIT  = "split".freeze
+        BOUNDARY_EGRESS = "egress".freeze
+        BOUNDARY_KINDS  = [BOUNDARY_SPLIT, BOUNDARY_EGRESS].freeze
+
+        # The crossings, as unordered room pairs. A boundary is a boundary in
+        # both directions — walking back in through a gate crosses the same wall
+        # as walking out through it — and every consumer asks a question about
+        # SHAPE ("which side of the wall is this room on"), which is the same
+        # place `SurveyGraph#undirected` argues direction is noise.
+        def egress_edges
+          region_boundaries.select { |b| b[:kind].to_s == BOUNDARY_EGRESS }
+                           .map { |b| [b[:from_room_id], b[:to_room_id]].sort }
+                           .uniq
         end
 
         # { room_id => { region_id:, basis: } }, derivation-fresh. The lazy
@@ -621,11 +724,17 @@ module Boukensha
           all = rooms
           return if all.empty?
 
-          memberships, seeds = Regions.derive(rooms: all, regions: regions, boundaries: region_boundaries)
+          # SPLITS only. `Regions.derive` reads a boundary's `to_room_id` as a
+          # root that starts `region_id` there, which is right for a split and
+          # exactly wrong for an egress: an egress row records that the agent
+          # walked OUT of a place, and handing it to the derivation would declare
+          # the field beyond the gate to be the start of the town.
+          splits = region_boundaries.reject { |b| b[:kind].to_s == BOUNDARY_EGRESS }
+          memberships, seeds = Regions.derive(rooms: all, regions: regions, boundaries: splits)
           if seeds.any?
             seeds.each { |s| create_region!(label: s[:label], seed_room_id: s[:room_id]) }
             @regions_dirty = false
-            memberships, = Regions.derive(rooms: all, regions: regions, boundaries: region_boundaries)
+            memberships, = Regions.derive(rooms: all, regions: regions, boundaries: splits)
           end
 
           t = now
@@ -896,20 +1005,45 @@ module Boukensha
         # the annotation is free and the semantic guess sits in the component
         # that should be making semantic guesses.
 
-        def record_frontier_hint!(room_id:, direction:, expected_class: nil, note: nil)
+        # Every field is COALESCEd, so a caller may write one of them without
+        # knowing or clearing the others. `note_opaque_exit!` writes only
+        # `assessability`, and the surveyor's class guess from three sessions ago
+        # survives it.
+        def record_frontier_hint!(room_id:, direction:, expected_class: nil, note: nil,
+                                  assessability: nil, hazard: nil, egress: nil)
           @db.execute(
-            "INSERT INTO frontier_hints (room_id, direction, expected_class, note, updated_at) " \
-            "VALUES (?, ?, ?, ?, ?) ON CONFLICT(room_id, direction) DO UPDATE SET " \
+            "INSERT INTO frontier_hints (room_id, direction, expected_class, note, " \
+            "assessability, hazard, egress, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?) " \
+            "ON CONFLICT(room_id, direction) DO UPDATE SET " \
             "expected_class = COALESCE(excluded.expected_class, frontier_hints.expected_class), " \
-            "note = COALESCE(excluded.note, frontier_hints.note), updated_at = excluded.updated_at",
-            [room_id, direction.to_s, expected_class&.to_s, note, now]
+            "note = COALESCE(excluded.note, frontier_hints.note), " \
+            "assessability = COALESCE(excluded.assessability, frontier_hints.assessability), " \
+            "hazard = COALESCE(excluded.hazard, frontier_hints.hazard), " \
+            "egress = COALESCE(excluded.egress, frontier_hints.egress), " \
+            "updated_at = excluded.updated_at",
+            [room_id, direction.to_s, expected_class&.to_s, note,
+             assessability && Navigation::Assessment.assessability(assessability),
+             Navigation::Assessment.hazard(hazard),
+             # nil stays nil rather than normalising to `interior`, so that
+             # "nobody has said" survives in the column and a later surveyor is
+             # asked again. The DEFAULT lives in the reader, where silence and
+             # `interior` become the same answer (Navigation::Egress).
+             egress && Navigation::Egress.egress(egress), now]
           )
         end
 
-        # { [room_id, direction] => expected_class }
+        # { [room_id, direction] => { expected_class:, note:, assessability:, hazard:, egress: } }
+        #
+        # The whole row rather than just the class: `SurveyGraph` reads four of
+        # these fields now and a hash keyed to one of them would need a second
+        # query per field. Callers that want the class ask for the class.
         def frontier_hints
           @db.execute("SELECT * FROM frontier_hints").each_with_object({}) do |r, h|
-            h[[r["room_id"], r["direction"]]] = r["expected_class"]
+            h[[r["room_id"], r["direction"]]] = {
+              expected_class: r["expected_class"], note: r["note"],
+              assessability: r["assessability"], hazard: r["hazard"],
+              egress: r["egress"]
+            }
           end
         end
 

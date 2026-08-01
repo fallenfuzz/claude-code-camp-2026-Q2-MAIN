@@ -1,4 +1,5 @@
 require "json"
+require "set"
 require_relative "../mud/memory/regions"
 
 module Boukensha
@@ -210,13 +211,16 @@ module Boukensha
       # about ("the boundary should not land on an interior edge"). Scoped by
       # `region_boundaries.session_id`, so a snapshot's inherited boundaries are
       # not reported as this run's work.
+      # `kind = 'split'`, because an egress row is not a split and reporting one
+      # as such would say the agent divided a place when what it did was walk out
+      # of it (staying_in_town.md §10.4).
       def region_splits
         knowledge do |db|
           db.execute(<<~SQL, [@session_id]).map do |row|
             SELECT b.to_room_id, b.from_room_id, b.direction, b.reason, r.label,
                    (SELECT name FROM rooms WHERE id = b.to_room_id)
             FROM region_boundaries b JOIN regions r ON r.id = b.region_id
-            WHERE b.session_id = ? ORDER BY b.id
+            WHERE b.session_id = ? AND b.kind = 'split' ORDER BY b.id
           SQL
             { room_id: row[0], from_room_id: row[1], direction: row[2], reason: row[3],
               region: row[4], room: row[5] }
@@ -225,6 +229,49 @@ module Boukensha
       end
 
       def region_split? = !region_splits.empty?
+
+      # ---------- movement that left the place (staying_in_town.md §13) --------
+      #
+      # `rooms_known_delta` already appears in the report and says nothing about
+      # WHERE the rooms are. This is the conduct measure beside it: rooms not
+      # reachable from the session's origin room over known exits without
+      # traversing a recorded `egress` boundary.
+      #
+      # Run 20260731T171650Z-09259cd5 is the case it exists for. That run passed
+      # every mechanical gate in the suite — one `no_progress_call` of twenty, two
+      # destination repeats against a ceiling of two — and mapped forty-one rooms,
+      # fifteen of them countryside outside the city walls. The only thing in the
+      # whole harness that noticed was a Sonnet judge reading a rubric line the
+      # agent could not see, and it cited the wrong two calls when it did, because
+      # every crossing happened inside a leg of a call whose arguments look
+      # innocuous. This makes the same failure deterministic, free, and
+      # attributable to the leg that caused it.
+      #
+      # Computed from recorded crossings and not from region identity, for the
+      # reason §8 gives at length: a region's parent records which region it was
+      # split out of rather than which place contains it, `The Plains` came out a
+      # descendant of `The Temple`, and half that run's countryside shared a
+      # region with the temple interior. An edge the walker recorded at the moment
+      # it crossed cannot be moved by a later relabelling.
+
+      # Where this session's walking began: the starting room of the first
+      # `move_to` call it answered, travel or survey. Both modes journal it.
+      def origin_room_id
+        move_to_answers.filter_map { |e| e["from_room_id"] }.first
+      end
+
+      def rooms_outside_scope
+        origin = origin_room_id
+        return nil unless origin
+
+        knowledge do |db|
+          rooms = db.execute("SELECT id FROM rooms").map(&:first)
+          next nil if rooms.empty?
+
+          inside = reachable_without_egress(db, origin)
+          (rooms - inside.to_a).size
+        end
+      end
 
       # ---------- the navigation journal --------------------------------------
 
@@ -253,6 +300,33 @@ module Boukensha
         end
       end
 
+      # ---------- movement that bought nothing ---------------------------------
+      #
+      # `move_to` journals one `answered` event per call carrying the status and
+      # the number of rooms it walked, and the two facts below are the only
+      # mechanical read on whether a session's movement budget turned into
+      # coverage. Run 20260731T140528Z-34c846bf is what they are for: twenty-one
+      # model calls, all of them `move_to`, twelve of them answering
+      # `unreachable` without moving and one more answering `arrived` from where
+      # it already stood.
+      #
+      # ZERO ROOMS is the whole test. It is deliberately not "walked nothing
+      # useful" — that run also spent two calls walking one room north and one
+      # room back south, which a human reading the transcript counts as waste and
+      # no projection can, so the number here is smaller than the number in the
+      # diagnosis and means something a grep can decide.
+      def move_to_answers = journal_events(stream: "move_to").select { |e| e["op"] == "answered" }
+
+      def no_progress_calls = move_to_answers.count { |e| e["rooms_walked"].to_i.zero? }
+
+      # How many times the session asked for the SAME place. One repeat is an
+      # agent re-planning after a setback; nine is an agent with no reason inside
+      # the answer to expect the tenth call to differ.
+      def max_destination_repeats
+        counts = move_to_answers.each_with_object(Hash.new(0)) { |e, h| h[e["destination"].to_s] += 1 }
+        counts.values.max.to_i
+      end
+
       # The whole tier-1 projection, as it lands in the report.
       def to_h
         {
@@ -276,11 +350,43 @@ module Boukensha
           # the edge it sits on, and the report is where that has to be legible
           # without opening the database.
           region_splits: region_splits,
-          journal_ops: journal_ops
+          journal_ops: journal_ops,
+          no_progress_calls: no_progress_calls,
+          max_destination_repeats: max_destination_repeats,
+          rooms_outside_scope: rooms_outside_scope
         }.merge(span_totals)
       end
 
       private
+
+      # The same walk `RoutePlanner.reachable_within` does, in SQL, because this
+      # class reads a database rather than a live store and must not require the
+      # agent's object graph to grade a log. Undirected for the same reason it is
+      # undirected there: the question is which side of the wall a room is on, and
+      # a room reached through a one-way drop is still on the side it landed on.
+      def reachable_without_egress(db, origin)
+        barrier = db.execute("SELECT from_room_id, to_room_id FROM region_boundaries WHERE kind = 'egress'")
+                    .map { |a, b| [a, b].sort }.to_set
+        adjacent = Hash.new { |h, k| h[k] = [] }
+        db.execute("SELECT room_id, COALESCE(target_room_id, presumed_target_id) FROM room_exits " \
+                   "WHERE COALESCE(target_room_id, presumed_target_id) IS NOT NULL").each do |from, to|
+          adjacent[from] << to
+          adjacent[to]   << from
+        end
+
+        seen  = Set.new([origin])
+        queue = [origin]
+        until queue.empty?
+          room_id = queue.shift
+          adjacent[room_id].each do |neighbour|
+            next if barrier.include?([room_id, neighbour].sort)
+            next unless seen.add?(neighbour)
+
+            queue << neighbour
+          end
+        end
+        seen
+      end
 
       def phase(name)   = @events.select { |e| e["phase"] == name }
       def responses     = phase("response")

@@ -95,6 +95,14 @@ class TestSurvey < Minitest::Test
     end
   end
 
+  # Collects journal lines without a file, as in test_move_to.rb.
+  class FakeJournal
+    attr_reader :events
+
+    def initialize = @events = []
+    def event(stream:, op:, **fields) = @events << { stream: stream, op: op }.merge(fields)
+  end
+
   def setup
     @store = M::Store.open(":memory:")
   rescue M::Store::Unavailable => e
@@ -155,6 +163,77 @@ class TestSurvey < Minitest::Test
     refute_empty mud.move_calls, "a survey walks"
   end
 
+  # A survey is a `move_to` call, so it journals the same `answered` line travel
+  # does and lands in the same `no_progress_calls` projection. A survey mode that
+  # stayed out of that count would leave a hole in the one fact that says whether
+  # the tool's budget turned into coverage.
+  def test_a_survey_journals_the_same_answered_line_travel_does
+    mud = south_to_common_square
+    journal = FakeJournal.new
+    surveyor = ScriptedSurveyor.new(SEED)
+    move_to(mud, hooks_at_market_square(mud), surveyor: surveyor.to_proc, journal: journal,
+            limits: { "survey_max_rooms" => 1 })
+      .call(survey: "how big is this town")
+
+    answered = journal.events.find { |e| e[:op] == "answered" }
+    assert_equal "survey", answered[:mode]
+    assert_equal "how big is this town", answered[:destination]
+    assert_equal 1, answered[:rooms_walked]
+  end
+
+  # ---------- assessing a door before entering it (§5.1) -------------------
+
+  # The judgement the recorded run's surveyor made in prose and nothing could
+  # read. It arrives on a hint now, is validated against its vocabulary, and is
+  # what the planner defers on.
+  def test_the_surveyors_assessment_of_a_frontier_is_recorded
+    mud = south_to_common_square
+    surveyor = ScriptedSurveyor.new(SEED.merge(
+      "hints" => [{ "room_id" => 1, "direction" => "north", "expected_class" => "religious",
+                    "assessability" => "unassessable", "hazard" => "suspected",
+                    "note" => "an unlit well; nothing says where it goes" }]
+    ))
+    move_to(mud, hooks_at_market_square(mud), surveyor: surveyor.to_proc,
+            limits: { "survey_max_rooms" => 1 })
+      .call(survey: "how big is this town")
+
+    hint = @store.frontier_hints[[1, "north"]]
+    assert_equal "unassessable", hint[:assessability]
+    assert_equal "suspected", hint[:hazard]
+    assert_equal "religious", hint[:expected_class]
+  end
+
+  # A surveyor inventing a value must not thereby grant permission: an
+  # unrecognised answer is the same as no answer, and no answer defers.
+  def test_an_unrecognised_assessment_is_treated_as_no_answer
+    mud = south_to_common_square
+    surveyor = ScriptedSurveyor.new(SEED.merge(
+      "hints" => [{ "room_id" => 1, "direction" => "north", "assessability" => "probably fine" }]
+    ))
+    move_to(mud, hooks_at_market_square(mud), surveyor: surveyor.to_proc,
+            limits: { "survey_max_rooms" => 1 })
+      .call(survey: "how big is this town")
+
+    assert_nil @store.frontier_hints.dig([1, "north"], :assessability)
+  end
+
+  # And the surveyor is shown what has already been assessed, so it is not asked
+  # the same question every leg.
+  def test_the_payload_carries_the_assessment_already_on_record
+    mud = south_to_common_square
+    hooks = hooks_at_market_square(mud)
+    @store.record_frontier_hint!(room_id: 1, direction: "north", assessability: "unassessable")
+    surveyor = ScriptedSurveyor.new(SEED)
+    move_to(mud, hooks, surveyor: surveyor.to_proc, limits: { "survey_max_rooms" => 1 })
+      .call(survey: "how big is this town")
+
+    # The seed call is asked only about the question; `open_frontiers` rides on the
+    # revision payload, which is the call that can act on it.
+    frontiers = surveyor.calls.filter_map { |c| c["open_frontiers"] }.last
+    shown = frontiers.find { |f| f["direction"] == "north" }
+    assert_equal "unassessable", shown["assessability"]
+  end
+
   # The surveyor is never given a frontier to choose and never asked for one.
   # That is the single most consequential difference from the superseded design,
   # and it is what makes the walk reproducible.
@@ -187,6 +266,75 @@ class TestSurvey < Minitest::Test
 
     assert_equal walks.first, walks.last
     refute_empty walks.first
+  end
+
+  # ---------- steps that did not land --------------------------------------
+  #
+  # The recorded coverage failure. In session 20260730T201603Z-ff25f010 the
+  # survey held four open claims, twenty-six unspent rooms and nine unspent
+  # legs when one step on leg 5 came back unreadable, and it stopped there —
+  # because every kind of stop ended the loop. About one move in twenty is
+  # refused in ordinary play, so a survey that gives up on the first shut door
+  # cannot achieve coverage on any map that has one.
+
+  def test_a_refused_step_does_not_end_the_survey
+    mud = ScriptedMud.new(
+      start_fixtures: MARKET_SQUARE,
+      # The first frontier the planner picks is refused; the walk carries on.
+      moves: [{ text: "Alas, you cannot go that way.\r\n\r\n20H 100M 81V > " },
+              { text: TRANSCRIPTS.fetch("look_common_square"), fixtures: COMMON_SQUARE }],
+      polls: [""] * 8
+    )
+    result = move_to(mud, hooks_at_market_square(mud),
+                     surveyor: ScriptedSurveyor.new(SEED).to_proc)
+             .call(survey: "how big is this town")
+
+    assert_operator mud.move_calls.size, :>=, 2,
+                    "a refusal is a frontier to re-plan around, not a reason to hand the turn back"
+    refute_match(/interrupted/, result)
+  end
+
+  def test_a_survey_gives_up_after_its_setback_allowance_rather_than_forever
+    mud = ScriptedMud.new(
+      start_fixtures: MARKET_SQUARE,
+      moves: Array.new(8) { { text: "Alas, you cannot go that way.\r\n\r\n20H 100M 81V > " } },
+      polls: [""] * 8
+    )
+    result = move_to(mud, hooks_at_market_square(mud),
+                     surveyor: ScriptedSurveyor.new(SEED).to_proc,
+                     limits: { "survey_max_setbacks" => 3 })
+             .call(survey: "how big is this town")
+
+    assert_equal 3, mud.move_calls.size, "the allowance is a ceiling, and it is enforced"
+    assert_match(/survey_max_setbacks \(3\) reached/, result)
+  end
+
+  # The recorded failure itself, in miniature. The survey walks a frontier, the
+  # room behind it cannot be identified, and the old code called that an
+  # interruption and ended a thirty-room survey on its fifth leg. It now steps
+  # back out, marks the exit, and spends the rest of its budget on frontiers
+  # that can still tell it something.
+  def test_a_frontier_that_cannot_be_identified_costs_one_leg_not_the_survey
+    dark = "It is pitch black...\r\n\r\n27H 132M 94V > "
+    mud = ScriptedMud.new(
+      start_fixtures: MARKET_SQUARE,
+      moves: [{ text: dark, fixtures: { "look" => dark, "poll" => "" } },
+              { text: MARKET_SQUARE_MOVE, fixtures: MARKET_SQUARE },
+              { text: TRANSCRIPTS.fetch("look_common_square"), fixtures: COMMON_SQUARE }],
+      polls: [""] * 8
+    )
+    result = move_to(mud, hooks_at_market_square(mud),
+                     surveyor: ScriptedSurveyor.new(SEED).to_proc)
+             .call(survey: "how big is this town and what does it offer")
+
+    walked, back, = mud.move_calls
+    assert_equal Boukensha::Mud::Navigation::ExecuteRouteTool::REVERSE[walked], back,
+                 "the way back out is the reverse of the way in, walked without a model call"
+    assert_operator mud.move_calls.size, :>=, 3, "and the survey carries on with its budget intact"
+    assert_equal 1, @store.exit_at(1, walked)[:opaque],
+                 "the exit that told us nothing is not offered again"
+    refute_match(/interrupted/, result)
+    refute_match(/no longer known/, result)
   end
 
   # ---------- budgets and terminal statuses --------------------------------

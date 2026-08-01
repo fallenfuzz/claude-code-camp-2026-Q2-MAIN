@@ -13,12 +13,20 @@ module Boukensha
       # escalation gated on a logged failure, not a default (§4.2/§10.8).
       module DestinationSearch
         # Lower is better — plan_route.md §4.2's own rank order.
+        #
+        # `TIER_NAME_PARTIAL` sits immediately below `TIER_ENTITY`, which is
+        # where `RoutePlanner` cuts the decisive set, and that placement is the
+        # whole of its job: a query that recalls a room imprecisely ("bakery
+        # shop" for "The Bakery") keeps its evidence visible in `alternatives`
+        # and in frontier ranking without being allowed to answer "this room IS
+        # the destination". See fix_surveying.md §3.2.
         TIER_EXACT_NAME       = 1
         TIER_NAME_PHRASE      = 2
         TIER_NAME_TOKEN       = 3
         TIER_ENTITY           = 4
-        TIER_DESCRIPTION      = 5
-        TIER_EXIT_TARGET_NAME = 6
+        TIER_NAME_PARTIAL     = 5
+        TIER_DESCRIPTION      = 6
+        TIER_EXIT_TARGET_NAME = 7
 
         # Function words carry no evidence about WHERE something is, and token
         # overlap on one of them alone is not a match.
@@ -87,24 +95,35 @@ module Boukensha
             return { room_id: room[:id], tier: TIER_EXACT_NAME, evidence: room[:name] } if name_norm == q
 
             # Everything below this line is partial evidence, and partial
-            # evidence made of function words is none: "the" is a substring of
-            # most tbaMUD room names, so the phrase tier would match on it just
-            # as token overlap did.
+            # evidence made of function words is none. The phrase tier is what
+            # still needs telling: "the" is a word of most tbaMUD room names, so
+            # a query of nothing but function words would match whatever room the
+            # agent happened to be standing in.
             return nil unless content?(q_tokens)
 
-            return { room_id: room[:id], tier: TIER_NAME_PHRASE, evidence: room[:name] } if q.length.positive? && name_norm.include?(q)
-            if token_overlap?(q_tokens, tokens(room[:name]))
+            name_tokens = tokens(room[:name])
+            return { room_id: room[:id], tier: TIER_NAME_PHRASE, evidence: room[:name] } if
+              phrase_match?(name_tokens, q_tokens)
+
+            if token_overlap?(q_tokens, name_tokens)
               return { room_id: room[:id], tier: TIER_NAME_TOKEN, evidence: room[:name] }
             end
 
             entity = matching_entity(q, q_tokens, entities_by_room[room[:id]])
             return { room_id: room[:id], tier: TIER_ENTITY, evidence: entity[:descr] } if entity
 
-            if text_matches?(q, q_tokens, room[:description]) || candidate_matches?(q, q_tokens, room[:look_candidates])
+            # Where the old single-token rule fired and the new one does not.
+            # Demoted rather than dropped: the evidence is real and worth
+            # showing, it is simply not an identification (§3.2).
+            if partial_overlap?(q_tokens, name_tokens)
+              return { room_id: room[:id], tier: TIER_NAME_PARTIAL, evidence: room[:name] }
+            end
+
+            if text_matches?(q_tokens, room[:description]) || candidate_matches?(q_tokens, room[:look_candidates])
               return { room_id: room[:id], tier: TIER_DESCRIPTION, evidence: room[:description].to_s[0, 80] }
             end
 
-            exit_name = matching_exit_target(q, q_tokens, exits_by_room[room[:id]])
+            exit_name = matching_exit_target(q_tokens, exits_by_room[room[:id]])
             return { room_id: room[:id], tier: TIER_EXIT_TARGET_NAME, evidence: exit_name } if exit_name
 
             nil
@@ -114,22 +133,60 @@ module Boukensha
           # "a bakery" differ by exactly this.
           def content?(q_tokens) = (q_tokens - STOPWORDS).any?
 
-          # At least one SHARED token that is not a function word.
+          # EVERY content token of the query accounted for by the field — not
+          # merely one of them.
+          #
+          # It was "at least one" until run 20260731T140528Z-34c846bf, where the
+          # query "The South Gate" identified "Inside The West Gate Of Midgaard"
+          # on the shared word `gate`, reported it with confidence, and then
+          # reported that no route reached it. The agent asked for the South Gate
+          # nine times while standing beside its unwalked exit. A query is a
+          # description of one place, and a comparison that lets most of it go
+          # unexplained is not identifying that place — it is finding a place
+          # that happens to share a word.
+          #
+          # The direction of the rule matters: the QUERY must be covered, not the
+          # field. "temple" still identifies "The Temple Of Midgaard", because
+          # everything the query said is there.
           def token_overlap?(q_tokens, field_tokens)
+            return false if q_tokens.empty? || field_tokens.empty?
+
+            content = q_tokens - STOPWORDS
+            content.any? && (content - field_tokens).empty?
+          end
+
+          # Some content in common, which is what `token_overlap?` used to mean.
+          # Kept for TIER_NAME_PARTIAL, where it is evidence rather than an
+          # answer.
+          def partial_overlap?(q_tokens, field_tokens)
             return false if q_tokens.empty? || field_tokens.empty?
 
             ((q_tokens & field_tokens) - STOPWORDS).any?
           end
 
-          def text_matches?(q, q_tokens, text)
-            norm = normalize(text)
-            return false if norm.empty?
+          # The query as a contiguous run of the field's own words, rather than
+          # as a raw substring of it. `"west"` is a substring of "The Northwest
+          # End Of The Concourse" and is not a word in it, and the recorded run
+          # walked NORTH on a request to go west because of the difference.
+          # "the levee" is still a phrase of "The Dark Alley At The Levee", which
+          # is what this tier is for.
+          def phrase_match?(field_tokens, q_tokens)
+            return false if q_tokens.empty? || q_tokens.size > field_tokens.size
 
-            norm.include?(q) || token_overlap?(q_tokens, tokens(text))
+            field_tokens.each_cons(q_tokens.size).any? { |window| window == q_tokens }
           end
 
-          def candidate_matches?(q, q_tokens, look_candidates_json)
-            parse_candidates(look_candidates_json).any? { |c| text_matches?(q, q_tokens, c) }
+          # Prose, not a name: a description or an entity's blurb is matched on
+          # its content words alone. There is no substring arm because
+          # `token_overlap?` above already subsumes every phrase hit — a window
+          # containing all of the query's content words contains each of them —
+          # while refusing the ones that only look like phrases.
+          def text_matches?(q_tokens, text)
+            token_overlap?(q_tokens, tokens(text))
+          end
+
+          def candidate_matches?(q_tokens, look_candidates_json)
+            parse_candidates(look_candidates_json).any? { |c| text_matches?(q_tokens, c) }
           end
 
           def parse_candidates(json)
@@ -141,11 +198,11 @@ module Boukensha
           end
 
           def matching_entity(q, q_tokens, entities)
-            Array(entities).find { |e| normalize(e[:keyword]) == q || text_matches?(q, q_tokens, e[:descr]) }
+            Array(entities).find { |e| normalize(e[:keyword]) == q || text_matches?(q_tokens, e[:descr]) }
           end
 
-          def matching_exit_target(q, q_tokens, exits)
-            hit = Array(exits).find { |e| e[:target_name] && text_matches?(q, q_tokens, e[:target_name]) }
+          def matching_exit_target(q_tokens, exits)
+            hit = Array(exits).find { |e| e[:target_name] && text_matches?(q_tokens, e[:target_name]) }
             hit && hit[:target_name]
           end
         end

@@ -104,6 +104,15 @@ tools:
       # decision: it suppresses obvious negatives without encoding the
       # judgement.
       min_rooms_for_scope_check: 3
+      # Steps that did not land: a refusal, or a walk into a room that could not
+      # be identified. Neither is a reason to hand the turn back — the map and
+      # the world have disagreed, the hook has already spent a `look` settling
+      # which was wrong, and re-planning against the corrected map costs this
+      # call nothing. Returning instead is what made session
+      # 20260730T201603Z-ff25f010 spend twenty consecutive model calls walking
+      # into the same wall. Non-zero, and small: two distinguishes a stale map
+      # from a way that is simply shut.
+      max_setbacks: 2
 
       # --- survey mode (claims.md, surveyor_architecture.md) -----------------
       # A survey walks further than a trip to the bakery, so it gets its own
@@ -129,6 +138,25 @@ tools:
       # `min_rooms` in a less legible form. It is here, and not in Ruby, so the
       # batch harness can sweep it.
       survey_saturation_rooms: 6
+      # Travel's `max_setbacks`, for the mode that meets more of them. A survey
+      # walks at the edge of what is mapped on purpose, and roughly one move in
+      # twenty is refused in ordinary play, so a survey that gave up on the
+      # first shut door could never achieve coverage on a map that has one.
+      survey_max_setbacks: 4
+
+      # How many MUD moves the walker may spend getting out of a room it cannot
+      # identify, once the reverse of the step that got it there has itself been
+      # refused. Moves rather than rooms, because a refused direction costs a round
+      # trip and no movement — see blind_step_recovery.md §5.5.
+      #
+      # Six against the ten canonical directions: enough to prove an ordinary
+      # sealed room sealed, not enough to wander a maze. Every step is one MUD
+      # round trip and no model call, which is the trade being made — session
+      # 20260731T151434Z-737a23cb spent seventeen model calls and roughly 6,000
+      # input tokens each discovering that `move_to` would not move it, and this
+      # is what it costs to answer that question in MUD calls instead. Zero turns
+      # the sweep off entirely and restores that session's behaviour.
+      max_blind_steps: 6
 
     # Whether the navigator's `place` field is allowed to WRITE. false keeps the
     # field in the schema and out of the store, which is §9 step 5's observation
@@ -188,7 +216,9 @@ tasks:
     # it a judgement and not a second agent — it has no tools and nothing to
     # iterate on. Same posture as `tasks.judge.max_iterations`.
     max_iterations: 1
-    # A direction, a sentence of reasoning, and the two region fields.
+    # A direction, a sentence of reasoning, the two region fields, and the
+    # boolean that says whether the direction just chosen leaves the region
+    # (staying_in_town.md §10.3).
     max_output_tokens: 384
     prompt_override:
       system: true

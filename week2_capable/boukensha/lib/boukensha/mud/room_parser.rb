@@ -48,6 +48,23 @@ module Boukensha
         "se" => "southeast", "sw" => "southwest"
       }.freeze
 
+      # Every direction, reversed. It lives beside `DIRECTIONS` because this is
+      # already where the direction vocabulary is defined — `RoutePlanner`
+      # derives its canonical order from the table above rather than keeping a
+      # second list, for the same reason.
+      #
+      # A reverse direction is NOT an assumption that passages are two-way.
+      # Nothing here links anything; the callers each supply their own evidence
+      # that the way back is the way it came (`ExecuteRouteTool` walks it and
+      # records nothing, `Memory::ExitResolution` requires the arrival edge and
+      # the destination name to agree).
+      REVERSE = {
+        "north" => "south", "south" => "north", "east" => "west", "west" => "east",
+        "up" => "down", "down" => "up",
+        "northeast" => "southwest", "southwest" => "northeast",
+        "northwest" => "southeast", "southeast" => "northwest"
+      }.freeze
+
       # Where a mob's long description stops being its name. "A beastly fido IS
       # mucking…", "A cityguard STANDS here." Everything before the verb is the
       # noun phrase we can guess a keyword from.

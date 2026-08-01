@@ -84,7 +84,7 @@ module Boukensha
           claims = claims || open_claims
           return nil if graph.frontiers.empty?
 
-          scored = graph.frontiers.map do |frontier|
+          scored = eligible(graph, claims).map do |frontier|
             contributions = claims.to_h do |claim|
               [claim[:id], claim[:priority].to_f * Predicates.score(claim, frontier, graph)]
             end
@@ -103,6 +103,10 @@ module Boukensha
           # among equals would make the whole run irreproducible.
           ranked = scored.sort_by do |c|
             [-c[:score], c[:frontier][:distance].to_i,
+             # A warning the surveyor wrote informs rather than binds: it separates
+             # two frontiers alike in every other respect, and never outranks a
+             # score, a distance or the objective (§5.3).
+             graph.hazard_rank(c[:frontier]),
              RoutePlanner::CANONICAL_DIRECTIONS.index(c[:frontier][:direction]) || 99,
              c[:frontier][:room_id]]
           end
@@ -111,6 +115,71 @@ module Boukensha
           owner = best[:contributions].max_by { |_, v| v }&.first
           Decision.new(frontier: best[:frontier], score: best[:score], ranked: ranked,
                        claim: claims.find { |c| c[:id] == owner })
+        end
+
+        # Which frontiers are in the running at all — blind_step_recovery.md §5.3.
+        #
+        # A door whose far side nobody can assess must not be walked merely because
+        # it is nearby. The rule is a threshold rather than a prohibition: the
+        # frontiers are ordered into tiers by how much is known about them, the best
+        # non-empty tier is what gets scored, and an exit nothing is known about
+        # becomes eligible the moment everything better has been drained. A survey
+        # whose remaining leads are all behind unreadable doors should take one and
+        # report what happened; a survey with Market Square three moves away should
+        # not.
+        #
+        # A frontier some open claim's own hint NAMES is promoted into the top tier
+        # whatever its assessability, because that is what "the objective justifies
+        # the risk" looks like when it is written down: the surveyor said what it
+        # expects to be there and a claim is looking for exactly that.
+        #
+        # Nothing here can deadlock. A map on which nothing has been assessed puts
+        # every frontier in the `unknown` tier, the tiers above it are empty, and the
+        # whole set is scored exactly as it was before this existed.
+        def eligible(graph, claims)
+          by_tier = graph.frontiers.group_by { |f| graph.assessment_tier(f) }
+          best    = by_tier.keys.min
+          # Deferral is RELATIVE to what else is on offer, which is what keeps a
+          # cold map — every frontier `unknown`, no tier above it occupied —
+          # behaving exactly as it did before any of this existed.
+          by_tier[best] + graph.frontiers.select do |f|
+            graph.assessment_tier(f) > best && claimed?(f, graph, claims)
+          end
+        end
+
+        # Does an open claim want precisely what the surveyor expects behind this
+        # exit? `expected_class` is the surveyor's own vocabulary and the claims'
+        # own vocabulary at once, which is what makes the comparison meaningful
+        # rather than a string coincidence.
+        #
+        # A frontier the surveyor marked `leaves` is never promoted, under either
+        # scope — staying_in_town.md §10.2, closing §3.2. Under region scope the
+        # frontier is already gone from the set and this is redundant but
+        # harmless; under world scope it is the whole rule.
+        #
+        # §3.2 is what it exists for, and the mechanism is worth stating because
+        # it is not obvious. The surveyor must pick `expected_class` from the
+        # CLAIMS' own vocabulary, and the vocabulary that ledger held was
+        # commercial, civic, religious and lodging. Faced with an open field it
+        # answered `civic`, because there was nothing else to answer — and `civic`
+        # was a class two open claims were actively looking for. Writing an honest
+        # warning into the note therefore made the exit ELIGIBLE for promotion on
+        # the strength of the one field promotion reads. The warning and the
+        # promotion travelled in the same record and only the promotion had a
+        # consumer.
+        #
+        # Promotion exists so a claim specifically about what lies beyond an
+        # unreadable door can justify opening it, and a claim about the interior
+        # of a town is never specifically about the field outside it. A survey
+        # that genuinely wants what is past the gate should be pulled there by a
+        # claim that names it, not by a class label the surveyor was forced to
+        # invent.
+        def claimed?(frontier, graph, claims)
+          return false if graph.leaves?(frontier)
+
+          expected = graph.hint(frontier) or return false
+
+          claims.any? { |claim| Predicates.wants_class?(claim, expected) }
         end
 
         # Completion, and it is computed rather than judged: no open claim has a

@@ -30,6 +30,7 @@ legitimate choice and not a mistake.
 {
   "direction": "south",
   "reason": "A bakery is a shop, and shops are on streets. The other four exits are named after parts of the temple.",
+  "leaves_region": false,
   "place": null,
   "scope_suspect": false,
   "scope_reason": null
@@ -57,6 +58,31 @@ better evidence than an unnamed one that might.
 
 Prefer not to leave the place named in `region` unless the destination plainly
 is not in it. A bakery is in a town; a field outside the gates is not a lead.
+
+## Leaving
+
+**`leaves_region`** — does the direction you just chose leave the place named in
+`region`? Answer it about the choice you made, not about the list you were given.
+
+You have already read the candidate's name in order to choose it, so this is the
+same look at the same data. "Outside The East Gate Of Midgaard" leaves Midgaard.
+"Inside The East Gate Of Midgaard" does not — a gatehouse is part of a town, and
+so is the road along the inside of a wall and the near end of a bridge.
+
+Answer `true` and the walk stops before the move is sent, the adventurer stays
+where it is, and the player is told which exit was declined and how to proceed
+anyway. Nothing is lost by saying so, and the step is not recoverable by saying
+nothing: a map that is half town and half open field cannot be sorted back out
+afterwards.
+
+The trap this exists for is a `destination` that names a direction rather than a
+place. "Main Street heading west" and "the bar and beyond to the east" are
+bearings, and a bearing is *plainly* satisfied by continuing west or east
+forever — so the rule in the paragraph above defeats itself, and the walk runs
+until its budget does. Run 20260731T171650Z-09259cd5 walked out of both gates of
+Midgaard that way, each time on a navigator reasoning faithfully from a bearing.
+When the destination is a bearing, answer this field about the *geography* you
+can see in the name you picked, not about whether the bearing is satisfied.
 
 ## Place and scope
 
@@ -93,5 +119,5 @@ when the numbers say it, not when you are unsure.
 
 - Answer with one JSON object. No prose before it, no prose after it, no code
   fence.
-- Exactly the five keys above. `place` and `scope_reason` may be `null`.
+- Exactly the six keys above. `place` and `scope_reason` may be `null`.
 - You have no tools. Do not ask for anything; answer with what you were given.

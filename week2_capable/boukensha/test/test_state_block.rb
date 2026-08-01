@@ -76,6 +76,39 @@ class TestStateBlock < Minitest::Test
     assert_includes S.render(room: nil, player: player), "(unknown — no room established yet)"
   end
 
+  # ---------- a position never established, and one lost -------------------
+  #
+  # blind_step_recovery.md §5.6. The two are different situations and the old line
+  # said the same thing for both: "yet" reads as a cold start the next automatic
+  # `look` will resolve, which is true of a fresh process and false in an unlit
+  # room, where looking again can never work. Session 20260731T151434Z-737a23cb
+  # read that line twenty-three times.
+  def test_a_lost_position_is_not_reported_as_a_cold_start
+    out = S.render(room: nil, player: player,
+                   lost: { room: room(name: "The Clerics' Inner Sanctum"), direction: "down" })
+
+    assert_includes out, "your position was lost after walking down out of The Clerics' Inner Sanctum"
+    refute_includes out, "no room established yet"
+  end
+
+  def test_a_lost_position_names_a_call_the_player_can_make
+    out = S.render(room: nil, player: player,
+                   lost: { room: room(name: "A Junction"), direction: "down",
+                           recovery: "recovery_exhausted" })
+
+    assert_includes out, "move_to(destination: \"north\")"
+  end
+
+  # …and after `stuck` it names none, because every direction has been refused and
+  # inviting another step would be a lie the agent would spend its budget on.
+  def test_a_sealed_room_offers_no_remedy
+    out = S.render(room: nil, player: player,
+                   lost: { room: room(name: "A Junction"), direction: "down", recovery: "stuck" })
+
+    assert_includes out, "walking will not re-establish it"
+    refute_includes out, "move_to(destination:"
+  end
+
   # `consider`'s verdict is relative to the player's level. Serving one taken
   # twenty levels ago is precisely the mistake the Strategy section is trying to
   # avoid, so a stale reading is labelled rather than quoted.

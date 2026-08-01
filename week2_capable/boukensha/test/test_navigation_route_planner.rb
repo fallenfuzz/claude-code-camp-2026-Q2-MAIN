@@ -112,6 +112,62 @@ class TestNavigationRoutePlanner < Minitest::Test
     assert_equal({ room_id: 2, direction: "south" }, p.frontier)
   end
 
+  # The recorded concourse, in miniature: three of the four reachable exits share
+  # only the word "the" with the query, and east precedes west in canonical
+  # order, so raw token overlap tied them at the top and sent the agent east —
+  # past the exit named exactly what it had asked for nine times
+  # (fix_surveying.md §3.1, unreachable_destinations.md §2).
+  def test_a_function_word_is_not_a_frontier_clue
+    rooms = [room(17, name: "On The Concourse"),
+             room(16, name: "The Northwest End Of The Concourse"),
+             room(15, name: "On The Bridge")]
+    exits = [edge(17, "north", 16), edge(16, "south", 17),
+             edge(17, "south", 15), edge(15, "north", 17),
+             frontier(17, "east", target_name: "On The Concourse"),
+             frontier(17, "west", target_name: "The South Gate"),
+             frontier(16, "east", target_name: "The Promenade"),
+             frontier(15, "north", target_name: "Wall Road")]
+
+    p = plan("The South Gate", 17, rooms: rooms, exits: exits)
+
+    assert_equal "explore", p.status
+    assert_equal({ room_id: 17, direction: "west" }, p.frontier)
+    assert_match(/The South Gate/, p.evidence)
+  end
+
+  # ---------- two questions, not one ranked list (fix_surveying.md §3.5) ----
+  #
+  # "Which room that I have stood in is this" is answered from content; "which
+  # door leads to the place named" is answered from position. A door labelled
+  # with the query exactly answers the second question, and a room matching on
+  # anything weaker than its own name does not answer the first.
+
+  def test_an_exit_named_exactly_beats_a_room_matched_through_its_entities
+    rooms = [room(1, name: "On The Concourse"), room(2, name: "The Guardhouse")]
+    entities = { 2 => [{ descr: "a sentry from the south gate stands here", keyword: "sentry", kind: "mob" }] }
+    exits = [edge(1, "north", 2), edge(2, "south", 1),
+             frontier(1, "west", target_name: "The South Gate")]
+
+    p = plan("The South Gate", 1, rooms: rooms, exits: exits, entities_by_room: entities)
+
+    assert_equal "explore", p.status
+    assert_equal({ room_id: 1, direction: "west" }, p.frontier)
+  end
+
+  # …and loses to the room's own name. Asking for "Wall Road" from the concourse
+  # routes to a Wall Road the agent has stood in rather than exploring toward the
+  # label printed on an exit.
+  def test_a_room_the_agent_has_stood_in_beats_an_exit_naming_the_same_place
+    rooms = [room(1, name: "On The Bridge"), room(2, name: "Wall Road")]
+    exits = [edge(1, "north", 2), edge(2, "south", 1),
+             frontier(1, "west", target_name: "Wall Road")]
+
+    p = plan("Wall Road", 1, rooms: rooms, exits: exits)
+
+    assert_equal "known", p.status
+    assert_equal 2, p.destination_room
+  end
+
   def test_no_clue_nearest_reachable_frontier_wins
     rooms = [room(1, name: "A"), room(2, name: "B"), room(3, name: "C")]
     exits = [edge(1, "east", 2), frontier(2, "north"), edge(2, "east", 3), frontier(3, "north")]
@@ -133,6 +189,25 @@ class TestNavigationRoutePlanner < Minitest::Test
     counts = { [1, "north"] => 3 }
     p = plan("dragon's lair", 1, rooms: rooms, exits: exits, frontier_attempt_counts: counts)
     assert_equal "east", p.frontier[:direction]
+  end
+
+  # An exit already walked for no information is not exploration. It promises a
+  # room and delivers one that cannot be identified, so ranking it alongside
+  # genuine frontiers is what let a survey pick the same trapdoor it had just
+  # fallen through — dark_rooms_and_stuck_walks.md §Layer 1.
+  def test_an_opaque_exit_is_not_a_frontier
+    rooms = [room(1, name: "The Dump")]
+    exits = [frontier(1, "down").merge(opaque: 1), frontier(1, "east")]
+    p = plan("dragon's lair", 1, rooms: rooms, exits: exits)
+
+    assert_equal "east", p.frontier[:direction]
+    assert_equal [["east"]], p.unexplored.map { |g| g[:exits].map { |e| e[:direction] } }
+  end
+
+  def test_an_opaque_exit_is_the_only_one_left_means_exhausted
+    rooms = [room(1, name: "The Dump")]
+    exits = [frontier(1, "down").merge(opaque: 1)]
+    assert_equal "exhausted", plan("dragon's lair", 1, rooms: rooms, exits: exits).status
   end
 
   def test_no_reachable_frontier_returns_exhausted

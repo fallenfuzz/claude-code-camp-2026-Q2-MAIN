@@ -190,6 +190,83 @@ class TestMoveTo < Minitest::Test
     assert_empty mud.move_calls
   end
 
+  # Every call journals what it answered and how far it got, whether or not it
+  # moved. Twelve `unreachable` answers in one session were invisible to every
+  # projection over the log until this existed
+  # (unreachable_destinations.md §1).
+  def test_every_call_journals_its_answer_and_the_rooms_it_walked
+    mud = south_then_north
+    hooks = hooks_at_market_square(mud)
+    journal = FakeJournal.new
+    navigator = ScriptedReasoner.new({ "direction" => "south", "reason" => "exploring" })
+
+    # "fido" is nowhere in memory at a cold start, so this goes through the
+    # frontier branch, walks one room south, and finds him there.
+    move_to(mud, hooks, navigator: navigator.to_proc, journal: journal).call(destination: "fido")
+
+    answered = journal.find("answered")
+    assert_equal "move_to", answered[:stream]
+    assert_equal "fido", answered[:destination]
+    assert_equal "arrived", answered[:status]
+    assert_equal 1, answered[:rooms_walked]
+  end
+
+  def test_an_answer_that_moved_nothing_records_zero_rooms
+    mud = ScriptedMud.new(start_fixtures: MARKET_SQUARE)
+    hooks = hooks_at_market_square(mud)
+    journal = FakeJournal.new
+
+    move_to(mud, hooks, journal: journal).call(destination: "Market Square")
+
+    assert_equal 0, journal.find("answered")[:rooms_walked]
+  end
+
+  # ---------- the recorded failure, end to end (fix_surveying.md §3.5) ----
+  #
+  # Run 20260731T140528Z-34c846bf, in miniature. The agent stood on the concourse
+  # with "The South Gate" printed on its own west exit, unwalked, and asked to go
+  # there nine times; each answer identified Inside The West Gate Of Midgaard — a
+  # different gate on the far side of the city, matched on the shared word "gate"
+  # — and reported it unreachable. Nothing moved.
+
+  SOUTH_GATE_MOVE = "\e[0;33mThe South Gate\e[0m\r\n   The city wall towers above you, and the road " \
+                    "runs out through the arch.\r\n\e[0;36m[ Exits: n e ]\e[0m\r\n\r\n" \
+                    "20H 100M 80V > ".freeze
+
+  SOUTH_GATE = {
+    "look" => SOUTH_GATE_MOVE,
+    "check:exits" => "Obvious exits:\r\nnorth - On The Concourse\r\neast  - The Promenade\r\n\r\n20H 100M 80V > ",
+    "check:score" => "This ranks you as Dummy the Man (level 1).\r\n20H 100M 80V > ",
+    "poll" => ""
+  }.freeze
+
+  # Hand-built, because what matters is the shape of the memory and not how it
+  # was earned: the destination named on an unwalked exit here, and a room
+  # sharing one word with the query somewhere the agent cannot reach.
+  def concourse_beside_the_south_gate
+    @store.create_room(name: "On The Concourse", description: "A broad concourse runs north and south.",
+                       weak_fingerprint: "concourse")
+    @store.record_exits!(1, targets: { "west" => "The South Gate", "east" => "The Promenade" })
+    @store.update_player!(current_room_id: 1)
+    @store.create_room(name: "Inside The West Gate Of Midgaard", description: "The west gate of the city.",
+                       weak_fingerprint: "westgate")
+  end
+
+  def test_a_place_named_on_an_unwalked_exit_is_walked_to_not_refused
+    concourse_beside_the_south_gate
+    mud = ScriptedMud.new(start_fixtures: SOUTH_GATE,
+                          moves: [{ text: SOUTH_GATE_MOVE, fixtures: SOUTH_GATE }], polls: [""] * 4)
+    hooks = H.new(store: @store, call_tool: mud.hook_call_tool, warn_to: nil)
+    navigator = ScriptedReasoner.new({ "direction" => "west", "reason" => "the exit says so" })
+
+    result = move_to(mud, hooks, navigator: navigator.to_proc).call(destination: "The South Gate")
+
+    assert_equal ["west"], mud.move_calls
+    refute_match(/unreachable/, result)
+    refute_match(/Inside The West Gate Of Midgaard/, result)
+    assert_match(/here: The South Gate/, result)
+  end
+
   # ---------- scope: the one navigation judgement left with the player ----
   #
   # `plan_route` answers `region_exhausted` when every remaining lead leaves the
@@ -410,6 +487,169 @@ class TestMoveTo < Minitest::Test
     assert_match(/you died/, result)
     assert_equal rooms_before, @store.rooms.size, "the Void must never be recorded as explored"
     assert_equal 1, mud.move_calls.size, "no further move is issued after a death"
+  end
+
+  # ---------- steps that did not land (dark_rooms_and_stuck_walks.md) ------
+  #
+  # The recorded failure this exists to make impossible: every kind of stop used
+  # to end the call, so a refused first step returned "interrupted, walked 0
+  # rooms" and the player spent a full model call to learn nothing. Session
+  # 20260730T201603Z-ff25f010 did that twenty times from the same room.
+
+  def test_a_refused_step_is_re_planned_inside_the_call_rather_than_ending_it
+    mud = ScriptedMud.new(
+      start_fixtures: MARKET_SQUARE,
+      moves: [{ text: "Alas, you cannot go that way.\r\n\r\n20H 100M 81V > " },
+              { text: TRANSCRIPTS.fetch("look_common_square"), fixtures: COMMON_SQUARE }],
+      polls: [""] * 4
+    )
+    hooks = hooks_at_market_square(mud)
+    navigator = ScriptedReasoner.new({ "direction" => "north", "reason" => "trying north" },
+                                     { "direction" => "south", "reason" => "north is shut" })
+
+    result = move_to(mud, hooks, navigator: navigator.to_proc).call(destination: "bakery")
+
+    assert_equal %w[north south], mud.move_calls,
+                 "the refusal is a fact to plan around, and this call can do that for free"
+    refute_match(/interrupted/, result)
+    assert_match(/here: The Common Square/, result)
+  end
+
+  def test_the_setback_allowance_is_a_ceiling_and_the_stop_says_what_it_was
+    mud = ScriptedMud.new(
+      start_fixtures: MARKET_SQUARE,
+      moves: Array.new(6) { { text: "Alas, you cannot go that way.\r\n\r\n20H 100M 81V > " } },
+      polls: [""] * 6
+    )
+    hooks = hooks_at_market_square(mud)
+    navigator = ScriptedReasoner.new(*Array.new(6) { { "direction" => "north", "reason" => "r" } })
+
+    result = move_to(mud, hooks, navigator: navigator.to_proc,
+                                 limits: { "max_setbacks" => 2 }).call(destination: "bakery")
+
+    assert_equal 2, mud.move_calls.size
+    assert_match(/the way is blocked/, result)
+    refute_match(/interrupted/, result, "\"interrupted\" reads as transient, and invites the retry")
+  end
+
+  # A walk that ends with no idea where it is standing must say so, and must not
+  # print a room. The old rendering asserted `here: The Dump (#5)` on twenty
+  # consecutive calls while the character stood two rooms away in the sewer.
+  #
+  # The remedy has to name a call the PLAYER can make. It used to advise `look`
+  # and a light source, neither of which is on the player's allowlist, which is
+  # what left session 20260731T151434Z-737a23cb with seventeen refused calls and
+  # nothing to try (blind_step_recovery.md §5.6).
+  def test_a_lost_position_is_reported_as_lost_and_names_a_call_the_player_can_make
+    dark = "It is pitch black...\r\n\r\n27H 132M 94V > "
+    refused = "Alas, you cannot go that way.\r\n\r\n27H 132M 94V > "
+    mud = ScriptedMud.new(
+      start_fixtures: MARKET_SQUARE,
+      moves: [{ text: dark, fixtures: { "look" => dark, "poll" => "" } }] +
+             Array.new(9) { { text: refused } }
+    )
+    hooks = hooks_at_market_square(mud)
+    navigator = ScriptedReasoner.new({ "direction" => "north", "reason" => "r" })
+
+    result = move_to(mud, hooks, navigator: navigator.to_proc).call(destination: "bakery")
+
+    assert_match(/here: position unknown/, result)
+    assert_match(/walked north out of Market Square \(#1\)/, result,
+                 "the room walked out of survives the position being cleared, and is worth saying")
+    assert_match(/move_to\(destination: "north"\)/, result,
+                 "a remedy naming a tool the player does not have is a remedy for nobody")
+    refute_match(/light source/, result)
+    refute_match(/`look`/, result)
+  end
+
+  # The budget is a ceiling on MUD moves, not on rooms, because a refused
+  # direction costs a round trip and no movement.
+  def test_the_blind_sweep_stops_on_its_budget_and_says_nothing_is_proved
+    dark = "It is pitch black...\r\n\r\n27H 132M 94V > "
+    refused = "Alas, you cannot go that way.\r\n\r\n27H 132M 94V > "
+    mud = ScriptedMud.new(
+      start_fixtures: MARKET_SQUARE,
+      moves: [{ text: dark, fixtures: { "look" => dark, "poll" => "" } }] +
+             Array.new(9) { { text: refused } }
+    )
+    hooks = hooks_at_market_square(mud)
+    navigator = ScriptedReasoner.new({ "direction" => "north", "reason" => "r" })
+
+    result = move_to(mud, hooks, navigator: navigator.to_proc,
+                                 limits: { "max_blind_steps" => 3 }).call(destination: "bakery")
+
+    # One step north, the reverse south, then three of the sweep: five moves.
+    assert_equal 5, mud.move_calls.size
+    assert_match(/where you are is not known yet/, result)
+    assert_match(/untried/, result, "an exhausted recovery has proved nothing and should not claim to")
+    refute_match(/no way out of here/, result)
+  end
+
+  # And when every direction has been refused it says THAT, which is a different
+  # instruction: no further walking will help, so the session can end on a
+  # conclusion rather than on max_tokens.
+  def test_a_sealed_room_is_reported_as_stuck_with_no_remedy_offered
+    dark = "It is pitch black...\r\n\r\n27H 132M 94V > "
+    refused = "Alas, you cannot go that way.\r\n\r\n27H 132M 94V > "
+    mud = ScriptedMud.new(
+      start_fixtures: MARKET_SQUARE,
+      moves: [{ text: dark, fixtures: { "look" => dark, "poll" => "" } }] +
+             Array.new(12) { { text: refused } }
+    )
+    hooks = hooks_at_market_square(mud)
+    navigator = ScriptedReasoner.new({ "direction" => "north", "reason" => "r" })
+
+    result = move_to(mud, hooks, navigator: navigator.to_proc,
+                                 limits: { "max_blind_steps" => 12 }).call(destination: "bakery")
+
+    assert_match(/no way out of here/, result)
+    assert_match(/every direction from here was refused/, result)
+    refute_match(/move_to\(destination: "north"\)/, result,
+                 "inviting another step after proving none work is the dishonesty this exists to remove")
+  end
+
+  # ---------- a lost position is walkable (§5.4) --------------------------
+
+  def test_a_bare_direction_walks_one_step_when_the_position_is_unknown
+    @store.clear_player_room!
+    mud = ScriptedMud.new(start_fixtures: MARKET_SQUARE,
+                          moves: [{ text: MARKET_SQUARE_MOVE, fixtures: MARKET_SQUARE }], polls: [""] * 4)
+    hooks = H.new(store: @store, call_tool: mud.hook_call_tool, warn_to: nil)
+
+    result = move_to(mud, hooks).call(destination: "north")
+
+    assert_equal ["north"], mud.move_calls, "refusing to move is what made the dark room a dead end"
+    assert_match(/here: Market Square/, result)
+  end
+
+  # Abbreviations resolve, because the MUD's own exits line abbreviates and a lost
+  # agent copying `d` out of it should not be told it named no direction.
+  def test_an_abbreviated_direction_is_walked_too
+    @store.clear_player_room!
+    mud = ScriptedMud.new(start_fixtures: MARKET_SQUARE,
+                          moves: [{ text: MARKET_SQUARE_MOVE, fixtures: MARKET_SQUARE }], polls: [""] * 4)
+    hooks = H.new(store: @store, call_tool: mud.hook_call_tool, warn_to: nil)
+
+    move_to(mud, hooks).call(destination: "n")
+
+    assert_equal ["north"], mud.move_calls
+  end
+
+  # A place name is not a direction, and walking off in the hope of stumbling into
+  # it would be guessing rather than recovering. The answer says what is known.
+  def test_a_place_name_with_no_position_still_refuses_and_says_what_is_known
+    @store.create_room(name: "Market Square", description: "The square.", weak_fingerprint: "a")
+    @store.update_player!(current_room_id: 1, prev_room_id: 1, last_direction: "down")
+    @store.clear_player_room!
+    mud = ScriptedMud.new(start_fixtures: MARKET_SQUARE)
+    hooks = H.new(store: @store, call_tool: mud.hook_call_tool, warn_to: nil)
+
+    result = move_to(mud, hooks).call(destination: "the bakery")
+
+    assert_empty mud.move_calls
+    assert_match(/position unknown/, result)
+    assert_match(/you walked down out of Market Square \(#1\)/, result)
+    assert_match(/ask for a bare direction/, result)
   end
 
   # ---------- regions: detection (§2 rule 1, rule 3) ---------------------

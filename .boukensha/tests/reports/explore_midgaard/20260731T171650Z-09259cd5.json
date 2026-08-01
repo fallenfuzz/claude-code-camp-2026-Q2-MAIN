@@ -1,0 +1,218 @@
+{
+  "schema": 2,
+  "run_id": "20260731T171650Z-09259cd5",
+  "kind": "scenario",
+  "name": "explore_midgaard",
+  "started_at": "2026-07-31T17:16:50.768Z",
+  "ended_at": "2026-07-31T17:22:41.115Z",
+  "environment": {
+    "profile": "Derrano",
+    "provider": "anthropic",
+    "model": "claude-haiku-4-5",
+    "boukensha_version": "0.13.0",
+    "git_sha": "9cf5ade",
+    "settings_digest": "sha256:b229eeeeb555f24f82192554d6b09a8b6f1d2ad5024ef939aefe37696f267080",
+    "judge": {
+      "provider": "anthropic",
+      "model": "claude-sonnet-4-6"
+    }
+  },
+  "summary": {
+    "cases": 1,
+    "passed": 0,
+    "failed": 1,
+    "errored": 0,
+    "pass_rate": 0.0,
+    "cost_usd": {
+      "agent": 0.446935,
+      "judge": 0,
+      "total": 0.446935
+    },
+    "median": {
+      "model_tool_calls": 20,
+      "automatic_tool_calls": 253,
+      "iterations": 20,
+      "duration_ms": 256410,
+      "cost_usd": 0.446935
+    },
+    "p90": {
+      "model_tool_calls": 20,
+      "automatic_tool_calls": 253,
+      "iterations": 20,
+      "duration_ms": 256410,
+      "cost_usd": 0.446935
+    },
+    "failure_modes": {
+      "judge": 1
+    }
+  },
+  "cases": [
+    {
+      "index": 1,
+      "scenario": "explore_midgaard",
+      "session_id": "20260731T171719Z-e39eb364",
+      "session_name": "explore_midgaard",
+      "profile": "Derrano",
+      "resolved_state": {
+        "description": "Level 10 cleric, banked, armed, standing in the Temple.",
+        "requires_class": "cleric",
+        "location": 3001,
+        "level": 10,
+        "money": {
+          "gold": 0,
+          "bank": 10000
+        },
+        "stats": {
+          "align": 0
+        },
+        "skills": {
+          "armor": 75,
+          "cure light": 75
+        },
+        "inventory": [
+          {
+            "vnum": 3001,
+            "keyword": "bottle",
+            "quantity": 2
+          }
+        ],
+        "equipment": [
+          {
+            "vnum": 3023,
+            "keyword": "club",
+            "quantity": 1,
+            "wear": "wield"
+          },
+          {
+            "vnum": 3043,
+            "keyword": "jacket",
+            "quantity": 1,
+            "wear": "wear"
+          }
+        ]
+      },
+      "base_initial_state": "cleric",
+      "map_memory": {
+        "mode": "none",
+        "archived_to": "/home/andrew/Sites/omenking/claude-code-camp-2026-Q2/.boukensha/profiles/Derrano/knowledge.archive/20260731T171650Z.sqlite3",
+        "rooms_at_start": 0,
+        "room_exits_at_start": 0,
+        "entities_at_start": 0,
+        "regions_at_start": 0
+      },
+      "arm": "default",
+      "settings": null,
+      "settings_digest": "sha256:b229eeeeb555f24f82192554d6b09a8b6f1d2ad5024ef939aefe37696f267080",
+      "stage": null,
+      "seed_log": "/home/andrew/Sites/omenking/claude-code-camp-2026-Q2/.boukensha/tests/reports/.work/20260731T171650Z-09259cd5/case-1-seed.log",
+      "facts": {
+        "model_tool_calls": 20,
+        "automatic_tool_calls": 253,
+        "has_provenance": true,
+        "iterations": 20,
+        "turns": 0,
+        "end_reason": "max_tokens",
+        "duration_ms": 256410,
+        "input_tokens": 235235,
+        "output_tokens": 14234,
+        "cost_usd": 0.446935,
+        "final_room": "On The Concourse",
+        "rooms_known": 41,
+        "rooms_known_delta": 41,
+        "regions_known": 8,
+        "regions_delta": 8,
+        "region_labels": [
+          "Market District",
+          "Midgaard",
+          "The City Wall",
+          "The East Gate",
+          "The Grunting Boar Inn",
+          "The Plains",
+          "The Temple",
+          "⟨from The Temple Of Midgaard⟩"
+        ],
+        "region_splits": [],
+        "journal_ops": {
+          "room.create": 41,
+          "region.create": 8,
+          "feature.tag": 8,
+          "claim.open": 6,
+          "claim.evidence": 21,
+          "move_to.ledger_revised": 8,
+          "frontier_attempt.succeeded": 83,
+          "claim.revise": 33,
+          "claim.settle": 4,
+          "survey.claim_settled": 3,
+          "region_boundary.declare": 8,
+          "move_to.region_split": 8,
+          "room.visit": 43,
+          "survey.claim_budget_spent": 1,
+          "move_to.answered": 20,
+          "move_to.decision": 31,
+          "region.update": 9,
+          "frontier_attempt.failed": 2
+        },
+        "no_progress_calls": 1,
+        "max_destination_repeats": 2,
+        "db_reads": 2858,
+        "db_writes": 2240,
+        "db_ms": 223,
+        "journal_lines": 942,
+        "inference_ms": 288,
+        "mud_ms": 230771,
+        "mud_calls": 273
+      },
+      "errors": [],
+      "expectations": [
+        {
+          "kind": "tool_called",
+          "rule": "move_to",
+          "ok": true,
+          "detail": "called at call_cce9d9604db2"
+        },
+        {
+          "kind": "max_no_progress_calls",
+          "rule": "3",
+          "ok": true,
+          "detail": "1"
+        },
+        {
+          "kind": "max_destination_repeats",
+          "rule": "2",
+          "ok": true,
+          "detail": "2"
+        }
+      ],
+      "judge": {
+        "verdict": "fail",
+        "confidence": 0.88,
+        "reasoning": "The agent spread its moves well across temple district, market, gates, guilds and wall road, and confirmed region labels throughout; however it explicitly walked into Outside The East Gate and Outside The West Gate (both countryside rooms beyond city walls), violating the 'stay in town' rule — a town-only map is worse when countryside rooms are included.",
+        "desired": [
+          {
+            "behaviour": "use move_to repeatedly with different destinations, spreading across the frontier",
+            "met": true,
+            "evidence": "call_1920888b6d3a"
+          },
+          {
+            "behaviour": "name the region so the fixture begins with a confirmed label rather than machine-made provenance",
+            "met": true,
+            "evidence": "call_cce9d9604db2"
+          }
+        ],
+        "undesired": [
+          {
+            "behaviour": "leave Midgaard for the countryside or wilderness",
+            "occurred": true,
+            "evidence": "call_042c161bbc56"
+          },
+          {
+            "behaviour": "spend the whole budget on one quarter",
+            "occurred": false
+          }
+        ],
+        "session_id": "20260731T171719Z-e39eb364"
+      },
+      "status": "fail"
+    }
+  ]
+}

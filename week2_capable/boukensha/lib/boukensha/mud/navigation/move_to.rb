@@ -3,6 +3,7 @@ require_relative "execute_route_tool"
 require_relative "region_tools"
 require_relative "survey"
 require_relative "../../operation"
+require_relative "../room_parser"
 
 module Boukensha
   module Mud
@@ -65,12 +66,31 @@ module Boukensha
           # 20260728T190719Z-d2fa7ec6; re-plan every step and you have rebuilt
           # the per-move model call this design exists to remove.
           "max_steps_per_leg"         => 4,
+          # Steps that did not land: a refusal, or a walk into a room that
+          # could not be identified. Both are disagreements between the map and
+          # the world rather than reasons to hand the turn back, so the loop
+          # re-plans around them — but a subsystem that re-planned without limit
+          # would burn the call on a door that is simply shut. Two is enough to
+          # tell "the map was stale" from "this way is closed".
+          "max_setbacks"              => 2,
           # A GATE, not a classifier (§5.7). Below this the scope question is
           # not put to the navigator at all. boundaries_revised deliberately
           # refuses to code a threshold — "the judgement is the model's" — and a
           # gate is a different thing from a decision: it suppresses obvious
           # negatives (one room, median zero) without encoding the judgement.
-          "min_rooms_for_scope_check" => 3
+          "min_rooms_for_scope_check" => 3,
+          # Moves the recovery in `ExecuteRouteTool.back_out` may spend once the
+          # reverse of the step that lost the position has itself been refused.
+          # It counts MUD moves rather than rooms, because a refused direction
+          # costs a round trip and no movement, and it bounds what is otherwise a
+          # blind walk into an unmapped maze
+          # (blind_step_recovery.md §5.5).
+          #
+          # Six against the ten canonical directions, so an ordinary sealed room
+          # is proved sealed and a maze is not wandered indefinitely. Zero turns
+          # the sweep off and restores the behaviour that cost session
+          # 20260731T151434Z-737a23cb seventeen model calls.
+          "max_blind_steps"           => 6
         }.freeze
 
         # Values `place` may legally carry that mean "I am not making a claim".
@@ -161,11 +181,20 @@ module Boukensha
           @legs         = []
           @rooms_walked = 0
           @decisions    = 0
+          @setbacks     = 0       # steps that did not land — see max_setbacks
           @status       = nil     # what ended the loop
           @detail       = nil     # a sentence about why, when there is one
           @plan_text    = nil     # plan_route's own words, when they are the answer
+          # Where this call began, and the anchor every scope question is asked
+          # against (staying_in_town.md §10.4). A ROOM rather than a region,
+          # because §8 establishes that a region label cannot answer "which side
+          # of the wall is this" — it records which region a place was carved out
+          # of, not which place contains it.
+          @origin_room  = @store.player[:current_room_id]
+          @egress       = nil     # the crossing that ended the call, when one did
 
           span("#{NAME} #{query}") { run }
+          answered
           render
         end
 
@@ -205,6 +234,8 @@ module Boukensha
               return unless walk_known(plan)
             when "explore", "unknown"
               return unless walk_frontier(plan, region)
+            when "position_unknown"
+              return unless walk_blind(plan, region)
             else
               # position_unknown, unreachable, exhausted, region_exhausted —
               # all four are answers, and plan_route's own rendering of them
@@ -216,6 +247,55 @@ module Boukensha
               return
             end
           end
+        end
+
+        # ---------- the blind branch (blind_step_recovery.md §5.4) ----------
+        #
+        # `plan_route` cannot plan without a position and never will be able to, so
+        # this branch does not plan. When the player has named a bare DIRECTION it
+        # walks that one step and lets `Hooks` try to identify where it lands.
+        #
+        # It exists because refusing was a dead end rather than a safeguard. Leaving
+        # an unlit room requires moving; moving required already knowing where you
+        # were; and `move_to` is the only movement tool on the player's surface. In
+        # session 20260731T151434Z-737a23cb the agent asked for `north`, `up`,
+        # `east`, `west`, `south` and `out` and was refused before a single MUD
+        # command was sent, seventeen times, until the context window filled.
+        #
+        # A destination that is not a direction still refuses, and correctly: the
+        # subsystem has nothing to route with, and walking off in the hope of
+        # stumbling into "The Temple Of Midgaard" would be guessing rather than
+        # recovering. That answer now says which room the agent left and by which
+        # exit, which is the little that IS known (§5.6).
+        def walk_blind(plan, region)
+          direction = blind_direction
+          unless direction
+            @status    = plan.status
+            @plan_text = PlanRouteTool.render(plan, @store, region, @scope, widen_with: NAME)
+            return false
+          end
+
+          if rooms_left <= 0
+            stop_on_budget("max_rooms")
+            return false
+          end
+
+          # One step, and never a leg of several: each direction is a separate
+          # judgement while the map cannot say what any of them lead to, and the
+          # `ExecuteRouteTool` sweep is what handles the case where the subsystem
+          # rather than the player should keep trying.
+          leg([direction], decision: nil)
+        end
+
+        # The query as a direction, or nil. Abbreviations resolve through the same
+        # table the parser uses, so `move_to("d")` and `move_to("down")` are the
+        # same request — the state block spells directions out for exactly this
+        # reason and a lost agent typing the short form should not be told it
+        # named no direction.
+        def blind_direction
+          q = @query.to_s.strip.downcase
+          canonical = RoomParser::DIRECTIONS[q] || q
+          canonical if RoomParser::DIRECTIONS.value?(canonical)
         end
 
         # ---------- the known branch (§2, delivery step 4) -----------------
@@ -296,12 +376,116 @@ module Boukensha
           region = @store.region_for_room(here_id) || region
           consider_split(answer, region)
 
+          leaves = truthy?(answer["leaves_region"])
+          return false if leaves && refuse_egress(chosen, region)
+
+          before_room = here_id
           steps = Array(chosen[:walk]).map(&:to_s) + [chosen[:direction].to_s]
           steps = steps.first([limit("max_steps_per_leg"), rooms_left].min)
-          leg(steps, decision: {
+          walked = leg(steps, decision: {
             direction: chosen[:direction], reason: answer["reason"].to_s,
             leads_to: chosen[:leads_to], fallback: fallback
-          })
+          }, guard_egress: true)
+          # The player asked to leave and did, so the crossing is recorded rather
+          # than refused. That row is what makes the next call's scope question
+          # answerable at all: without it, nothing in the database distinguishes
+          # the road out of the gate from the street inside it.
+          record_declared_egress(before_room, steps, region) if leaves
+          walked
+        end
+
+        # ---------- the boundary (staying_in_town.md §10.3–§10.5) -----------
+
+        # The veto, and it runs BEFORE any MUD command is sent — no `leg`, no
+        # `tbamud__move`, and the character has not moved. Stopping after the step
+        # would leave travel one room outside the town on every attempt, which is
+        # exactly what the conduct measure in §13 counts and forbids.
+        #
+        # `apply_place` and `consider_split` have already run, and correctly:
+        # both are claims about where the agent is standing NOW, and standing
+        # still does not change them.
+        #
+        # Refusing while handing the decision back is what boundaries_revised.md
+        # §2 means by "a question rather than a wall". The player keeps the
+        # judgement and gets it back with a model call to spend on it, instead of
+        # losing five rooms of budget to a bearing — applied to run
+        # 20260731T171650Z-09259cd5 this stops both runaway walks four and five
+        # rooms in, and neither call ends outside the wall.
+        def refuse_egress(chosen, region)
+          return false unless @scope == "region"
+
+          @status = "left_region"
+          @detail = "#{chosen[:direction]} from here" \
+                    "#{" (#{chosen[:leads_to]})" if chosen[:leads_to]} leaves " \
+                    "#{region ? region[:label] : 'this place'}"
+          journal("egress_refused", destination: @query, direction: chosen[:direction],
+                                    leads_to: chosen[:leads_to], region: region && region[:label])
+          true
+        end
+
+        # `scope: "world"` — the player said to leave, so the only thing owed is
+        # the record. The edge is the last step of the leg, which is the exit the
+        # navigator chose; the steps before it were the walk to its source room.
+        def record_declared_egress(before_room, steps, region)
+          return unless @scope == "world"
+
+          edge = final_edge(@legs.last, before_room, steps)
+          return unless edge
+
+          declare_egress(edge, region, "the navigator answered that this exit leaves the region")
+        end
+
+        # The backstop. It should almost never fire — §10.3 refuses the step and
+        # the survey planner never offers it — and it exists for the cases neither
+        # covers: a navigator that answered `false` about a gate it misread, an
+        # exit no hint was ever written for, a room reached without an arrival
+        # edge. It overshoots by exactly one room, which is the price of not
+        # having to predict anything.
+        #
+        # What makes it possible to fire at all is that a crossing recorded once
+        # stays recorded. The first walk through a gate is not caught here, because
+        # nothing had yet said the gate was a gate; every later walk through it is,
+        # because the `egress` row now cuts the graph and the room beyond is no
+        # longer reachable from the origin.
+        #
+        # Returns true when the call is over.
+        def egress_backstop(before_room)
+          return false unless @scope == "region" && @origin_room
+
+          inside = Guard.scope_rooms(@store, @origin_room)
+          edge   = Guard.first_departure(@legs.last[:completed], before_room, inside)
+          return false unless edge
+
+          region = @store.region_for_room(edge[:from])
+          declare_egress(edge, region, "a leg landed outside the place this call began in")
+          @status = "left_region"
+          @detail = "this leaves #{region ? region[:label] : 'the place this call began in'}"
+          @egress = edge
+          true
+        end
+
+        # The exit the navigator chose, which is the last of the requested steps.
+        # Nil unless the leg actually walked it — a leg that stopped short never
+        # crossed anything, and a boundary is a record of a crossing.
+        def final_edge(result, before_room, steps)
+          completed = Array(result && result[:completed])
+          return nil unless completed.size == steps.size && completed.size.positive?
+
+          from = completed.size > 1 ? completed[-2][:room_id] : before_room
+          to   = completed[-1][:room_id]
+          return nil unless from && to
+
+          { from: from, to: to, direction: completed[-1][:direction].to_s }
+        end
+
+        def declare_egress(edge, region, reason)
+          return unless Guard.declare!(store: @store, edge: edge, region: region, reason: reason)
+
+          journal("egress_recorded", destination: @query, from_room_id: edge[:from],
+                                     to_room_id: edge[:to], direction: edge[:direction],
+                                     region: region[:label], scope: @scope)
+        rescue StandardError => e
+          Boukensha.error_log.record(e, component: NAME, boundary: "declare_egress")
         end
 
         # One navigator turn, journalled whatever it answers. A wrong turn that
@@ -324,6 +508,7 @@ module Boukensha
           journal("decision", destination: @query, leg: @legs.size + 1,
                               direction: answer["direction"], reason: answer["reason"],
                               place: answer["place"], scope_suspect: answer["scope_suspect"],
+                              leaves_region: answer["leaves_region"],
                               candidates: candidates.size)
           answer
         rescue StandardError => e
@@ -536,23 +721,25 @@ module Boukensha
         # nine unexplained commands through the model's narrative (§6).
         #
         # Returns true when the loop should continue.
-        def leg(steps, decision:)
+        # `guard_egress:` runs the §10.4 backstop after the walk. It is off for
+        # the known branch and off for a blind step, and both omissions are
+        # deliberate. Travel to a room the agent has already stood in is never
+        # scoped — that is what makes §10.5's route home immune to the rule that
+        # refused the way out — and a blind step is a lost agent re-establishing
+        # where it is, which is not a moment to second-guess.
+        def leg(steps, decision:, guard_egress: false)
           n = @legs.size + 1
+          before_room = here_id
           result = span("#{NAME} leg #{n}") do
-            ExecuteRouteTool.walk(steps: steps, call_tool: @call_tool, hooks: @hooks)
+            ExecuteRouteTool.walk(steps: steps, call_tool: @call_tool, hooks: @hooks,
+                                  blind_steps: limit("max_blind_steps"))
           end
 
           @legs << result.merge(decision: decision, requested: steps)
           @rooms_walked += result[:completed].size
 
-          if result[:stopped]
-            # An interruption is not a failure of the route. Return where we got
-            # to and what interrupted, exactly as `execute_route` already does,
-            # and let the player decide — that is the whole reason a fight
-            # starting mid-walk is worth one round trip to report.
-            @status = "interrupted"
-            return false
-          end
+          return handle_stop(result) if result[:stopped]
+          return false if guard_egress && egress_backstop(before_room)
 
           # Always re-plan, even with the room budget spent. The budget check
           # lives at the top of each branch, so the loop's own `plan_route`
@@ -560,6 +747,47 @@ module Boukensha
           # the destination, "arrived" is the honest answer where "stopped on
           # budget" would be a false one. The re-plan is pure SQLite.
           true
+        end
+
+        # Not every stop is the same instruction, and treating them as one is
+        # what turned a single refused step into twenty consecutive model calls
+        # in session 20260730T201603Z-ff25f010.
+        #
+        # An interruption and a death belong to the player, and are handed back
+        # exactly as they always were — a fight starting mid-walk is the whole
+        # reason that round trip is worth spending. A refusal is not that. It is
+        # the map and the world disagreeing, `Hooks` has just spent a `look`
+        # settling which of the two was wrong, and re-planning against the
+        # corrected map is something this call can do for free. Returning
+        # instead means the player pays a full model call to be told "walked 0
+        # rooms" and learns nothing that would stop it asking again.
+        #
+        # Returns true to keep the loop going, false to end it.
+        def handle_stop(result)
+          @detail = result[:stopped]
+          case result[:stopped_kind]
+          # `:recovered` joins the setback arm rather than getting one of its own,
+          # because a recovered position is a corrected map and re-planning against
+          # a corrected map is exactly what this arm is for. The route that was
+          # being walked started from a room the character is no longer in, so
+          # continuing it is never right — but the call is not over.
+          when :refused, :unreadable, :recovered
+            @setbacks += 1
+            return true if @setbacks < limit("max_setbacks")
+
+            @status = "blocked"
+            false
+          # Three ways to end up not knowing where you are, and they are different
+          # instructions (blind_step_recovery.md §5.5): nothing was attempted, the
+          # attempt ran out of budget with directions untried, or every direction was
+          # refused and walking has been ruled out.
+          when :position_lost, :recovery_exhausted, :stuck
+            @status = result[:stopped_kind].to_s
+            false
+          else
+            @status = "interrupted"
+            false
+          end
         end
 
         def rooms_left = limit("max_rooms") - @rooms_walked
@@ -570,6 +798,30 @@ module Boukensha
         end
 
         # ---------- rendering -----------------------------------------------
+
+        # One line per answered call, whatever the answer was. It exists because
+        # the only way to tell a productive `move_to` from a dead one used to be
+        # to read the transcript: run 20260731T140528Z-34c846bf spent twelve of
+        # its twenty-one model calls being told a destination was `unreachable`
+        # and walking nothing, and no projection over the log could say so.
+        #
+        # `rooms_walked` is the whole of it. A call that moved the character
+        # bought coverage even if it stopped early; a call that answered without
+        # moving bought nothing, and `SessionFacts#no_progress_calls` counts
+        # exactly those. `Survey#answered` writes the same line for the other
+        # objective mode, so the projection covers every call this tool answers.
+        # `from_room_id` is what makes §13's conduct measure computable after the
+        # fact. The first `move_to` of a session is where its walking began, and
+        # that room is the anchor `rooms_outside_scope` counts from — the first
+        # draft of the measure anchored on a REGION and collapsed, because the
+        # region in question was a one-room placeholder that later grew to hold
+        # five town rooms and five field rooms and never distinguished them.
+        def answered
+          journal("answered", destination: @query, status: @status.to_s,
+                              rooms_walked: @rooms_walked, legs: @legs.size,
+                              decisions: @decisions, mode: "travel",
+                              from_room_id: @origin_room)
+        end
 
         # What the player reads. It has to carry three things a collapsed call
         # would otherwise destroy: where the agent ended up, every direction
@@ -589,6 +841,7 @@ module Boukensha
                    "in #{@legs.size} leg#{'s' unless @legs.size == 1}" \
                    "#{", #{@decisions} decision#{'s' unless @decisions == 1}" if @decisions.positive?}"
           lines << "here: #{room_label(here_id)}"
+          lines << remedy
           lines << @plan_text if @plan_text
           lines.compact.join("\n")
         end
@@ -598,10 +851,91 @@ module Boukensha
           when "arrived"          then "arrived"
           when "budget"           then "stopped on budget"
           when "interrupted"      then "interrupted"
+          when "blocked"          then "stopped — the way is blocked"
+          when "position_lost"    then "stopped — where you are is no longer known"
+          # Two ways for the recovery to end without a position, and they are
+          # opposite instructions (blind_step_recovery.md §5.5). The first invites
+          # another attempt; the second says none will help.
+          when "recovery_exhausted" then "stopped — where you are is not known yet"
+          when "stuck"            then "stopped — there is no way out of here"
           when "no_direction"     then "stopped"
+          when "left_region"      then "stopped"
           when "navigator_failed" then "stopped — the navigator did not answer"
           else @status.to_s
           end
+        end
+
+        # `position_lost` is the one status whose remedy the player cannot read
+        # off the rest of the message, and an answer that states a problem
+        # without stating what would resolve it is what invites the same call
+        # again. Every other stop either names its own next step or hands back a
+        # situation the player can already see.
+        # The remedy has to name a call the PLAYER can make. It used to advise
+        # `look` and a light source, and the player's allowlist holds neither —
+        # `look` belongs to the room-survey slice and every item tool that could
+        # light a room is commented out. An answer that states a problem and names
+        # no available action is what session 20260731T151434Z-737a23cb spent
+        # seventeen calls proving (§5.6), and this is the same defect the
+        # `region_exhausted` remedy was already fixed for.
+        #
+        # `stuck` deliberately names nothing. Every direction has been refused, so
+        # there is no call that would help, and inviting one anyway would be the
+        # dishonesty this whole section is about.
+        def remedy
+          case @status
+          when "left_region"
+            way_back
+          when "position_lost", "recovery_exhausted"
+            "#{left_behind}walking is the only thing that can re-establish where you are: " \
+              "call #{NAME}(destination: \"north\") or any other direction to try one more step"
+          when "stuck"
+            "#{left_behind}every direction from here was refused, so no further walking will help"
+          end
+        end
+
+        # What to do about a boundary, and it differs by which one fired.
+        #
+        # After the VETO the agent has not moved, so the only thing owed is the
+        # call that would proceed anyway — the judgement stays the player's, which
+        # is the whole of boundaries_revised.md §2's "a question rather than a
+        # wall", and it costs one model call rather than five rooms of budget.
+        #
+        # After the BACKSTOP the agent is one room out, and §10.5 is explicit that
+        # preventing crossings does not remove the need to recover from one. The
+        # way home is named as a ROOM rather than as a direction, and that is what
+        # makes it work: `from_room_id` is by construction a room the agent has
+        # stood in, so `plan_route` answers `known`, `move_to` dispatches to
+        # `walk_known`, and the known branch takes no navigator and no candidate
+        # list at all. It therefore cannot hit the defect §5 documents, where a
+        # navigator answering `west` toward the gate was overruled twice because
+        # the way back was already explored and so not a frontier candidate.
+        #
+        # The "known route" annotation is printed only when the route really does
+        # land on the room the boundary names. Room names repeat in a MUD, and a
+        # promise that the reader cannot check is worse than a bare destination.
+        def way_back
+          widen = "#{NAME}(destination: #{@query.inspect}, scope: \"world\") goes anyway"
+          room  = @egress && @store.room(@egress[:from])
+          return widen unless room
+
+          plan, = PlanRouteTool.resolve(store: @store, destination: room[:name], scope: "world")
+          home  = plan && plan.status == "known" && plan.destination_room == @egress[:from] ? plan.steps.size : nil
+          back  = "back: #{NAME}(destination: #{room[:name].inspect})" \
+                  "#{"   #{home} move#{'s' unless home == 1}, known route" if home}"
+          "#{back}\n#{widen}"
+        end
+
+        # The little that survives a lost position: which room the agent walked out
+        # of and by which exit. `note_position_lost` writes both to `player_state`
+        # before clearing the room, and until now nothing read them back.
+        def left_behind
+          player = @store.player
+          room   = player[:prev_room_id] && @store.room(player[:prev_room_id])
+          return "" unless room
+
+          direction = player[:last_direction]
+          "you walked #{direction ? "#{direction} " : ''}out of #{room[:name]} (##{room[:id]}) " \
+            "into somewhere that could not be identified; "
         end
 
         def leg_lines(i, leg)

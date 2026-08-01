@@ -29,12 +29,14 @@ module Boukensha
       # `first_visit` — send the prose once, and never again.
       # `candidates`  — look_candidates, only while the room is unexamined.
       # `ambiguity`   — how many rooms this could be, when it is more than one.
+      # `lost`        — { room:, direction:, recovery: } when the position was
+      #                 established and then dropped; nil for a cold start.
       def render(room:, exits: [], here: [], player: {}, events: [], first_visit: false,
-                 candidates: nil, ambiguity: nil, region: nil)
+                 candidates: nil, ambiguity: nil, region: nil, lost: nil)
         return nil if room.nil? && player.to_h.empty? && events.empty?
 
         lines = []
-        lines << location_line(room, ambiguity)
+        lines << location_line(room, ambiguity, lost)
         lines << "  #{room[:description]}" if first_visit && room && !room[:description].to_s.empty?
         lines << exits_line(exits) if exits && !exits.empty?
         lines << region_line(region) if region
@@ -45,7 +47,10 @@ module Boukensha
         lines.compact.join("\n")
       end
 
-      def location_line(room, ambiguity)
+      # `lost` — { room:, direction:, recovery: } when the position was established
+      #          and then dropped, or nil for a genuine cold start.
+      def location_line(room, ambiguity, lost = nil)
+        return lost_line(lost) if room.nil? && lost
         return "#{HEADER} (unknown — no room established yet)" if room.nil?
 
         parts = ["#{HEADER} #{room[:name]}"]
@@ -55,6 +60,31 @@ module Boukensha
         # and look again. A model told a confident lie cannot.
         parts << "(uncertain — #{ambiguity} candidates)" if ambiguity.to_i > 1
         parts.join("  ")
+      end
+
+      # A position that was established and then LOST, which is a different
+      # situation from one never established and needs saying differently. The old
+      # line said "no room established yet" for both, and "yet" reads as a cold
+      # start the next automatic `look` will resolve — true of a fresh process and
+      # false in an unlit room, where looking again can never work. Session
+      # 20260731T151434Z-737a23cb read that line twenty-three times.
+      #
+      # It names the room walked out of, because that is what `note_position_lost`
+      # keeps, and it names what would help — except after `stuck`, where nothing
+      # would and saying so is the answer (blind_step_recovery.md §5.6).
+      def lost_line(lost)
+        room      = lost[:room]
+        direction = lost[:direction]
+        from      = room ? " after walking #{direction ? "#{direction} " : ''}out of #{room[:name]}" : ""
+        "#{HEADER} (unknown — your position was lost#{from})\n  #{lost_remedy(lost[:recovery])}"
+      end
+
+      def lost_remedy(recovery)
+        if recovery.to_s == "stuck"
+          "every direction from there was refused, so walking will not re-establish it"
+        else
+          "walking is what re-establishes it: move_to(destination: \"north\"), or any other direction"
+        end
       end
 
       # The one glyph that is genuinely new information: `✓` is a destination the

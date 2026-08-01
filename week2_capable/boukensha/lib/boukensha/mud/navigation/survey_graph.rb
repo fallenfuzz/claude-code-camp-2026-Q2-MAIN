@@ -1,6 +1,8 @@
 require "set"
 require_relative "route_planner"
 require_relative "destination_search"
+require_relative "assessment"
+require_relative "egress"
 
 module Boukensha
   module Mud
@@ -74,10 +76,33 @@ module Boukensha
 
         def room_count = @scope_room_ids ? @scope_room_ids.size : @rooms.size
 
-        # The surveyor's guess about what is behind an unwalked exit, or nil. The
-        # planner cannot derive this — it can see the exit's name and nothing
-        # else — which is precisely why it is annotated rather than computed.
-        def hint(frontier) = @hints[[frontier[:room_id], frontier[:direction]]]
+        # Everything the surveyor annotated an unwalked exit with. The planner
+        # cannot derive any of it — it can see the exit's name and nothing else —
+        # which is precisely why these are answered rather than computed.
+        #
+        # `hint` is the expected CLASS and is what every predicate that reads a
+        # hint reads. The other two are the questions blind_step_recovery.md §5.1
+        # adds, asked for by name so that a predicate cannot accidentally compare a
+        # class against an assessability.
+        def hint(frontier) = hint_row(frontier)[:expected_class]
+
+        def assessability(frontier) = Assessment.assessability(hint_row(frontier)[:assessability])
+
+        def hazard(frontier) = hint_row(frontier)[:hazard]
+
+        # The fourth question — staying_in_town.md §10.1. Silence reads as
+        # `interior`, so a map nobody has annotated is unaffected by any of this.
+        def egress(frontier) = Egress.egress(hint_row(frontier)[:egress])
+
+        def leaves?(frontier) = Egress.leaves?(hint_row(frontier)[:egress])
+
+        # Worst tier last. Callers walk the best non-empty tier rather than mixing
+        # them, which is what keeps a frontier nobody can assess out of the running
+        # while an assessable one is still open, without making it unreachable
+        # outright (§5.3).
+        def assessment_tier(frontier) = Assessment.tier(hint_row(frontier)[:assessability])
+
+        def hazard_rank(frontier) = Assessment.hazard_rank(hint_row(frontier)[:hazard])
 
         def feature(slug) = @feature_rooms[slug.to_s] || Set.new
 
@@ -150,14 +175,17 @@ module Boukensha
         # the standing argument for why: "The Reception" and "The Post Office"
         # share no vocabulary with "The Entrance Hall Of The Grunting Boar Inn",
         # and what relates those rooms is adjacency, not naming.
+        # Content words only. Without the `STOPWORDS` subtraction this shared the
+        # defect fix_surveying.md §3.1 corrected in `DestinationSearch` and
+        # `RoutePlanner`: any class label containing a function word was clued by
+        # any exit name containing the same one, so `Too dark to tell.` was a clue
+        # about anything with `to` in it.
         def lexical_clue?(frontier, term)
-          return false if term.to_s.strip.empty?
-
-          wanted = DestinationSearch.tokens(term)
+          wanted = DestinationSearch.tokens(term) - DestinationSearch::STOPWORDS
           return false if wanted.empty?
 
           text = "#{frontier[:target_name]} #{room_name(frontier[:room_id])}"
-          (DestinationSearch.tokens(text) & wanted).any?
+          ((DestinationSearch.tokens(text) & wanted) - DestinationSearch::STOPWORDS).any?
         end
 
         # Undirected adjacency over traversable edges. Undirected on purpose and
@@ -175,10 +203,37 @@ module Boukensha
 
         private
 
+        EMPTY_HINT = {}.freeze
+        private_constant :EMPTY_HINT
+
+        def hint_row(frontier) = @hints[[frontier[:room_id], frontier[:direction]]] || EMPTY_HINT
+
+        # A `leaves` frontier is EXCLUDED under region scope rather than
+        # discounted — staying_in_town.md §9 and §10.2, and the difference
+        # matters. Deferral would let it be taken once everything better drained,
+        # and a room walked past the wall cannot be un-walked: §8 shows the system
+        # cannot reconstruct afterwards which side of the wall a room is on, so
+        # the result is not a recoverable mistake but a permanently mislabelled
+        # fixture. An exit the surveyor has said leaves Midgaard is not a lead of
+        # last resort for a survey of Midgaard, and the honest answer to having no
+        # in-scope leads is to say so — which `Survey` does, as `region_exhausted`,
+        # with the `scope: "world"` call that would proceed anyway.
+        #
+        # Under `scope: "world"` — `@scope_room_ids` nil — the exclusion does not
+        # apply at all, which is what keeps `find_hermit_mapped` and any deliberate
+        # expedition working exactly as before.
+        #
+        # Note which end of the exit each test reads. `in_scope?` filters the
+        # SOURCE room, because that is all it can filter: a frontier is by
+        # definition an exit whose far side has never been entered, so the target
+        # has no id and no region. That is why scope alone could never prevent the
+        # step that leaves (§3.4), and why this second test — asked of a name,
+        # answered by a reasoner — is the one that can.
         def build_frontiers
           paths = frontier_paths
           @exits.select { |e| RoutePlanner.frontier?(e) }
                 .select { |e| @distances.key?(e[:room_id]) && in_scope?(e[:room_id]) }
+                .reject { |e| @scope_room_ids && leaves?({ room_id: e[:room_id], direction: e[:direction].to_s }) }
                 .map do |e|
                   { room_id: e[:room_id], direction: e[:direction].to_s, target_name: e[:target_name],
                     room_name: room_name(e[:room_id]), distance: @distances[e[:room_id]],

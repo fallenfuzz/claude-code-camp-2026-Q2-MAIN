@@ -29,11 +29,70 @@ class TestNavigationDestinationSearch < Minitest::Test
     assert_equal D::TIER_NAME_PHRASE, hits.first[:tier]
   end
 
-  def test_multi_token_query_matches_by_token_overlap_without_a_substring_hit
+  # Every content word of the query present in the name, in some order, without
+  # being a contiguous phrase of it.
+  def test_a_query_whose_content_words_are_all_present_matches_by_token_overlap
     rooms = [room(1, name: "The Reading Room"), room(2, name: "Market Square")]
-    hits = D.search("reading nook", rooms: rooms)
+    hits = D.search("room reading", rooms: rooms)
     assert_equal 1, hits.first[:room_id]
     assert_equal D::TIER_NAME_TOKEN, hits.first[:tier]
+  end
+
+  # ---------- one content word is evidence, not identification -------------
+  #
+  # fix_surveying.md §3.1. "The South Gate" identified "Inside The West Gate Of
+  # Midgaard" on the shared word `gate`, was reported with confidence, and was
+  # then reported unreachable — nine times, while the agent stood beside the
+  # South Gate's own unwalked exit.
+  def test_one_shared_content_word_does_not_identify_a_room
+    rooms = [room(1, name: "Inside The West Gate Of Midgaard")]
+    hits = D.search("The South Gate", rooms: rooms)
+
+    refute_equal D::TIER_NAME_TOKEN, hits.first && hits.first[:tier]
+    assert_operator hits.first[:tier], :>, D::TIER_ENTITY,
+                    "a shared word must not reach the tier RoutePlanner treats as decisive"
+  end
+
+  # §3.2: demoted rather than discarded. "bakery shop" for "The Bakery" still
+  # says something about where the agent means, and it still shows up.
+  def test_partial_name_evidence_keeps_its_place_one_tier_below_entity
+    rooms = [room(1, name: "The Bakery"), room(2, name: "Market Square")]
+    hits = D.search("bakery shop", rooms: rooms)
+
+    assert_equal 1, hits.first[:room_id]
+    assert_equal D::TIER_NAME_PARTIAL, hits.first[:tier]
+    assert_operator D::TIER_NAME_PARTIAL, :>, D::TIER_ENTITY
+  end
+
+  # The one that cost the recorded run two calls: it asked to move west and was
+  # routed one step north, because "west" is a substring of "Northwest".
+  def test_the_phrase_tier_compares_words_not_substrings
+    rooms = [room(1, name: "The Northwest End Of The Concourse"),
+             room(2, name: "The Dark Alley At The Levee")]
+
+    assert_empty D.search("west", rooms: rooms)
+    assert_equal 2, D.search("the levee", rooms: rooms).first[:room_id]
+    assert_equal D::TIER_NAME_PHRASE, D.search("the levee", rooms: rooms).first[:tier]
+  end
+
+  # The Temple's automatic teller machine is "installed in the wall here", and
+  # that is how a request for Wall Road became a route to The Temple.
+  def test_an_entity_description_sharing_one_word_does_not_identify_its_room
+    rooms = [room(1, name: "The Temple Of Midgaard")]
+    entities = { 1 => [{ descr: "An automatic teller machine has been installed in the wall here",
+                         keyword: "machine", kind: "obj" }] }
+
+    assert_empty D.search("Wall Road", rooms: rooms, entities_by_room: entities)
+  end
+
+  # …and the entity still answers to a query its description fully accounts for.
+  def test_an_entity_description_covering_the_query_still_identifies_its_room
+    rooms = [room(1, name: "The Temple Of Midgaard")]
+    entities = { 1 => [{ descr: "An automatic teller machine has been installed in the wall here",
+                         keyword: "machine", kind: "obj" }] }
+    hits = D.search("teller machine", rooms: rooms, entities_by_room: entities)
+
+    assert_equal D::TIER_ENTITY, hits.first[:tier]
   end
 
   # The regression that made `move_to` unusable. tbaMUD names most of its rooms

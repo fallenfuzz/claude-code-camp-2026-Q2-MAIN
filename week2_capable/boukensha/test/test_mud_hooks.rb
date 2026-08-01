@@ -196,6 +196,13 @@ class TestMudHooks < Minitest::Test
 
   # plan_route.md §6.3's missing memory: a rejected move is recorded so the
   # frontier ranker can fan outward instead of retrying the same blocked door.
+  #
+  # The row is written by `before_model` rather than by `after_tool`, and the
+  # deferral is the point rather than an accident of layering: whether an
+  # unreadable reply refused us or moved us is exactly what is unknown at
+  # `after_tool` time, and `after_tool` may not spend the `look` that settles
+  # it. Writing the guess there is what put twenty-two false failures in session
+  # 20260730T201603Z-ff25f010's ledger.
   def test_a_rejected_move_records_a_failed_frontier_attempt
     h, = hooks_for(MARKET_SQUARE)
     c = ctx
@@ -203,8 +210,13 @@ class TestMudHooks < Minitest::Test
 
     h.after_tool(name: "tbamud__move", args: { "direction" => "north" },
                  result: "Alas, you cannot go that way.\r\n\r\n20H 100M 81V > ", context: c)
+    assert_nil @store.frontier_attempt_counts[[1, "north"]],
+               "which outcome to record is not yet known, and after_tool may not find out"
+
+    h.before_model(context: c)
 
     assert_equal 1, @store.frontier_attempt_counts[[1, "north"]]
+    assert_equal 1, @store.player[:current_room_id], "and the look confirmed we never left"
   end
 
   def test_a_successful_move_records_a_succeeded_frontier_attempt
@@ -386,8 +398,120 @@ class TestMudHooks < Minitest::Test
     outcome = h.reconcile_move!(direction: "up", text: "Alas, you cannot go that way.\r\n\r\n20H 100M 81V > ")
 
     refute outcome[:ok]
+    assert_equal :refused, outcome[:kind]
     assert_equal 1, @store.frontier_attempt_counts[[1, "up"]]
     assert_equal 1, @store.player[:current_room_id], "a rejected move must not change position"
+  end
+
+  # --- unreadable movement output (dark_rooms_and_stuck_walks.md) ------------
+  #
+  # The class of failure that stranded session 20260730T201603Z-ff25f010: a move
+  # whose reply is not a room USED to be read as "the move was refused", which
+  # is only one of the two things it can mean. The other is that we moved and
+  # cannot see where to, and concluding the first when the second is true leaves
+  # memory asserting a room the character has left — permanently, because
+  # nothing afterwards re-checks a position it believes it knows.
+  #
+  # None of these tests hands the parser a sentence to recognise. What settles
+  # the ambiguity is a `look` and what it comes back with, which is why the same
+  # code covers darkness, blindness, and output nobody has seen yet.
+
+  # tbaMUD's reply on walking into an unlit room. It is here as a fixture rather
+  # than as a constant in the parser precisely because no production code may
+  # test for it.
+  PITCH_BLACK = "It is pitch black...\r\n\r\n27H 132M 94V (news) (motd) > ".freeze
+
+  def test_an_unreadable_move_that_a_look_proves_was_a_real_move_updates_position
+    h, fake = hooks_for(MARKET_SQUARE)
+    c = ctx
+    h.before_model(context: c) # Market Square is room 1
+
+    # The move says nothing readable, but a look from where we now stand shows
+    # a different room: we moved.
+    fake.responses = COMMON_SQUARE
+    outcome = h.reconcile_move!(direction: "south", text: PITCH_BLACK)
+
+    assert outcome[:ok], "a move the look proves happened is an arrival, not a refusal"
+    assert_equal :look, outcome[:resolved_by]
+    assert_equal "The Common Square", outcome[:room_name]
+    assert_equal outcome[:room_id], @store.player[:current_room_id]
+    assert_equal outcome[:room_id], @store.exit_at(1, "south")[:target_room_id],
+                 "the step is still a step, and the map gains it"
+    assert_nil @store.frontier_attempt_counts[[1, "south"]],
+               "an exit that moved us must never be recorded as a failed attempt"
+  end
+
+  def test_an_unreadable_move_and_an_unreadable_look_drops_position_and_marks_the_exit
+    h, fake = hooks_for(MARKET_SQUARE)
+    c = ctx
+    h.before_model(context: c)
+
+    # Wherever we are, we cannot read it either — the sewer under The Dump.
+    fake.responses = { "look" => PITCH_BLACK, "poll" => "" }
+    outcome = h.reconcile_move!(direction: "down", text: PITCH_BLACK)
+
+    refute outcome[:ok]
+    assert_equal :position_lost, outcome[:kind]
+    assert_nil @store.player[:current_room_id],
+               "asserting the old room is the defect; unknown is the honest answer"
+    assert_equal 1, @store.exit_at(1, "down")[:opaque],
+                 "an exit walked for no information must stop being offered as a frontier"
+    assert_nil @store.frontier_attempt_counts[[1, "down"]],
+               "we moved, so the attempt succeeded — it simply told us nothing"
+  end
+
+  # The other half, and the one that keeps the fix from being a licence to
+  # wander: when the look says we are exactly where we thought, the move really
+  # was refused and nothing about the map changes.
+  def test_an_unreadable_move_a_look_shows_we_never_left_is_still_a_refusal
+    h, fake = hooks_for(MARKET_SQUARE)
+    c = ctx
+    h.before_model(context: c)
+    before = @store.exit_at(1, "north")
+
+    fake.responses = MARKET_SQUARE
+    outcome = h.reconcile_move!(direction: "north", text: "Some output nobody has ever seen.\r\n20H 100M 81V > ")
+
+    refute outcome[:ok]
+    assert_equal :refused, outcome[:kind]
+    assert_equal 1, @store.player[:current_room_id]
+    assert_equal 1, @store.frontier_attempt_counts[[1, "north"]]
+    assert_equal before.to_h, @store.exit_at(1, "north").to_h,
+                 "one refusal is a closed door as often as a wrong edge, and must not demote one"
+  end
+
+  # The single-move path reaches the same three answers, but `after_tool` is
+  # documented as spending no MUD I/O, so the doubt is carried to `before_model`
+  # rather than resolved on the spot.
+  def test_a_single_unreadable_move_defers_its_look_to_before_model
+    h, fake = hooks_for(MARKET_SQUARE)
+    c = ctx
+    h.before_model(context: c)
+
+    fake.responses = COMMON_SQUARE
+    fake.calls.clear
+    h.after_tool(name: "tbamud__move", args: { "direction" => "south" }, result: PITCH_BLACK, context: c)
+
+    assert_empty fake.tools_called, "after_tool may not spend a round trip"
+    assert_equal 1, @store.player[:current_room_id], "and so cannot have resolved it yet"
+
+    h.before_model(context: c)
+
+    assert_includes fake.tools_called, "look"
+    assert_equal "The Common Square", @store.room(@store.player[:current_room_id])[:name]
+  end
+
+  def test_a_single_unreadable_move_into_an_unreadable_room_leaves_position_unknown
+    h, fake = hooks_for(MARKET_SQUARE)
+    c = ctx
+    h.before_model(context: c)
+
+    fake.responses = { "look" => PITCH_BLACK, "poll" => "" }
+    h.after_tool(name: "tbamud__move", args: { "direction" => "down" }, result: PITCH_BLACK, context: c)
+    h.before_model(context: c)
+
+    assert_nil @store.player[:current_room_id]
+    assert_equal 1, @store.exit_at(1, "down")[:opaque]
   end
 
   # The prose is the largest field in the record and the agent has already read

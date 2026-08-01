@@ -3,6 +3,7 @@ require_relative "claim_ledger"
 require_relative "survey_graph"
 require_relative "execute_route_tool"
 require_relative "region_tools"
+require_relative "egress"
 require_relative "../../operation"
 
 module Boukensha
@@ -42,7 +43,19 @@ module Boukensha
           "survey_max_reasoner_calls" => 8,
           "max_steps_per_leg"       => 4,
           "max_open_claims"         => 6,
-          "survey_saturation_rooms" => 6
+          "survey_saturation_rooms" => 6,
+          # Steps that did not land. A survey meets more of these than a trip to
+          # a named place does, because it is deliberately walking at the edge
+          # of what is mapped, so the allowance is larger than travel's two —
+          # and it has to be non-zero at all, since about one move in twenty is
+          # refused in ordinary play and a survey that abandoned a thirty-room
+          # budget over one shut door could never achieve coverage on a map
+          # with a shut door in it.
+          "survey_max_setbacks"     => 4,
+          # The same recovery budget travel gets, and a survey needs it more: it
+          # walks at the edge of the map on purpose, which is where the unlit rooms
+          # and the one-way drops are (blind_step_recovery.md §5.5).
+          "max_blind_steps"         => 6
         }.freeze
 
         def initialize(store:, call_tool:, hooks:, surveyor:, cartographer: nil,
@@ -72,15 +85,22 @@ module Boukensha
           @legs         = []
           @rooms_walked = 0
           @calls        = 0
+          @setbacks     = 0
           @status       = nil
           @detail       = nil
 
           return "[move_to] error: a survey needs a question" if @question.empty?
 
-          here = @store.player[:current_room_id]
+          here         = @store.player[:current_room_id]
+          # The anchor §13's conduct measure counts from, journalled on `answered`
+          # exactly as travel journals it. A survey is where most of a cold run's
+          # walking happens, so a measure that could only see travel calls would
+          # miss the legs that matter most.
+          @origin_room = here
           if here.nil?
             @status = "position_unknown"
             @detail = "your location has not been established yet; take one safe action first"
+            answered
             return render
           end
 
@@ -90,6 +110,7 @@ module Boukensha
                                         limits: @limits, journal: @journal)
 
           span("move_to survey #{@question}") { run }
+          answered
           render
         end
 
@@ -115,9 +136,19 @@ module Boukensha
               return
             end
             if graph.frontiers.empty?
-              # Frontiers exist but all lie outside the surveyed region: a
-              # question rather than a wall, exactly as it is for travel.
-              @status = out_of_scope_frontiers?(graph) ? "region_exhausted" : "exhausted"
+              # Frontiers exist but all lie outside the surveyed region — or, as
+              # of staying_in_town.md §10.2, the surveyor has said they leave the
+              # place. Either way it is a question rather than a wall, exactly as
+              # it is for travel, so the answer carries the call that would
+              # proceed anyway. A survey that has walked a whole town and stopped
+              # without saying what would continue it invites the same call again.
+              if out_of_scope_frontiers?(graph)
+                @status = "region_exhausted"
+                @detail = "every remaining lead leaves #{@region ? @region[:label] : 'here'}; " \
+                          "move_to(survey: #{@question.inspect}, scope: \"world\") goes anyway"
+              else
+                @status = "exhausted"
+              end
               return
             end
             unless @planner.settleable?(graph, rooms_left, claims: claims)
@@ -289,10 +320,28 @@ module Boukensha
         # hints. It is already reading these names, so the annotation is free —
         # and it puts the one genuinely semantic guess in the survey, what lies
         # behind an unwalked exit, in the component that should be guessing.
+        # The assessment already on record travels with each frontier, so a
+        # surveyor is not asked the same question twice and can see which doors an
+        # earlier session — or a walk that came back with nothing — has already
+        # written off. `unknown` is sent as nothing at all rather than as the word,
+        # because "nobody has said" and "somebody said unknown" are the same state
+        # and printing a value invites the model to echo it.
         def open_frontiers
-          build_graph.frontiers.first(12).map do |f|
+          graph = build_graph
+          graph.frontiers.first(12).map do |f|
+            assessed = graph.assessability(f)
+            recorded = graph.egress(f)
             { "room_id" => f[:room_id], "direction" => f[:direction],
-              "from" => f[:room_name], "leads_to" => f[:target_name], "moves_away" => f[:distance] }.compact
+              "from" => f[:room_name], "leads_to" => f[:target_name], "moves_away" => f[:distance],
+              "assessability" => (assessed unless assessed == Assessment::UNKNOWN),
+              # Same rule as `assessability`: a default is sent as nothing at all
+              # rather than as the word, because "nobody has said" and "somebody
+              # said interior" are the same state and printing a value invites the
+              # model to echo it. Under region scope a `leaves` frontier is not in
+              # this list at all, so what this shows back is a `boundary` the
+              # surveyor already named.
+              "egress" => (recorded unless recorded == Egress::INTERIOR),
+              "hazard" => graph.hazard(f) }.compact
           end
         end
 
@@ -318,6 +367,16 @@ module Boukensha
           @store.room_regions.select { |_, m| ids.include?(m[:region_id]) }.keys
         end
 
+        # Are there leads left that this scope will not let the survey take?
+        #
+        # It answers by counting what is reachable WITHOUT the scope filter and
+        # relying on the caller having already found `graph.frontiers` empty: if
+        # any reachable frontier survives here, it is one the scope removed. That
+        # covers `leaves` frontiers with no extra clause, because `SurveyGraph`
+        # drops them from the same set for the same reason — and it is what turns
+        # a survey that has walked a whole town into a report saying every
+        # remaining lead leaves Midgaard, in words the player can act on, rather
+        # than into a stall.
         def out_of_scope_frontiers?(_graph)
           return false unless scope_room_ids
 
@@ -377,8 +436,10 @@ module Boukensha
 
         def leg(steps, decision)
           n = @legs.size + 1
+          before_room = here_id
           result = span("move_to survey leg #{n}") do
-            ExecuteRouteTool.walk(steps: steps, call_tool: @call_tool, hooks: @hooks)
+            ExecuteRouteTool.walk(steps: steps, call_tool: @call_tool, hooks: @hooks,
+                                  blind_steps: limit("max_blind_steps"))
           end
 
           @legs << result.merge(requested: steps, claim: decision.claim && decision.claim[:ref],
@@ -386,11 +447,70 @@ module Boukensha
           @rooms_walked_this_leg = result[:completed].size
           @rooms_walked += @rooms_walked_this_leg
 
-          if result[:stopped]
-            @status = "interrupted"
-            return false
-          end
+          return handle_stop(result) if result[:stopped]
+          return false if egress_backstop(result, before_room)
+
           true
+        end
+
+        # The same backstop travel has — staying_in_town.md §10.4 — and the
+        # survey is the mode it names the uncovered cases for: a hint that was
+        # absent is a surveyor that was never asked about an exit, or was asked
+        # and said nothing. Under region scope the planner never offers a
+        # frontier the surveyor called `leaves`, so this only ever catches a
+        # crossing that nothing predicted, and it catches it one room late.
+        #
+        # Off under `scope: "world"`, where the player asked to range and a
+        # crossing is the point rather than the failure.
+        def egress_backstop(result, before_room)
+          return false unless @scope == "region" && @origin_room
+
+          inside = Guard.scope_rooms(@store, @origin_room)
+          edge   = Guard.first_departure(result[:completed], before_room, inside)
+          return false unless edge
+
+          left = @store.region_for_room(edge[:from])
+          if Guard.declare!(store: @store, edge: edge, region: left,
+                            reason: "a survey leg landed outside the place this call began in")
+            journal("egress_recorded", from_room_id: edge[:from], to_room_id: edge[:to],
+                                       direction: edge[:direction], region: left[:label], scope: @scope)
+          end
+          @status = "left_region"
+          @detail = "a leg landed outside #{left ? left[:label] : 'the place this survey began in'}; " \
+                    "move_to(destination: #{@store.room(edge[:from])&.[](:name).inspect}) walks back"
+          true
+        end
+
+        # The survey's half of `MoveTo#handle_stop`, and the place the recorded
+        # failure actually cost coverage: this returned false for every kind of
+        # stop, so one refused step on leg 5 ended a survey holding four open
+        # claims, twenty-six unspent rooms and nine unspent legs.
+        #
+        # A step that did not land is charged to the claim that asked for it —
+        # the caller does that on the way past — and the loop then re-scores the
+        # ledger against a graph that no longer offers the frontier just proved
+        # unwalkable, so the next choice is a different one by construction.
+        def handle_stop(result)
+          case result[:stopped_kind]
+          # A recovered position is a corrected map, which is what this arm
+          # re-plans against. It is what keeps a survey that fell down a well from
+          # ending on leg five with twenty-six rooms of budget unspent.
+          when :refused, :unreadable, :recovered
+            @setbacks += 1
+            return true if @setbacks < limit("survey_max_setbacks")
+
+            @status = "budget"
+            @detail = "survey_max_setbacks (#{limit('survey_max_setbacks')}) reached: #{result[:stopped]}"
+            false
+          when :position_lost, :recovery_exhausted, :stuck
+            @status = result[:stopped_kind].to_s
+            @detail = result[:stopped]
+            false
+          else
+            @status = "interrupted"
+            @detail = result[:stopped]
+            false
+          end
         end
 
         def rooms_left = limit("survey_max_rooms") - @rooms_walked
@@ -399,6 +519,18 @@ module Boukensha
           @status = "budget"
           @detail = "#{which} (#{limit(which)}) reached"
           nil
+        end
+
+        # A survey is a `move_to` call like any other, so it journals the same
+        # `answered` line the destination mode does and lands in the same
+        # `no_progress_calls` projection. `destination` is the question, because
+        # what the repeat count is watching for is the same objective asked twice
+        # with nothing having changed in between.
+        def answered
+          journal("answered", destination: @question, status: @status.to_s,
+                              rooms_walked: @rooms_walked, legs: @legs.size,
+                              surveyor_calls: @calls, mode: "survey",
+                              from_room_id: @origin_room)
         end
 
         # ---------- the report -----------------------------------------------
@@ -427,8 +559,10 @@ module Boukensha
           when "interrupted"      then "interrupted"
           when "exhausted"        then "no reachable frontier remains"
           when "region_exhausted" then "every remaining frontier leaves this region"
+          when "left_region"      then "stopped — this walked out of the place being surveyed"
           when "surveyor_failed"  then "stopped — the surveyor did not answer"
           when "position_unknown" then "position unknown"
+          when "position_lost"    then "stopped — where you are is no longer known"
           else @status.to_s
           end
         end

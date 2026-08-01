@@ -1,4 +1,6 @@
+require "set"
 require_relative "destination_search"
+require_relative "assessment"
 require_relative "../room_parser"
 
 module Boukensha
@@ -64,11 +66,16 @@ module Boukensha
         # regions_by_room:         { room_id => region_id }
         # scope_region_ids:        region ids exploration is confined to, or
         #                          nil for `scope: "world"`
+        # frontier_hints:          Store#frontier_hints — what a survey or an
+        #                          unreadable walk concluded about the far side of
+        #                          an unwalked exit. Empty is the ordinary case for
+        #                          travel and means nothing has been concluded.
         def plan(query:, current_room_id:, rooms:, exits:, entities_by_room: {}, frontier_attempt_counts: {},
-                 regions_by_room: {}, scope_region_ids: nil)
+                 regions_by_room: {}, scope_region_ids: nil, frontier_hints: {})
           Planner.new(rooms: rooms, exits: exits, entities_by_room: entities_by_room,
                       frontier_attempt_counts: frontier_attempt_counts,
-                      regions_by_room: regions_by_room, scope_region_ids: scope_region_ids)
+                      regions_by_room: regions_by_room, scope_region_ids: scope_region_ids,
+                      frontier_hints: frontier_hints)
                  .plan(query: query, current_room_id: current_room_id)
         end
 
@@ -95,6 +102,53 @@ module Boukensha
           dist
         end
 
+        # Which rooms are on the same side of the wall as `from` — staying_in_town.md
+        # §10.4 and §13.
+        #
+        # A room is inside the scope of a call that began in `from` when it can be
+        # reached from `from` over known exits without traversing an edge somebody
+        # recorded as an egress. That is the whole definition, and everything it
+        # deliberately does NOT consult is the point of it: no region label, no
+        # region ancestry, no room name. §8 of that document is why — read as
+        # containment, the region tree is actively misleading. On the run this was
+        # written for, `The Plains` came out a descendant of `The Temple`, its
+        # parent moved between two splits twelve iterations apart, the region
+        # actually named `Midgaard` held no rooms at all, and five countryside
+        # rooms shared a region with the temple interior. An edge the walker
+        # recorded at the moment it crossed cannot be moved by a later relabelling.
+        #
+        # UNDIRECTED, like `SurveyGraph#undirected` and for the same reason: this
+        # asks about shape rather than about routing, and a room reached through a
+        # one-way drop is still on the side of the wall it landed on. Routing
+        # still uses the directed graph, so nothing here produces a walk the agent
+        # cannot make.
+        #
+        # blocked: [[room_a, room_b], …] as unordered pairs — Store#egress_edges.
+        def reachable_within(exits:, from:, blocked: [])
+          return Set.new unless from
+
+          barrier = blocked.map { |pair| pair.sort }.to_set
+          adjacent = Hash.new { |h, k| h[k] = [] }
+          traversable(exits).each do |edge|
+            to = target_of(edge)
+            adjacent[edge[:room_id]] << to
+            adjacent[to] << edge[:room_id]
+          end
+
+          seen  = Set.new([from])
+          queue = [from]
+          until queue.empty?
+            room_id = queue.shift
+            adjacent[room_id].each do |neighbour|
+              next if barrier.include?([room_id, neighbour].sort)
+              next unless seen.add?(neighbour)
+
+              queue << neighbour
+            end
+          end
+          seen
+        end
+
         # Exits BFS may walk. Earned edges always; presumed ones — an exit whose
         # MUD-reported destination name resolved to a room already in memory —
         # only when the caller wants them, and always ranked after earned edges
@@ -108,18 +162,29 @@ module Boukensha
 
         def presumed?(exit) = exit[:target_room_id].nil? && !exit[:presumed_target_id].nil?
 
-        # An exit is a FRONTIER only when nobody knows what is behind it. An exit
-        # the MUD has named as a room the agent has stood in is not exploration,
-        # and counting it as one is what inflated the recorded Midgaard map's
-        # frontier set by a third with rooms that needed no exploring.
-        def frontier?(exit) = exit[:target_room_id].nil? && exit[:presumed_target_id].nil?
+        # An exit is a FRONTIER only when nobody knows what is behind it AND
+        # walking it stands to tell us. An exit the MUD has named as a room the
+        # agent has stood in is not exploration, and counting it as one is what
+        # inflated the recorded Midgaard map's frontier set by a third with
+        # rooms that needed no exploring.
+        #
+        # An OPAQUE exit fails the second half. It has already been walked and
+        # the destination could not be read even with a follow-up `look`, so the
+        # move on offer is one whose outcome is known in advance to be no
+        # information. Leaving it in the set is what let a survey pick the same
+        # trapdoor twice.
+        def frontier?(exit)
+          exit[:target_room_id].nil? && exit[:presumed_target_id].nil? && !opaque?(exit)
+        end
+
+        def opaque?(exit) = exit[:opaque].to_i.positive?
 
         # The algorithm, instantiated per call so the BFS/search results and
         # the room/exit snapshot can live as ivars instead of being re-threaded
         # through every private method as arguments.
         class Planner
           def initialize(rooms:, exits:, entities_by_room: {}, frontier_attempt_counts: {},
-                         regions_by_room: {}, scope_region_ids: nil)
+                         regions_by_room: {}, scope_region_ids: nil, frontier_hints: {})
             @rooms_by_id      = rooms.each_with_object({}) { |r, h| h[r[:id]] = r }
             @exits_by_room    = exits.group_by { |e| e[:room_id] }
             @linked_by_room   = RoutePlanner.traversable(exits).group_by { |e| e[:room_id] }
@@ -133,6 +198,7 @@ module Boukensha
             # nil means `scope: "world"` — no constraint at all, as distinct
             # from an empty array, which would constrain to nothing.
             @scope_ids        = scope_region_ids
+            @assessments      = frontier_hints || {}
           end
 
           def plan(query:, current_room_id:)
@@ -162,9 +228,42 @@ module Boukensha
             # already have won here first).
             known_matches = matches.select { |m| m[:tier] <= DestinationSearch::TIER_ENTITY }
 
-            return known_branch(q, current_room_id, known_matches, distances, predecessors) if known_matches.any?
+            if known_matches.any? && !door_answers_better?(q, known_matches, distances)
+              return known_branch(q, current_room_id, known_matches, distances, predecessors)
+            end
 
             frontier_branch(q, current_room_id, distances, predecessors)
+          end
+
+          # Two different questions hide inside "where is the place the agent
+          # named", and the ranked list above collapses them into one:
+          #
+          #   Which room that I have stood in is this?  Answered from CONTENT —
+          #   name, description, entities — the same kind of evidence
+          #   `Memory::Fingerprint` uses to answer "have I been here before".
+          #
+          #   Which door leads to the place named?  Answered from POSITION, and
+          #   the answer is a frontier rather than a destination, because the place
+          #   has never been entered and nothing is known about it except where
+          #   it is.
+          #
+          # Collapsing them is what let a room matching on one shared word bury an
+          # exit labelled with the query exactly. §3.1 makes that particular
+          # collision impossible, and this states the rule directly rather than
+          # leaving it as a consequence of where the tier boundaries fall: an
+          # exact or phrase match on a room's own NAME still wins, because a place
+          # the agent has stood in is better known than a label on a closed door.
+          #
+          # In scope, because what is being proposed is exploration, and an
+          # out-of-scope door is not an answer this branch is allowed to give.
+          def door_answers_better?(q, known_matches, distances)
+            return false if known_matches.any? { |m| m[:tier] <= DestinationSearch::TIER_NAME_PHRASE }
+
+            norm = DestinationSearch.normalize(q)
+            @frontiers.any? do |f|
+              distances.key?(f[:room_id]) && in_scope?(f[:room_id]) &&
+                DestinationSearch.normalize(f[:target_name]) == norm
+            end
           end
 
           private
@@ -249,9 +348,19 @@ module Boukensha
                        steps: path_to(primary[:room_id], predecessors),
                        evidence: primary[:evidence], alternatives: alternatives)
             else
+              # The refusal carries the frontier too. Everything needed for it
+              # was computed above and thrown away: this branch used to return
+              # `unexplored: []` and `unexplored_total: 0` while holding the BFS
+              # distances and the whole frontier set, so the answer stated a fact
+              # about a room the agent could not reach and named nothing it could
+              # do instead. That is what made it repeatable — the ninth refusal
+              # was byte-identical to the first, and there was no reason inside it
+              # to expect the tenth to differ (§3.3).
+              shown, withheld, total = unexplored_for(distances, predecessors)
               plan_row("unreachable", q, current_room_id,
                        destination_room: primary[:room_id],
-                       evidence: primary[:evidence], alternatives: alternatives)
+                       evidence: primary[:evidence], alternatives: alternatives,
+                       unexplored: shown, withheld: withheld, unexplored_total: total)
             end
           end
 
@@ -273,7 +382,16 @@ module Boukensha
           # No decisive known match — rank exploration frontiers, §6.2.
           def frontier_branch(q, current_room_id, distances, predecessors)
             reachable = @frontiers.select { |f| distances.key?(f[:room_id]) }
-            return empty_plan("exhausted", q, current_room_id) if reachable.empty?
+            if reachable.empty?
+              # Computed the same way as every other answer's listing rather than
+              # hard-coded empty, which is what says out loud that this status
+              # means the set IS empty: `exhausted` is precisely "no reachable
+              # exploration frontier", so there is nothing for the view to hold
+              # and the renderer prints nothing extra.
+              shown, withheld, total = unexplored_for(distances, predecessors)
+              return plan_row("exhausted", q, current_room_id,
+                              unexplored: shown, withheld: withheld, unexplored_total: total)
+            end
 
             # Scope constrains EXPLORATION and never travel: `known_branch` has
             # already returned by this point, so a destination the agent has
@@ -296,7 +414,7 @@ module Boukensha
                                                                      exits_by_room: @exits_by_room)
             room_tier = room_matches.each_with_object({}) { |m, h| h[m[:room_id]] ||= m[:tier] }
 
-            best = reachable.min_by { |f| frontier_rank_key(f, q, distances, room_tier) }
+            best = pick_frontier(reachable, q, distances, room_tier)
             evidence = frontier_evidence(best, q, room_tier)
             shown, withheld = unexplored_view(reachable, distances, predecessors)
 
@@ -317,6 +435,17 @@ module Boukensha
           # `path` rides on each group because a frontier the agent cannot
           # walk to is not a choice it can make, and the whole point of
           # listing more than one is that the choice is the agent's.
+          # The listing as the answers that are NOT the explore branch need it:
+          # every reachable in-scope frontier, banded, plus the total. Scope is
+          # applied here for the same reason it is applied there — what is being
+          # offered is somewhere to explore — so an answer given under
+          # `scope: "region"` never lists a door out of the region as the remedy.
+          def unexplored_for(distances, predecessors)
+            reachable = @frontiers.select { |f| distances.key?(f[:room_id]) && in_scope?(f[:room_id]) }
+            shown, withheld = unexplored_view(reachable, distances, predecessors)
+            [shown, withheld, reachable.size]
+          end
+
           def unexplored_view(reachable, distances, predecessors)
             groups = reachable
                      .group_by { |f| f[:room_id] }
@@ -353,6 +482,34 @@ module Boukensha
               min_distance: distances.min, max_distance: distances.max }
           end
 
+          # Which frontier to recommend, once the ranking above has said how good
+          # each one is. The same rule the survey applies in `ClaimPlanner#eligible`
+          # — a door whose far side nobody can assess is not walked while a door
+          # that can be assessed is still open (blind_step_recovery.md §5.3).
+          #
+          # A frontier the QUERY names is the travel-mode form of "the objective
+          # justifies it", and it competes regardless of assessment, because an
+          # agent asking for a place by name and being shown the exit labelled with
+          # that name is the whole point of the frontier branch.
+          #
+          # Travel has no surveyor, so almost every exit here is `unknown` and the
+          # tiering is inert — which is deliberate. The exits it does demote are the
+          # ones a survey has assessed or a walk has proven unreadable, and for
+          # those, travel has a stronger reason to avoid them than a survey does: a
+          # route toward a named destination gains nothing from a door that pays no
+          # information.
+          def pick_frontier(reachable, q, distances, room_tier)
+            by_tier = reachable.group_by { |f| Assessment.tier(assessment_of(f)) }
+            best    = by_tier.keys.min
+            pool    = by_tier[best] +
+                      reachable.select { |f| Assessment.tier(assessment_of(f)) > best && target_name_clue?(f, q) }
+            pool.min_by { |f| frontier_rank_key(f, q, distances, room_tier) }
+          end
+
+          def assessment_of(frontier)
+            @assessments.dig([frontier[:room_id], frontier[:direction].to_s], :assessability)
+          end
+
           # Lexicographic: (1) exact/phrase clue in the frontier's own
           # target_name, (2) the frontier's source room's own match tier
           # (covers both "best matching room" and "any room with matching
@@ -370,6 +527,10 @@ module Boukensha
               region_hops(frontier[:room_id], distances),
               distances[frontier[:room_id]] || Float::INFINITY,
               @attempt_counts[[frontier[:room_id], frontier[:direction]]] || 0,
+              # Behind every term that carries meaning and ahead of the two that are
+              # only there for determinism: a hazard somebody recorded separates two
+              # otherwise identical doors and never outweighs a clue or a distance.
+              Assessment.hazard_rank(@assessments.dig([frontier[:room_id], frontier[:direction].to_s], :hazard)),
               direction_index(frontier[:direction]),
               frontier[:room_id]
             ]
@@ -396,12 +557,27 @@ module Boukensha
             @scope_ids.include?(@region_of[room_id])
           end
 
+          # The same content-word rule `DestinationSearch` applies, applied here
+          # too. This function was written against the same data with the same
+          # bug the search had already been corrected for, and never picked the
+          # correction up: raw token overlap made "the" a clue, so for the query
+          # "The South Gate" three of the four exits reachable from the concourse
+          # tied at the top rank and canonical direction order sent the agent
+          # east — past the exit actually named "The South Gate". The stall
+          # survived all the way to the ranking function (§3.1).
+          #
+          # The substring arm goes for the reason the phrase tier lost its: it
+          # ignores word boundaries, and an exit named "The Northwest End Of The
+          # Concourse" is not a clue about west.
           def target_name_clue?(frontier, q)
             return false if q.empty? || frontier[:target_name].to_s.empty?
 
             norm = DestinationSearch.normalize(frontier[:target_name])
-            norm == q || norm.include?(q) ||
-              (DestinationSearch.tokens(frontier[:target_name]) & DestinationSearch.tokens(q)).any?
+            return true if norm == q
+
+            shared = (DestinationSearch.tokens(frontier[:target_name]) & DestinationSearch.tokens(q)) -
+                     DestinationSearch::STOPWORDS
+            shared.any?
           end
 
           def frontier_evidence(frontier, q, room_tier)

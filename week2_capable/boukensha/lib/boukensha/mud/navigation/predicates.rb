@@ -63,6 +63,30 @@ module Boukensha
           send(:"score_#{name}", claim, frontier, graph).to_f.clamp(0.0, 1.0)
         end
 
+        # Is this claim looking for a place of this class, and has it not found one
+        # yet? Asked of a surveyor's `expected_class` hint by `ClaimPlanner#eligible`
+        # to decide whether an unassessable door is justified by the objective
+        # (blind_step_recovery.md §5.3), which is a different question from how much
+        # a frontier is worth and so is answered here rather than read out of a
+        # score.
+        #
+        # Class vocabulary lives in a claim's own `args`, as claims.md argues at
+        # length, so this reads the two shapes those args take — `classes` for a
+        # `composition` claim and `class` for the singular predicates — and nothing
+        # else. A claim with no class vocabulary wants no particular class and
+        # therefore justifies nothing on its own.
+        def wants_class?(claim, klass)
+          klass = klass.to_s
+          return false if klass.empty?
+
+          args     = claim[:args] || {}
+          observed = Array(args["classes_observed"])
+          return false if observed.include?(klass)
+
+          wanted = Array(args["classes"]) + [args["class"]].compact
+          wanted.map(&:to_s).include?(klass)
+        end
+
         # ---------- composition ------------------------------------------------
         # "Midgaard's offerings span a describable set of classes."
         #
@@ -147,12 +171,26 @@ module Boukensha
         # ---------- extent_bounded --------------------------------------------
         # "Midgaard is a settlement of walkable, bounded extent."
 
+        # The confirmation test asks whether every frontier that does not LEAVE
+        # the place has been drained, rather than whether every frontier has —
+        # staying_in_town.md §10.2. A town whose streets are all walked and whose
+        # only remaining exits are the two gate roads is a town of bounded extent,
+        # and that is precisely the observation the claim was opened to make.
+        #
+        # Under region scope the two tests coincide, because `SurveyGraph` has
+        # already dropped the `leaves` frontiers; under world scope they differ
+        # and this is what stops the claim being held open by the countryside.
+        # Applied to run 20260731T171650Z-09259cd5, C2 would have confirmed
+        # instead of spending its whole twenty-one-room budget gathering evidence
+        # against itself.
         def settle_extent_bounded(claim, graph, _limits)
           ceiling = claim[:args]["ceiling"]&.to_i
           if ceiling && graph.room_count > ceiling
             return ["refuted", "#{graph.room_count} rooms in scope exceeds the stated ceiling of #{ceiling}"]
           end
-          return ["confirmed", "every in-scope frontier has been drained"] if graph.frontiers.empty?
+          if graph.frontiers.all? { |frontier| graph.leaves?(frontier) }
+            return ["confirmed", "every in-scope frontier that stays in the place has been drained"]
+          end
 
           nil
         end
@@ -161,8 +199,40 @@ module Boukensha
         # cost. Arbitration divides by walk cost as well, so the decay here is
         # gentle on purpose — squaring the preference would make this claim
         # incapable of ever pulling the survey more than one room.
-        def score_extent_bounded(_claim, frontier, _graph)
-          1.0 / (1 + frontier[:distance].to_i)
+        # A CONSTANT, and the constant is the whole correction. This used to be
+        # `1.0 / (1 + frontier[:distance])`, so the coverage claim's entire
+        # contribution was a nearness term — and `ClaimPlanner#choose` then divides
+        # the summed score by `1 + distance` a second time, which favoured the
+        # frontier in the room the agent was standing in twice over.
+        #
+        # Run 20260731T151434Z-737a23cb is what that cost. Replayed against its own
+        # map, the well in The Clerics' Inner Sanctum scored 1.0800 — 0.9 of it from
+        # this predicate at full priority — against 0.2888 for the Market Square
+        # exit that another claim's decisive test explicitly named. The survey
+        # dropped into an unlit sewer, lost its position, and the session ended
+        # having walked four rooms of thirty.
+        #
+        # Tracing the extent of a place is advanced equally by walking any unwalked
+        # frontier, so a constant is the honest score, and the one nearness term
+        # belongs where it already was. Which of two equally-informative doors is
+        # nearer is a question about cost, and cost is the divisor's job.
+        #
+        # "Any unwalked frontier" was doing too much work, and staying_in_town.md
+        # §3.3 is the correction: an exit that LEAVES the place does not advance
+        # the claim at all. Crossing the town boundary tells you nothing about the
+        # extent of the town that standing at the boundary did not already tell
+        # you. The old flat constant is what chose leg 6 of run
+        # 20260731T171650Z-09259cd5 — C2 contributed 0.9 unconditionally to a
+        # frontier underfoot, the nearest street frontier was three moves away and
+        # divided by four, and no open claim had any way to say this particular
+        # door was worth less than the others.
+        #
+        # Both scopes, unlike the exclusions in `SurveyGraph`. This is not a
+        # permission rule that a wider scope should lift; it is the predicate
+        # stating what its own statement means, and it means the same thing on an
+        # expedition.
+        def score_extent_bounded(_claim, frontier, graph)
+          graph.leaves?(frontier) ? 0.0 : 1.0
         end
 
         # ---------- circuit_closes ---------------------------------------------

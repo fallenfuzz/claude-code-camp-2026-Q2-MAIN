@@ -1,0 +1,305 @@
+{
+ "_source": "run 20260731T151405Z-fa92ead3, session 20260731T151434Z-737a23cb, as at the fifth leg's choice from room #5 (the descent's opaque mark cleared)",
+ "here": 5,
+ "rooms": [
+  {
+   "id": 1,
+   "name": "The Temple Of Midgaard",
+   "description": "You are in the southern end of the temple hall in the Temple of Midgaard. The temple has been constructed from giant marble blocks, eternal in appearance, and most of the walls are covered by ancient wall paintings picturing Gods, giants and peasants. Large steps lead down through the grand temple gate, descending the huge mound upon which the temple is built and ends on the temple square below. To the west, you see the Reading Room. The donation room is in a small alcove to your east.",
+   "arrived_from_room_id": null,
+   "arrived_direction": null
+  },
+  {
+   "id": 2,
+   "name": "The Temple Square",
+   "description": "You are standing on the temple square. Huge marble steps lead up to the temple gate. The entrance to the Clerics' Guild is to the west, and the old Grunting Boar Inn, is to the east. Just south of here you see the market square, the center of Midgaard.",
+   "arrived_from_room_id": 1,
+   "arrived_direction": "south"
+  },
+  {
+   "id": 3,
+   "name": "The Entrance To The Clerics' Guild",
+   "description": "The entrance hall is a small modest room, reflecting the true nature of the Clerics. The exit leads east to the temple square. A small entrance to the bar is in the northern wall.",
+   "arrived_from_room_id": 2,
+   "arrived_direction": "west"
+  },
+  {
+   "id": 4,
+   "name": "The Bar Of Divination",
+   "description": "The bar is one of the finest in the land, lucky it is members only. Fine furniture is set all around the room. A small sign is hanging on the wall.",
+   "arrived_from_room_id": 3,
+   "arrived_direction": "north"
+  },
+  {
+   "id": 5,
+   "name": "The Clerics' Inner Sanctum",
+   "description": "This is the inner sanctum. A picture of the mighty Thor, is hanging on the wall, just above the altar which is set against the western wall. A well in the middle of the floor leads down into darkness. Vile smells waft from the depths.",
+   "arrived_from_room_id": 4,
+   "arrived_direction": "west"
+  }
+ ],
+ "exits": [
+  {
+   "room_id": 1,
+   "direction": "down",
+   "target_name": "The Temple Square",
+   "target_room_id": null,
+   "presumed_target_id": null,
+   "opaque": 0
+  },
+  {
+   "room_id": 1,
+   "direction": "east",
+   "target_name": "The Midgaard Donation Room",
+   "target_room_id": null,
+   "presumed_target_id": null,
+   "opaque": 0
+  },
+  {
+   "room_id": 1,
+   "direction": "north",
+   "target_name": "By The Temple Altar",
+   "target_room_id": null,
+   "presumed_target_id": null,
+   "opaque": 0
+  },
+  {
+   "room_id": 1,
+   "direction": "south",
+   "target_name": "The Temple Square",
+   "target_room_id": 2,
+   "presumed_target_id": null,
+   "opaque": 0
+  },
+  {
+   "room_id": 1,
+   "direction": "west",
+   "target_name": "The Reading Room",
+   "target_room_id": null,
+   "presumed_target_id": null,
+   "opaque": 0
+  },
+  {
+   "room_id": 2,
+   "direction": "east",
+   "target_name": "The Entrance Hall Of The Grunting Boar Inn",
+   "target_room_id": null,
+   "presumed_target_id": null,
+   "opaque": 0
+  },
+  {
+   "room_id": 2,
+   "direction": "north",
+   "target_name": "The Temple Of Midgaard",
+   "target_room_id": null,
+   "presumed_target_id": 1,
+   "opaque": 0
+  },
+  {
+   "room_id": 2,
+   "direction": "south",
+   "target_name": "Market Square",
+   "target_room_id": null,
+   "presumed_target_id": null,
+   "opaque": 0
+  },
+  {
+   "room_id": 2,
+   "direction": "west",
+   "target_name": "The Entrance To The Clerics' Guild",
+   "target_room_id": 3,
+   "presumed_target_id": null,
+   "opaque": 0
+  },
+  {
+   "room_id": 3,
+   "direction": "east",
+   "target_name": "The Temple Square",
+   "target_room_id": null,
+   "presumed_target_id": 2,
+   "opaque": 0
+  },
+  {
+   "room_id": 3,
+   "direction": "north",
+   "target_name": "The Bar Of Divination",
+   "target_room_id": 4,
+   "presumed_target_id": null,
+   "opaque": 0
+  },
+  {
+   "room_id": 4,
+   "direction": "south",
+   "target_name": "The Entrance To The Clerics' Guild",
+   "target_room_id": null,
+   "presumed_target_id": 3,
+   "opaque": 0
+  },
+  {
+   "room_id": 4,
+   "direction": "west",
+   "target_name": "The Clerics' Inner Sanctum",
+   "target_room_id": 5,
+   "presumed_target_id": null,
+   "opaque": 0
+  },
+  {
+   "room_id": 5,
+   "direction": "down",
+   "target_name": "Too dark to tell.",
+   "target_room_id": null,
+   "presumed_target_id": null,
+   "opaque": 0
+  },
+  {
+   "room_id": 5,
+   "direction": "east",
+   "target_name": "The Bar Of Divination",
+   "target_room_id": null,
+   "presumed_target_id": 4,
+   "opaque": 0
+  }
+ ],
+ "claims": [
+  {
+   "id": 1,
+   "ref": "C1",
+   "predicate": "extent_bounded",
+   "subject": "Midgaard",
+   "statement": "Midgaard is a bounded, walkable town whose full extent can be traced from The Temple Of Midgaard outward",
+   "priority": 0.9,
+   "confidence": 0.5,
+   "status": "open",
+   "decisive_when": "every exit frontier has been walked and loops back into already-visited rooms, or a room is reached with no onward exits leading to new rooms",
+   "args": "{\"ceiling\":30}"
+  },
+  {
+   "id": 2,
+   "ref": "C2",
+   "predicate": "composition",
+   "subject": "Midgaard",
+   "statement": "Midgaard's layout spans a describable set of functional quarters: religious, civic, commercial, residential, and river/waterfront",
+   "priority": 1.0,
+   "confidence": 0.58,
+   "status": "open",
+   "decisive_when": "each listed class has at least one observed room instance, or no new class appears across five consecutive rooms",
+   "args": "{\"classes\":[\"religious\",\"civic\",\"commercial\",\"residential\",\"waterfront\"],\"classes_observed\":[\"religious\",\"lodging\",\"commercial\"],\"last_class_at_rooms\":1}"
+  },
+  {
+   "id": 3,
+   "ref": "C3",
+   "predicate": "spans",
+   "subject": "feature:midgaard_river",
+   "statement": "A river runs through Midgaard with rooms present on both banks",
+   "priority": 0.8,
+   "confidence": 0.5,
+   "status": "open",
+   "decisive_when": "rooms tagged to the midgaard_river feature are classified on two distinct sides (north bank and south bank), or all frontier exits lead away from any water-adjacent room with no river encountered",
+   "args": "{\"feature\":\"midgaard_river\"}"
+  },
+  {
+   "id": 4,
+   "ref": "C4",
+   "predicate": "region_distinct",
+   "subject": "feature:temple_square_hub",
+   "statement": "Temple Square is a civic hub connecting the religious quarter, lodging, commerce, and a guild, forming the structural centre of Midgaard",
+   "priority": 0.6,
+   "confidence": 0.6,
+   "status": "confirmed",
+   "decisive_when": "All exits from Temple Square (#2) have been walked and each leads to a room of a distinct functional class, or one exit loops back into the square confirming it as a node rather than a corridor",
+   "args": "{\"feature\":\"temple_square_hub\",\"rooms\":[2,3],\"split_at\":false}"
+  },
+  {
+   "id": 5,
+   "ref": "C5",
+   "predicate": "exists",
+   "subject": "feature:market_square",
+   "statement": "Market Square lies south of Temple Square and forms Midgaard's commercial centre",
+   "priority": 0.75,
+   "confidence": 0.7,
+   "status": "open",
+   "decisive_when": "Room reached via south exit from #2 is classified as commercial, or the exit is a dead end with no commercial room found",
+   "args": "{\"class\":\"commercial\",\"classes_observed\":[]}"
+  }
+ ],
+ "frontier_hints": [
+  {
+   "room_id": 1,
+   "direction": "down",
+   "expected_class": "civic",
+   "note": "Temple Square — civic hub already partially observed"
+  },
+  {
+   "room_id": 1,
+   "direction": "east",
+   "expected_class": "civic",
+   "note": "The Midgaard Donation Room — possibly civic or religious administrative space"
+  },
+  {
+   "room_id": 1,
+   "direction": "north",
+   "expected_class": "religious",
+   "note": "By The Temple Altar — interior religious space"
+  },
+  {
+   "room_id": 1,
+   "direction": "south",
+   "expected_class": "civic",
+   "note": null
+  },
+  {
+   "room_id": 1,
+   "direction": "west",
+   "expected_class": "religious",
+   "note": "The Reading Room — likely temple library, religious"
+  },
+  {
+   "room_id": 2,
+   "direction": "east",
+   "expected_class": "lodging",
+   "note": "The Entrance Hall Of The Grunting Boar Inn — confirmed lodging class"
+  },
+  {
+   "room_id": 2,
+   "direction": "south",
+   "expected_class": "commercial",
+   "note": "Market Square — confirmed commercial hub, directly settles C5"
+  },
+  {
+   "room_id": 2,
+   "direction": "west",
+   "expected_class": "civic",
+   "note": null
+  },
+  {
+   "room_id": 3,
+   "direction": "north",
+   "expected_class": "commercial",
+   "note": "The Bar Of Divination is a hospitality/commercial room inside the guild complex"
+  },
+  {
+   "room_id": 4,
+   "direction": "south",
+   "expected_class": "civic",
+   "note": "Entrance to the Clerics' Guild — institutional/civic interior"
+  },
+  {
+   "room_id": 4,
+   "direction": "west",
+   "expected_class": "religious",
+   "note": "Clerics' Inner Sanctum — religious interior, deeper into guild"
+  },
+  {
+   "room_id": 5,
+   "direction": "down",
+   "expected_class": "religious",
+   "note": "Well leading into darkness beneath the sanctum — likely a temple undercroft or dungeon, not town-level layout; low priority for surface mapping"
+  },
+  {
+   "room_id": 5,
+   "direction": "east",
+   "expected_class": "commercial",
+   "note": "The Bar Of Divination sounds like a commercial/tavern establishment adjacent to the temple"
+  }
+ ]
+}

@@ -99,6 +99,10 @@ module Boukensha
         @pending_events = []
         @arrival        = nil     # { look:, direction:, from_room_id: } after a movement
         @current_room_id = nil    # nil ⇒ cold: nothing has told us where we are
+        # A movement whose reply could not be read, awaiting the `look` that
+        # says whether it moved us. Set in `after_tool`, which may not spend the
+        # round trip; cleared by `before_model`, which may.
+        @position_suspect = nil
         @live            = []     # the entity lines last actually observed here
         # Is the character sheet believed current? False at process start (a
         # fresh login, or a reconnect after one) and again whenever something
@@ -203,6 +207,13 @@ module Boukensha
       def before_model(context:)
         guard do
           during("position_refresh", "before_model") do
+            # A move whose reply `after_tool` could not read leaves the question
+            # of where we are standing open, and this is the first moment
+            # anything is allowed to spend a round trip answering it. Settling
+            # it BEFORE `arrival_look`/`cold_look` matters: both of those key
+            # off `@current_room_id`, and the whole point is that the value is
+            # currently in doubt.
+            settle_suspect_position
             look = arrival_look || cold_look
             resolve_position(look) if look
           end
@@ -234,12 +245,27 @@ module Boukensha
       # arrival, `cold_look` sees `@current_room_id` already set, and
       # `before_model` spends nothing beyond re-rendering the state block.
       #
-      # Returns { ok: true, room_id:, room_name: } on a genuine arrival,
-      # { ok: false, text: } on a rejected move (and records the failed
-      # frontier attempt, exactly as `movement_outcome` does for a single
-      # model-issued move), { ok: false, died: true, text: } when the move
-      # killed us, or nil if something in reconciliation itself raised — the
-      # walker should treat that the same as `ok: false`.
+      # Returns { ok: true, room_id:, room_name: } on an arrival this could
+      # identify — including one identified only by the follow-up `look` in
+      # `settle_unreadable_move`, which reports `resolved_by: :look` so a caller
+      # can tell the two apart in a log. Otherwise:
+      #
+      #   { ok: false, died: true }            the move killed us
+      #   { ok: false, kind: :refused }        a look proved we never left
+      #   { ok: false, kind: :position_lost }  a look could not say where we are
+      #
+      # or nil if reconciliation itself raised, which a walker should treat the
+      # same as `ok: false`.
+      # What the walker's recovery concluded, recorded here because the state block
+      # is rendered one iteration later by a body that was not present when the
+      # sweep ran. `ExecuteRouteTool` is the only thing that knows, and this is a
+      # single word rather than the whole result because the only distinction the
+      # line draws is "walking has been ruled out" against "walking has not been
+      # tried enough".
+      def note_recovery!(kind)
+        @recovery = kind&.to_s
+      end
+
       def reconcile_move!(direction:, text:)
         guard do
           @died = false
@@ -251,16 +277,10 @@ module Boukensha
           # model-issued `move` reaches the same conclusion one iteration later,
           # by way of `before_model` finding nothing it can trust; inside a
           # batched walk there is no such pause, so it has to be said.
-          next { ok: false, died: true, text: text } if @died
+          next { ok: false, died: true, kind: :died, text: text } if @died
 
           look = RoomParser.parse_look(text)
-
-          unless look.complete?
-            if @current_room_id
-              @store.record_frontier_attempt!(room_id: @current_room_id, direction: direction, outcome: "failed")
-            end
-            next { ok: false, text: text }
-          end
+          next settle_unreadable_move(direction, text) unless look.complete?
 
           from_id = @current_room_id
           @pending_arrival_edge = { from: from_id, direction: direction.to_s }
@@ -274,6 +294,187 @@ module Boukensha
       private
 
       # =========================== position =================================
+
+      # A movement command whose reply is not a room we can read. The old code
+      # concluded from this that the move had been REFUSED and left position
+      # untouched, and that inference is the defect behind session
+      # 20260730T201603Z-ff25f010: tbaMUD answers a move into an unlit room with
+      # "It is pitch black...", which is an arrival, so memory went on asserting
+      # a room the character had left and every route planned from it was
+      # correct about the wrong place for the rest of the session.
+      #
+      # The fix is not to learn that sentence. A parser that recognised it would
+      # still mis-read a blindness effect, a fog, a room-description bug, a
+      # reskinned server, or any of the output this project has not seen yet,
+      # and every one of those fails the same silent way. What was actually
+      # missing is a THIRD state: unreadable output means the position is
+      # unknown, which is different from unchanged, and the old return shape had
+      # nowhere to put it.
+      #
+      # So nothing here is decided from the text. One `look` is spent — a MUD
+      # round trip and no model call — and the answer decides:
+      #
+      #   a room, and not the one we were in   we moved; resolve normally
+      #   the room we were already in          the move really was refused
+      #   still unreadable                     we are somewhere unreadable
+      #
+      # The third case leans on the second: a moment ago we read the room we
+      # were standing in, so a `look` that now reads nothing is evidence we are
+      # no longer standing there. That is the same inference a person makes from
+      # the transcript, and it needs no vocabulary to make.
+      def settle_unreadable_move(direction, text)
+        expected = @current_room_id
+        # Nothing to verify and nothing to corrupt: `before_model` has not
+        # established a position yet, and its `cold_look` will do this properly.
+        return { ok: false, kind: :refused, text: text } unless expected
+
+        case classify_position(expected, direction, "reconcile_move")
+        when :lost
+          { ok: false, kind: :position_lost, from_room_id: expected,
+            direction: direction.to_s, text: text }
+        when :refused
+          { ok: false, kind: :refused, text: text }
+        else
+          { ok: true, room_id: @current_room_id, room_name: @store.room(@current_room_id)&.[](:name),
+            resolved_by: :look }
+        end
+      end
+
+      # `movement_outcome`'s half of the same question, deferred to the one body
+      # that may spend a round trip. It reaches the same three answers through
+      # the same code; only the caller differs, and with it what may be spent.
+      def settle_suspect_position
+        suspect = @position_suspect
+        @position_suspect = nil
+        return unless suspect && @current_room_id == suspect[:from]
+
+        # A readable movement result has landed since, and it answers the
+        # question at no cost: `arrival_look` is about to resolve position off a
+        # room we CAN read, so buying a `look` to learn the same thing would put
+        # a round trip in the common path for nothing.
+        #
+        # Its arrival EDGE is a different matter and is dropped. That edge is
+        # built from the room we believed we were in when the move was
+        # dispatched, and the pending suspicion is precisely the doubt about
+        # whether that belief was true. Keeping the position and discarding the
+        # edge concedes exactly what is in doubt and nothing more.
+        if @arrival
+          @arrival[:from_room_id] = nil
+          return
+        end
+
+        classify_position(suspect[:from], suspect[:direction], "before_model")
+      end
+
+      # The shared body of both paths: spend one `look` and say which of the
+      # three answers it gives — :refused, :moved, or :lost.
+      #
+      # The frontier attempt is recorded HERE and nowhere earlier, because which
+      # outcome to record is precisely the question being answered. Writing the
+      # guess up front is what put twenty-two false `failed` rows in the
+      # recorded session's ledger, every one of them telling the frontier
+      # planner to avoid an exit that works.
+      def classify_position(expected, direction, trigger)
+        look = during("position_verify", trigger) { RoomParser.parse_look(call(:look)) }
+
+        unless look.complete?
+          # We are not where we were, so the exit is walkable and the attempt
+          # succeeded. What is wrong with it is that it told us nothing, which
+          # is what `note_position_lost` records against the exit itself.
+          record_attempt(expected, direction, "succeeded")
+          note_position_lost(expected, direction)
+          return :lost
+        end
+
+        if same_room?(look, expected)
+          # The way is shut and we are where we thought. The failed attempt is
+          # the whole record: the edge is NOT demoted, because a closed door, a
+          # guard, an exhausted character and a genuinely wrong edge all produce
+          # this and only the last would deserve it.
+          record_attempt(expected, direction, "failed")
+          return :refused
+        end
+
+        # We moved after all. Resolve it exactly as a readable arrival would
+        # have been, arrival edge included, so the map gains the step.
+        record_attempt(expected, direction, "succeeded")
+        @pending_arrival_edge = direction ? { from: expected, direction: direction.to_s } : nil
+        @look_is_fresh = true
+        resolve_position(look)
+        log_conflict("position_desync", expected: expected, found: @current_room_id, direction: direction)
+        :moved
+      end
+
+      # A `flee` or a `track` names no walkable direction, so there is no exit
+      # for the attempt to be about — the existing single-move path draws the
+      # same line for the same reason.
+      def record_attempt(room_id, direction, outcome)
+        return unless room_id && direction
+
+        @store.record_frontier_attempt!(room_id: room_id, direction: direction, outcome: outcome)
+      end
+
+      # Whether a fresh look is the room we believe we are standing in. The weak
+      # fingerprint is what `resolve_position` itself identifies rooms by, so
+      # this asks the same question the same way rather than comparing names and
+      # drifting from it.
+      #
+      # Two rooms in a maze can share a weak fingerprint, and for those this
+      # answers "same room" when we have in fact moved one step — the old
+      # behaviour, in the one case the old behaviour was defensible. It costs a
+      # stopped walk and no corrupted map, because the branch above deliberately
+      # writes nothing.
+      def same_room?(look, expected_room_id)
+        room = @store.room(expected_room_id) or return false
+
+        room[:weak_fingerprint] == Memory::Fingerprint.weak(
+          name: look.name, description: look.description, exit_dirs: look.exit_dirs
+        )
+      end
+
+      # We walked somewhere and neither the movement reply nor a follow-up look
+      # can name it. Position is dropped rather than guessed, which is what puts
+      # "position unknown" in the state block and hands the question to the one
+      # component equipped to reason about it. The exit is recorded as opaque so
+      # the frontier calculation stops offering a move whose outcome is already
+      # known to be no information.
+      # BOTH copies of the position have to go. The ivar is what `cold_look`
+      # keys off, so dropping it is what buys a real `look` next iteration; the
+      # stored column is what `move_to`, `plan_route` and the survey plan from,
+      # so leaving that behind would reproduce the whole defect one layer down —
+      # the walker would know it was lost while the planner went on routing out
+      # of the room it used to be in.
+      def note_position_lost(from_id, direction)
+        @store.note_opaque_exit!(from_id, direction) if direction
+        @store.update_player!(prev_room_id: from_id, last_direction: direction&.to_s)
+        @store.clear_player_room!
+        @current_room_id = nil
+        @live = []
+        @first_visit = false
+        # What the state block says instead of "no room established yet" while the
+        # position is missing. A cold start has no `prev_room_id`, so the absence of
+        # this is what tells the two apart (blind_step_recovery.md §5.6).
+        @lost_from = { room_id: from_id, direction: direction&.to_s }
+        log_conflict("position_lost", from: from_id, direction: direction&.to_s)
+      end
+
+      # The lost-position block for `StateBlock#render`, or nil when the position
+      # was simply never established. `prev_room_id` outlives the room being
+      # cleared, so a process that lost its position several iterations ago still
+      # says which room it walked out of and by which exit.
+      #
+      # `recovery` is whatever the last walk concluded about getting out. `stuck`
+      # is the one value that changes the advice, because it is the one case where
+      # more walking has been ruled out rather than merely not tried.
+      def lost_position
+        from = @lost_from || begin
+          player = @store.player
+          player[:prev_room_id] && { room_id: player[:prev_room_id], direction: player[:last_direction] }
+        end
+        return nil unless from
+
+        { room: @store.room(from[:room_id]), direction: from[:direction], recovery: @recovery }
+      end
 
       # The Look we already have, from a movement result after_tool parsed for
       # free. Consumed once: a second iteration with no new movement must not
@@ -337,6 +538,11 @@ module Boukensha
 
         link_arrival(from_id, direction, room)
         @current_room_id = room[:id]
+        # Whatever doubt an earlier unreadable movement left, this answers it:
+        # position has just been established from a room we can read. Any later
+        # reading supersedes the question, so the pending `look` is cancelled
+        # rather than spent confirming what we now know.
+        @position_suspect = nil
         @ambiguity       = ambiguity
         @live            = entities
         @store.update_player!(current_room_id: room[:id], prev_room_id: from_id,
@@ -588,6 +794,10 @@ module Boukensha
         # The Void fingerprints like any other room and must never be recorded as
         # an explored location — it looks like a perfectly ordinary room to every
         # part of this design — so position is dropped rather than re-derived.
+        # The stored column goes with it for the reason `note_position_lost`
+        # gives: the navigation subsystem plans from the store, not from here,
+        # and a corpse's last room is not where the character is standing.
+        @store.clear_player_room!
         @current_room_id = nil
         @live = []
       end
@@ -650,12 +860,23 @@ module Boukensha
         direction = args && (args["direction"] || args[:direction])
 
         unless look.complete?
-          # plan_route.md §6.3's missing memory: a rejected `move` ("Alas, you
-          # cannot go that way.") is the frontier-planner's evidence that this
-          # exit is currently blocked. Only `move` carries a fixed, walkable
-          # direction — `flee`/`track` do not name one the same way.
-          if local == "move" && direction && @current_room_id
-            @store.record_frontier_attempt!(room_id: @current_room_id, direction: direction, outcome: "failed")
+          # The same third state `settle_unreadable_move` exists for, reached on
+          # the path that must NOT spend a round trip: `after_tool` is
+          # documented above as cheap, synchronous and free of MUD I/O, and a
+          # `look` here would put one in the hot path of every tool call.
+          #
+          # So the doubt is recorded rather than resolved, and `before_model` —
+          # the one body allowed to block — settles it a moment later, INCLUDING
+          # the frontier attempt. plan_route.md §6.3 wants a rejected `move`
+          # recorded as the planner's evidence that an exit is blocked, and it
+          # is; what changed is that the row is written once the `look` has said
+          # whether this exit refused us or moved us, rather than assuming the
+          # first. A `flee` or a `track` with no walkable direction still
+          # suspends position — those move the character too, which is precisely
+          # why it cannot be assumed intact after output we could not read.
+          if @current_room_id
+            @position_suspect = { from: @current_room_id,
+                                  direction: (direction&.to_s if local == "move") }
           end
           return nil
         end
@@ -685,7 +906,8 @@ module Boukensha
           events: events,
           first_visit: @first_visit,
           candidates: (@first_visit && room && room[:look_candidates] && parse_json(room[:look_candidates])),
-          ambiguity: @ambiguity
+          ambiguity: @ambiguity,
+          lost: room ? nil : lost_position
         )
         # The prose and the look_candidates are sent ONCE, on arrival. Every
         # later iteration in the same room gets the name — the model has already

@@ -52,7 +52,8 @@ module Boukensha
             entities_by_room: store.entities_by_room,
             frontier_attempt_counts: store.frontier_attempt_counts,
             regions_by_room: store.room_regions.transform_values { |m| m[:region_id] },
-            scope_region_ids: scope_ids
+            scope_region_ids: scope_ids,
+            frontier_hints: store.frontier_hints
           )
           [plan, region, nil]
         end
@@ -71,12 +72,12 @@ module Boukensha
           scoped = scope == "region" ? region : nil
           body =
             case plan.status
-            when "position_unknown" then render_position_unknown(plan)
+            when "position_unknown" then render_position_unknown(plan, store)
             when "arrived"          then render_arrived(plan, store)
             when "known"            then render_known(plan, store)
             when "explore", "unknown" then render_frontier(plan, store, scoped)
-            when "unreachable"      then render_unreachable(plan, store)
-            when "exhausted"        then render_exhausted(plan)
+            when "unreachable"      then render_unreachable(plan, store, scoped)
+            when "exhausted"        then render_exhausted(plan, scoped)
             when "region_exhausted" then render_region_exhausted(plan, region, widen_with)
             else "[route] #{plan.query} — #{plan.status}"
             end
@@ -93,10 +94,29 @@ module Boukensha
           lines.join("\n")
         end
 
-        def render_position_unknown(plan)
+        # The remedy names a call the reader can actually make. It used to say
+        # "take one safe action (e.g. move) first", and `move` is in the navigation
+        # slice rather than on the player's surface, so the advice named a tool
+        # nobody reading it had (blind_step_recovery.md §5.6).
+        #
+        # `store` is optional because `plan_route` has callers that pass none, and a
+        # remedy is worth printing either way; with a store it can also say what the
+        # agent walked out of, which is the only thing a lost position leaves behind.
+        def render_position_unknown(plan, store = nil)
           lines = ["[route] #{plan.query} — position unknown",
-                   "reason: your location has not been established yet; take one safe action (e.g. move) first"]
+                   "reason: #{position_reason(store)}",
+                   "walking is what re-establishes it: ask for a bare direction " \
+                   "(#{RoomParser::DIRECTIONS.values.first(4).join(', ')}, …) rather than a place"]
           lines.join("\n")
+        end
+
+        def position_reason(store)
+          player = store && store.player
+          room   = player && player[:prev_room_id] && store.room(player[:prev_room_id])
+          return "your location has not been established yet" unless room
+
+          "you walked #{player[:last_direction] || 'out'} out of #{room[:name]} (##{room[:id]}) " \
+            "into somewhere that could not be identified"
         end
 
         def render_arrived(plan, store)
@@ -200,17 +220,30 @@ module Boukensha
            "        nothing about what these names mean — you do"].join("\n")
         end
 
-        def render_unreachable(plan, store)
+        # A refusal that names somewhere to go. The three lines below state a fact
+        # about a room the agent cannot reach, and on their own they were repeated
+        # nine times in one session with nothing in them to act on
+        # (unreachable_destinations.md §4). The listing is the difference between
+        # a dead end and a choice: against that session the ninth answer would
+        # have carried four unexplored exits at distances zero to two, one of them
+        # the destination being asked for.
+        def render_unreachable(plan, store, region = nil)
           room = store.room(plan.destination_room)
           lines = ["[route] #{plan.query} — unreachable", "to: #{room_label(room)}",
                    "reason: destination is remembered, but no known path connects room ##{plan.start_room} to room ##{plan.destination_room}"]
           lines << alternatives_line(plan) if plan.alternatives.any?
+          lines.concat(unexplored_lines(plan, region))
           lines.join("\n")
         end
 
-        def render_exhausted(plan)
-          ["[route] #{plan.query} — exhausted",
-           "reason: no reachable exploration frontier from your current position"].join("\n")
+        # `exhausted` means the reachable frontier set is empty, so the listing is
+        # empty too and this prints exactly what it always did. It reads the same
+        # field anyway rather than asserting that emptiness a second time here.
+        def render_exhausted(plan, region = nil)
+          lines = ["[route] #{plan.query} — exhausted",
+                   "reason: no reachable exploration frontier from your current position"]
+          lines.concat(unexplored_lines(plan, region))
+          lines.join("\n")
         end
 
         # A refusal that carries its own remedy. §2 is explicit that this is a

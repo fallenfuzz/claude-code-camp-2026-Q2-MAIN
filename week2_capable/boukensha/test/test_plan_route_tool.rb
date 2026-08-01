@@ -136,4 +136,53 @@ class TestPlanRouteTool < Minitest::Test
     result = T.call(store: @store, destination: "hermit")
     assert_match(/1 move — Main Street  \[east\]/, result)
   end
+
+  # ---------- refusals that name somewhere to go (fix_surveying.md §3.3) ----
+  #
+  # `unreachable` used to print three lines about a room the agent could not get
+  # to and nothing it could do instead, so the ninth copy of it was identical to
+  # the first. The planner had the distances and the whole frontier set in hand
+  # when it decided to refuse.
+
+  def test_unreachable_prints_the_unexplored_view
+    here    = make_room("On The Concourse")
+    island  = make_room("The Island")
+    @store.record_exits!(here, targets: { "west" => "The South Gate", "east" => "The Promenade" })
+    @store.update_player!(current_room_id: here)
+
+    result = T.call(store: @store, destination: "island")
+
+    assert_match(/\[route\] island — unreachable/, result)
+    assert_match(/to: The Island \(##{island}\)/, result)
+    assert_match(/unexplored, in .+ — all 2:/, result)
+    assert_includes result, "west → The South Gate"
+  end
+
+  # The listing is a walk the agent can actually make, so it carries the path to
+  # any room that is not the one it is standing in.
+  def test_unreachable_lists_frontiers_further_off_with_the_walk_to_them
+    a, b   = chain("Market Square", "Main Street")
+    island = make_room("The Island")
+    @store.record_exits!(b, targets: { "north" => "The Bakery" })
+    @store.update_player!(current_room_id: a)
+
+    result = T.call(store: @store, destination: "island")
+
+    assert_match(/\[route\] island — unreachable/, result)
+    assert_match(/1 move — Main Street  \[east\]/, result)
+    refute_nil island
+  end
+
+  # `exhausted` is the answer that means the reachable set IS empty, so there is
+  # nothing extra to print and nothing is printed.
+  def test_exhausted_prints_no_listing_because_there_is_none
+    a, b = chain("Market Square", "Main Street")
+    @store.link_exit!(b, "west", a)
+    @store.update_player!(current_room_id: a)
+
+    result = T.call(store: @store, destination: "hermit")
+
+    assert_match(/\[route\] hermit — exhausted/, result)
+    refute_match(/unexplored/, result)
+  end
 end

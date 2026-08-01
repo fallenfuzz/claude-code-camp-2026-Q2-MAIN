@@ -1,0 +1,237 @@
+{
+  "schema": 2,
+  "run_id": "20260801T003042Z-7befeda9",
+  "kind": "scenario",
+  "name": "explore_midgaard",
+  "started_at": "2026-08-01T00:30:42.529Z",
+  "ended_at": "2026-08-01T00:39:39.884Z",
+  "environment": {
+    "profile": "Derrano",
+    "provider": "anthropic",
+    "model": "claude-haiku-4-5",
+    "boukensha_version": "0.13.0",
+    "git_sha": "9cf5ade",
+    "settings_digest": "sha256:b229eeeeb555f24f82192554d6b09a8b6f1d2ad5024ef939aefe37696f267080",
+    "judge": {
+      "provider": "anthropic",
+      "model": "claude-sonnet-4-6"
+    }
+  },
+  "summary": {
+    "cases": 1,
+    "passed": 1,
+    "failed": 0,
+    "errored": 0,
+    "pass_rate": 1.0,
+    "cost_usd": {
+      "agent": 0.869654,
+      "judge": 0,
+      "total": 0.869654
+    },
+    "median": {
+      "model_tool_calls": 19,
+      "automatic_tool_calls": 352,
+      "iterations": 18,
+      "duration_ms": 464213,
+      "cost_usd": 0.869654
+    },
+    "p90": {
+      "model_tool_calls": 19,
+      "automatic_tool_calls": 352,
+      "iterations": 18,
+      "duration_ms": 464213,
+      "cost_usd": 0.869654
+    },
+    "failure_modes": {}
+  },
+  "cases": [
+    {
+      "index": 1,
+      "scenario": "explore_midgaard",
+      "session_id": "20260801T003111Z-33a7d956",
+      "session_name": "explore_midgaard",
+      "profile": "Derrano",
+      "resolved_state": {
+        "description": "Level 10 cleric, banked, armed, standing in the Temple.",
+        "requires_class": "cleric",
+        "location": 3001,
+        "level": 10,
+        "money": {
+          "gold": 0,
+          "bank": 10000
+        },
+        "stats": {
+          "align": 0
+        },
+        "skills": {
+          "armor": 75,
+          "cure light": 75
+        },
+        "inventory": [
+          {
+            "vnum": 3001,
+            "keyword": "bottle",
+            "quantity": 2
+          }
+        ],
+        "equipment": [
+          {
+            "vnum": 3023,
+            "keyword": "club",
+            "quantity": 1,
+            "wear": "wield"
+          },
+          {
+            "vnum": 3043,
+            "keyword": "jacket",
+            "quantity": 1,
+            "wear": "wear"
+          }
+        ]
+      },
+      "base_initial_state": "cleric",
+      "map_memory": {
+        "mode": "none",
+        "archived_to": "/home/andrew/Sites/omenking/claude-code-camp-2026-Q2/.boukensha/profiles/Derrano/knowledge.archive/20260801T003042Z.sqlite3",
+        "rooms_at_start": 0,
+        "room_exits_at_start": 0,
+        "entities_at_start": 0,
+        "regions_at_start": 0
+      },
+      "arm": "default",
+      "settings": null,
+      "settings_digest": "sha256:b229eeeeb555f24f82192554d6b09a8b6f1d2ad5024ef939aefe37696f267080",
+      "stage": null,
+      "seed_log": "/home/andrew/Sites/omenking/claude-code-camp-2026-Q2/.boukensha/tests/reports/.work/20260801T003042Z-7befeda9/case-1-seed.log",
+      "facts": {
+        "model_tool_calls": 19,
+        "automatic_tool_calls": 352,
+        "has_provenance": true,
+        "iterations": 18,
+        "turns": 0,
+        "end_reason": "max_tokens",
+        "duration_ms": 464213,
+        "input_tokens": 367562,
+        "output_tokens": 29178,
+        "cost_usd": 0.869654,
+        "final_room": "Main Street",
+        "rooms_known": 50,
+        "rooms_known_delta": 50,
+        "regions_known": 17,
+        "regions_delta": 17,
+        "region_labels": [
+          "Emerald Avenue",
+          "Emerald Avenue West",
+          "Midgaard",
+          "Park Road",
+          "Poor Alley",
+          "The Clerics' Guild",
+          "The Concourse",
+          "The Eastern Promenade",
+          "The Far Concourse",
+          "The Grunting Boar Inn",
+          "The Guild Of Thieves",
+          "The Outskirts",
+          "The Promenade",
+          "The Road Crossing",
+          "The West Gate",
+          "The Western Reaches",
+          "Wall Road"
+        ],
+        "region_splits": [],
+        "journal_ops": {
+          "room.create": 50,
+          "region.create": 18,
+          "feature.tag": 22,
+          "claim.open": 9,
+          "claim.evidence": 31,
+          "move_to.ledger_revised": 15,
+          "frontier_attempt.succeeded": 119,
+          "claim.revise": 54,
+          "survey.claim_parked": 2,
+          "room.visit": 70,
+          "claim.settle": 9,
+          "survey.claim_settled": 7,
+          "survey.claim_unparked": 2,
+          "move_to.answered": 18,
+          "region.update": 21,
+          "region_boundary.declare": 18,
+          "move_to.region_split": 18,
+          "survey.claim_budget_spent": 2,
+          "move_to.decision": 40,
+          "region.merge": 1,
+          "move_to.region_named": 1,
+          "move_to.region_split_declined": 3,
+          "frontier_attempt.failed": 4,
+          "move_to.egress_refused": 2
+        },
+        "no_progress_calls": 3,
+        "max_destination_repeats": 1,
+        "rooms_outside_scope": 0,
+        "db_reads": 4759,
+        "db_writes": 3860,
+        "db_ms": 428,
+        "journal_lines": 1375,
+        "inference_ms": 342,
+        "mud_ms": 451388,
+        "mud_calls": 371
+      },
+      "errors": [],
+      "expectations": [
+        {
+          "kind": "tool_called",
+          "rule": "move_to",
+          "ok": true,
+          "detail": "called at call_419366167a2d"
+        },
+        {
+          "kind": "max_no_progress_calls",
+          "rule": "3",
+          "ok": true,
+          "detail": "3"
+        },
+        {
+          "kind": "max_destination_repeats",
+          "rule": "2",
+          "ok": true,
+          "detail": "1"
+        },
+        {
+          "kind": "max_rooms_outside_scope",
+          "rule": "0",
+          "ok": true,
+          "detail": "0"
+        }
+      ],
+      "judge": {
+        "verdict": "pass",
+        "confidence": 0.88,
+        "reasoning": "The agent used move_to across many distinct destinations — Wall Road, the Concourse, Park Road, the Promenade, Market Square, the Dark Alley, the Thieves' Guild, Main Street — spanning multiple quarters on both sides of the town, and consistently labeled regions with confirmed Midgaard place names. It never triggered an exit beyond the town's gates or walls, and coverage was demonstrably spread across religious, civic, commercial, residential, and river-bank areas.",
+        "desired": [
+          {
+            "behaviour": "Use move_to repeatedly with different destinations, spreading the walk across the frontier rather than walking one corridor to its end",
+            "met": true,
+            "evidence": "call_999d9d5a37de, call_484e26444c68, call_900f2da9097d, call_02ce35bc89f9, call_ba8b5a345210, call_58606df680b7, call_534410b2195a, call_bdad882fc942, call_b53698daa2cf, call_e1a43c62f0a7, call_1d0686f4d0e8, call_dfe00f18a249, call_87c48a252a17"
+          },
+          {
+            "behaviour": "Name the region being walked — starting from ⟨from The Temple Of Midgaard⟩ and producing confirmed labels",
+            "met": true,
+            "evidence": "call_419366167a2d — first survey starts from The Temple Of Midgaard; subsequent calls produce confirmed labels like Wall Road, The Concourse, Market Square, etc."
+          }
+        ],
+        "undesired": [
+          {
+            "behaviour": "Leave Midgaard for the countryside or wilderness",
+            "occurred": false
+          },
+          {
+            "behaviour": "Spend the whole budget on one quarter instead of achieving coverage",
+            "occurred": false
+          }
+        ],
+        "session_id": "20260801T003111Z-33a7d956"
+      },
+      "status": "pass"
+    }
+  ]
+}

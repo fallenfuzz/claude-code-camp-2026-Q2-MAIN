@@ -26,6 +26,14 @@ class TestExitNameResolution < Minitest::Test
                        weak_fingerprint: M::Fingerprint.weak(name: name, description: description, exit_dirs: []))
   end
 
+  # A room the agent walked into, with the arrival edge a real walk would have
+  # stamped on it at discovery.
+  def walked_into(name, from:, dir:, description: "A place.")
+    @store.create_room(name: name, description: description, arrived_from: from, arrived_direction: dir,
+                       weak_fingerprint: M::Fingerprint.weak(name: name, description: "#{description} #{from}#{dir}",
+                                                             exit_dirs: []))
+  end
+
   # ---------- the rule, as a pure function -------------------------------
 
   def test_a_uniquely_named_target_resolves
@@ -81,6 +89,79 @@ class TestExitNameResolution < Minitest::Test
     refute_includes resolved.keys, [2, "north"], "a walked traversal is not up for revision"
   end
 
+  # ---------- the arrival edge (fix_surveying.md §3.4) ---------------------
+  #
+  # The rule that runs ahead of both ambiguity guards, and the one that took
+  # reachability from the recorded concourse from three rooms to seventeen. It
+  # needs the arrival edge AND the name to agree, so neither half can carry it
+  # alone.
+
+  def arrived(id, name, from:, dir:)
+    { id: id, name: name, arrived_from_room_id: from, arrived_direction: dir }
+  end
+
+  # Three rooms called "Wall Road" poison the name globally, and the walk down
+  # the western wall earned one southward edge per move. The name identifies none
+  # of them; the name plus "the agent came in from #12 heading south one move
+  # ago" identifies exactly one.
+  def test_the_arrival_edge_resolves_a_globally_ambiguous_name
+    rooms = [arrived(12, "Wall Road", from: 11, dir: "south"),
+             arrived(13, "Wall Road", from: 12, dir: "south"),
+             arrived(14, "Wall Road", from: 13, dir: "south")]
+    exits = [{ room_id: 13, direction: "north", target_name: "Wall Road", target_room_id: nil }]
+
+    assert_equal 12, ER.resolve(rooms: rooms, exits: exits, ambiguous: ["wall road"])[[13, "north"]]
+  end
+
+  # Room #13 of the recorded map has north AND south both named "Wall Road",
+  # which is the within-room collision guard — and the arrival says which of the
+  # two is the way back. The other is already earned.
+  def test_the_arrival_edge_resolves_a_within_room_name_collision
+    rooms = [arrived(12, "Wall Road", from: 11, dir: "south"),
+             arrived(13, "Wall Road", from: 12, dir: "south"),
+             arrived(14, "Wall Road", from: 13, dir: "south")]
+    exits = [{ room_id: 13, direction: "north", target_name: "Wall Road", target_room_id: nil },
+             { room_id: 13, direction: "south", target_name: "Wall Road", target_room_id: nil }]
+
+    resolved = ER.resolve(rooms: rooms, exits: exits)
+
+    assert_equal 12, resolved[[13, "north"]]
+    assert_nil resolved[[13, "south"]], "the collision guard still holds for the exit the arrival says nothing about"
+  end
+
+  # The name half. An exit facing back the way the agent came but labelled with
+  # somewhere else is not the way back.
+  def test_a_reverse_exit_naming_another_room_is_refused
+    rooms = [arrived(1, "Market Square", from: nil, dir: nil),
+             arrived(2, "Main Street", from: 1, dir: "west")]
+    exits = [{ room_id: 2, direction: "east", target_name: "The Bakery", target_room_id: nil }]
+
+    assert_nil ER.resolve(rooms: rooms, exits: exits)[[2, "east"]]
+  end
+
+  # The direction half, and the week 2 decision it protects: a passage is not
+  # assumed to run both ways just because a room on the other side shares the
+  # name. Room 3 is called "Market Square" too, so the name matches — and the
+  # arrival came from the west, so the SOUTH exit is not the way back.
+  def test_an_exit_that_is_not_the_reverse_of_the_arrival_is_refused
+    rooms = [arrived(1, "Market Square", from: nil, dir: nil),
+             arrived(2, "Main Street", from: 1, dir: "west"),
+             arrived(3, "Market Square", from: 2, dir: "south")]
+    exits = [{ room_id: 2, direction: "south", target_name: "Market Square", target_room_id: nil }]
+
+    assert_nil ER.resolve(rooms: rooms, exits: exits, ambiguous: ["market square"])[[2, "south"]],
+               "a shared name plus the wrong direction is the guess the guards exist to refuse"
+  end
+
+  # A room nobody walked into — a cold start's first room — has no arrival edge,
+  # so there is no local evidence and only the global rule applies.
+  def test_a_room_with_no_arrival_edge_falls_back_to_the_guards
+    rooms = [{ id: 1, name: "Wall Road" }, { id: 2, name: "Wall Road" }]
+    exits = [{ room_id: 1, direction: "north", target_name: "Wall Road", target_room_id: nil }]
+
+    assert_nil ER.resolve(rooms: rooms, exits: exits)[[1, "north"]]
+  end
+
   # ---------- through the store -------------------------------------------
 
   def test_recording_exits_resolves_names_against_rooms_recorded_earlier
@@ -129,6 +210,77 @@ class TestExitNameResolution < Minitest::Test
 
     assert_nil @store.exit_at(square, "north")[:presumed_target_id],
                "a guess that walking disproved must not be made a second time"
+  end
+
+  # A one-way passage refutes the arrival presumption the first time it is
+  # walked, and that costs one move and one edge. It must not also cost the NAME:
+  # the presumption was made from the arrival, so what it got wrong is this
+  # passage, and poisoning "Wall Road" would take every other exit that resolves
+  # through the arrival edge down with it.
+  def test_refuting_an_arrival_link_clears_the_edge_without_poisoning_the_name
+    street = room("Main Street")
+    here   = walked_into("Wall Road", from: street, dir: "south")
+    @store.record_exits!(here, targets: { "north" => "Main Street" })
+    assert_equal street, @store.exit_at(here, "north")[:presumed_target_id]
+
+    @store.refute_presumed_target!(here, "north", target_name: "Main Street")
+
+    assert_nil @store.exit_at(here, "north")[:presumed_target_id]
+    assert_empty @store.ambiguous_exit_names,
+                 "the arrival was wrong about the passage, not about the name"
+  end
+
+  # The same store, the same name, an exit that is not the way back: the
+  # presumption there could only have come from the name, and refuting it says
+  # the name is not an identifier.
+  def test_the_basis_is_the_direction_not_the_name
+    street = room("Main Street")
+    here   = walked_into("Wall Road", from: street, dir: "south")
+
+    @store.refute_presumed_target!(here, "east", target_name: "Main Street")
+
+    assert_includes @store.ambiguous_exit_names, "main street"
+  end
+
+  # And the name-based presumption keeps poisoning, which is what makes a wrong
+  # guess cost one move rather than every future route.
+  def test_refuting_a_name_link_still_poisons_the_name
+    room("The Temple Of Midgaard")
+    square = room("The Temple Square")
+    @store.record_exits!(square, targets: { "north" => "The Temple Of Midgaard" })
+
+    @store.refute_presumed_target!(square, "north", target_name: "The Temple Of Midgaard")
+
+    assert_includes @store.ambiguous_exit_names, "the temple of midgaard"
+  end
+
+  # An exit walked for no information has established retrospectively exactly what
+  # the surveyor is asked to predict about an unwalked one, so the finding is
+  # recorded in the same place and the same vocabulary — which is also the only
+  # assessment travel mode ever has, since it has no surveyor to ask
+  # (blind_step_recovery.md §5.1).
+  def test_marking_an_exit_opaque_records_it_as_unassessable
+    here = room("The Clerics' Inner Sanctum")
+    @store.record_exits!(here, targets: { "down" => "Too dark to tell." })
+
+    @store.note_opaque_exit!(here, "down")
+
+    assert_equal "unassessable", @store.frontier_hints.dig([here, "down"], :assessability)
+    assert_nil @store.frontier_hints.dig([here, "down"], :hazard),
+               "being unreadable says nothing about being dangerous"
+  end
+
+  # A class guess made three sessions ago survives it, because the columns are
+  # written independently.
+  def test_marking_an_exit_opaque_keeps_the_class_the_surveyor_guessed
+    here = room("The Clerics' Inner Sanctum")
+    @store.record_frontier_hint!(room_id: here, direction: "down", expected_class: "religious")
+
+    @store.note_opaque_exit!(here, "down")
+
+    hint = @store.frontier_hints[[here, "down"]]
+    assert_equal "religious", hint[:expected_class]
+    assert_equal "unassessable", hint[:assessability]
   end
 
   # ---------- planning over presumed edges ---------------------------------

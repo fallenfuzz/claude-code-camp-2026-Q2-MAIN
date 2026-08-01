@@ -147,6 +147,48 @@ class TestTestingSessionFacts < Minitest::Test
     assert_equal "not measured", result.detail
   end
 
+  # ---------- movement that bought nothing --------------------------------
+  #
+  # The recorded shape of 20260731T140528Z-34c846bf in miniature: three calls
+  # for the same place, none of which moved, and one that walked.
+  def test_calls_that_walked_nothing_are_counted_off_the_journal
+    facts = load_with_journal([
+      answered(destination: "The South Gate", status: "unreachable", rooms_walked: 0),
+      answered(destination: "The South Gate", status: "unreachable", rooms_walked: 0),
+      answered(destination: "The South Gate", status: "unreachable", rooms_walked: 0),
+      answered(destination: "the bakery", status: "arrived", rooms_walked: 4)
+    ])
+
+    assert_equal 3, facts.no_progress_calls
+    assert_equal 3, facts.max_destination_repeats
+  end
+
+  # `arrived` without moving is a call that bought nothing, whatever its status
+  # says — the status is the answer's word for itself and `rooms_walked` is the
+  # coverage.
+  def test_arriving_without_moving_counts_as_no_progress
+    facts = load_with_journal([answered(destination: "here", status: "arrived", rooms_walked: 0)])
+
+    assert_equal 1, facts.no_progress_calls
+  end
+
+  def test_a_session_with_no_journal_reports_zero_rather_than_failing
+    assert_equal 0, load(session_log).no_progress_calls
+    assert_equal 0, load(session_log).max_destination_repeats
+  end
+
+  def test_the_two_movement_ceilings_are_expectations
+    facts = load_with_journal([
+      answered(destination: "The South Gate", status: "unreachable", rooms_walked: 0),
+      answered(destination: "The South Gate", status: "unreachable", rooms_walked: 0),
+      answered(destination: "the bakery", status: "arrived", rooms_walked: 4)
+    ])
+
+    assert EX.passed?(EX.evaluate({ "max_no_progress_calls" => 2, "max_destination_repeats" => 2 }, facts))
+    refute EX.passed?(EX.evaluate({ "max_no_progress_calls" => 1 }, facts))
+    refute EX.passed?(EX.evaluate({ "max_destination_repeats" => 1 }, facts))
+  end
+
   def test_an_unknown_expectation_key_is_a_load_error_not_a_silent_no_op
     error = assert_raises(EX::Error) { EX.evaluate({ "tool_calledd" => ["x"] }, load(session_log)) }
 
@@ -180,6 +222,19 @@ class TestTestingSessionFacts < Minitest::Test
   end
 
   def load(events) = SF.load(write_log(events))
+
+  def answered(**fields) = { kind: "event", stream: "move_to", op: "answered" }.merge(fields)
+
+  # The journal is a directory of daily files beside the session log, joined to
+  # the session by `session_id` exactly as the harness joins them.
+  def load_with_journal(journal_events, id: "20260728T120000Z-fef86633")
+    path = write_log(session_log, id: id)
+    dir  = File.join(@dir, "journal")
+    FileUtils.mkdir_p(dir)
+    File.write(File.join(dir, "20260728.jsonl"),
+               journal_events.map { |e| JSON.generate(e.merge(session_id: id)) }.join("\n"))
+    SF.load(path, journal_dir: dir)
+  end
 
   def write_log(events, id: "20260728T120000Z-fef86633")
     path = File.join(@dir, "#{id}.jsonl")

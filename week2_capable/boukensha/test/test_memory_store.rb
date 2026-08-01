@@ -268,9 +268,9 @@ class TestMemoryStore < Minitest::Test
     db.execute("INSERT INTO room_exits (room_id, direction, last_seen_at) VALUES (?, 'north', 't')", [id])
     old.update_player!(current_room_id: id, hp: 19, level: 10)
 
-    assert_equal 7, M::Schema::LATEST_VERSION, "migrations are appended, never edited into V1"
-    assert_equal 7, M::Schema.migrate!(db)
-    assert_equal 7, db.get_first_value("PRAGMA user_version")
+    assert_equal 10, M::Schema::LATEST_VERSION, "migrations are appended, never edited into V1"
+    assert_equal 10, M::Schema.migrate!(db)
+    assert_equal 10, db.get_first_value("PRAGMA user_version")
 
     # Every V1 row survived.
     assert_equal "Market Square", old.room(id)[:name]
@@ -315,7 +315,7 @@ class TestMemoryStore < Minitest::Test
     db.execute("INSERT INTO player_state (id, current_room_id, hp, title, char_class, race, updated_at) " \
                "VALUES (1, 7, 19, 'Old Title', 'thief', 'elf', 't')")
 
-    assert_equal 7, M::Schema.migrate!(db)
+    assert_equal 10, M::Schema.migrate!(db)
     row = db.execute("SELECT * FROM player_state WHERE id = 1").first
     assert_equal [7, 19, "Old Title", "thief"], row.values_at("current_room_id", "hp", "title", "player_class")
     assert_equal "Old Room", db.get_first_value("SELECT name FROM rooms WHERE id = 7")
